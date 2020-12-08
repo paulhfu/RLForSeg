@@ -1,8 +1,10 @@
 # @package _group_
 #This parameters can be changed during runtime by editing runtime_config.yaml in target_dir
-eps: null  # epsilon for manual config during runtime
+eps: null  # epsilon for manual conf during runtime
 safe_model: false  # the model is saved
 # adjust learning rates
 actor_lr: null
 critic_lr: null
 alpha_lr: null
+
+

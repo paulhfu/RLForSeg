@@ -96,7 +96,7 @@ class EmbeddingSpaceEnv():
     def get_state(self):
         return self.State(self.current_node_embeddings, self.edge_ids, self.edge_angles, self.sup_masses, self.subgraph_indices, self.sep_subgraphs, self.counter, self.gt_edge_weights)
 
-    def update_data(self, edge_ids, edge_features, sp_seg, raw, gt):
+    def update_data(self, edge_ids, gt_edges, edge_features, sp_seg, raw, gt, **kwargs):
         bs = len(edge_ids)
         dev = edge_ids[0].device
         subgraphs, self.sep_subgraphs = [], []
@@ -121,9 +121,7 @@ class EmbeddingSpaceEnv():
         self.subgraphs = subgraphs
         self.subgraph_indices = get_edge_indices(self.edge_ids, subgraphs)
 
-        gt_node_labeling = self.get_node_gt()
-        gt = gt_node_labeling[self.edge_ids]
-        self.gt_edge_weights = 1. - (gt[0] == gt[1]).float()
+        self.gt_edge_weights = torch.cat(gt_edges)
         self.gt_soln = self.get_mc_soln(self.gt_edge_weights)
         self.sg_gt_edges = [self.gt_edge_weights[sg].view(-1, sz) for sz, sg in
                             zip(self.cfg.sac.s_subgraph, self.subgraph_indices)]

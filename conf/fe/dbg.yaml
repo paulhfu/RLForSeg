@@ -12,7 +12,7 @@ contrastive_delta: 1.5
 max_pixel_in_dist_mat: 8191
 
 warmup:  # the feature extractor might need pretraining to produce meaningful features
-  # Adam optim config
+  # Adam optim conf
   lr: 1e-3
   betas: [0.9, 0.999]
 

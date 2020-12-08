@@ -6,7 +6,7 @@ min_exp_entropy: 0.2  # min entropy that prediction is allowed to converge to
 discount: 0.99  # discount factor (commonly referred to as \gamma in RL)
 init_temperature: 0.1  # initial temperature in Gibbs distribution
 temperature_regulation: optimized #constant/follow_quality/optimized
-# Adam optim config
+# Adam optim conf
 alpha_lr: 1e-1
 alpha_betas: [0.9, 0.999]
 actor_lr: 1e-4
@@ -21,7 +21,7 @@ use_closed_form_entropy: true  # uses closed form entropy in critic update (curr
 sl_beta: 10  # weight for side loss
 diag_gaussian_actor:  # specification of multinomial gaussian, acting as policy
   std_bounds: [0.01, 3.0]
-  mu_bounds: [-5, 5] # [-5, 5] [-.5, .5]
-  sample_offset: -0.5
+  mu_bounds: [-5, 5]
+  sample_offset: 0.0
 
 

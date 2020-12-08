@@ -234,8 +234,8 @@ class AgentSacTrainer(object):
     def update_env_data(self, env, dloader, device):
         raw, gt, sp_seg, indices = next(iter(dloader))
         raw, gt, sp_seg = raw.to(device), gt.to(device), sp_seg.to(device)
-        edges, edge_feat, _, _ = dloader.dataset.get_graphs(indices, sp_seg, device)
-        env.update_data(edge_ids=edges, edge_features=edge_feat, sp_seg=sp_seg, raw=raw, gt=gt)
+        edges, edge_feat, _, gt_edges = dloader.dataset.get_graphs(indices, sp_seg, device)
+        env.update_data(edge_ids=edges, gt_edges=gt_edges, edge_features=edge_feat, sp_seg=sp_seg, raw=raw, gt=gt)
 
     def agent_forward(self, env, model, state, actions=None, grad=True, post_input=False, post_model=False,
                       policy_opt=False, embeddings_opt=False, return_node_features=False):
@@ -371,8 +371,8 @@ class AgentSacTrainer(object):
         writer = None
         if rank == 0:
             writer = SummaryWriter(logdir=self.log_dir)
-            writer.add_text("config", omegaconf.OmegaConf.to_yaml(self.cfg))
-            # writer.add_text("config", self.cfg.pretty())
+            writer.add_text("conf", omegaconf.OmegaConf.to_yaml(self.cfg))
+            # writer.add_text("conf", self.cfg.pretty())
             copyfile(os.path.join(self.save_dir, 'runtime_cfg.yaml'),
                      os.path.join(self.log_dir, 'runtime_cfg.yaml'))
 

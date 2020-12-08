@@ -80,7 +80,7 @@ class MulticutEmbeddingsEnv():
     def get_state(self):
         return self.State(self.current_node_embeddings, self.edge_ids, self.edge_angles, self.sup_masses, self.subgraph_indices, self.sep_subgraphs, self.counter, self.gt_edge_weights)
 
-    def update_data(self, raw, gt, edge_ids, sp_seg, **kwargs):
+    def update_data(self, raw, gt, edge_ids, gt_edges, sp_seg, **kwargs):
         bs = raw.shape[0]
         dev = raw.device
         self.gt_seg, self.init_sp_seg = gt.squeeze(1), sp_seg.squeeze(1)
@@ -105,9 +105,7 @@ class MulticutEmbeddingsEnv():
         self.subgraphs = subgraphs
         self.subgraph_indices = get_edge_indices(self.edge_ids, subgraphs)
 
-        gt_node_labeling = self.get_node_gt()
-        gt = gt_node_labeling[self.edge_ids]
-        self.gt_edge_weights = 1. - (gt[0] == gt[1]).float()
+        self.gt_edge_weights = torch.cat(gt_edges)
         self.gt_soln = self.get_current_soln(self.gt_edge_weights)
         self.sg_gt_edges = [self.gt_edge_weights[sg].view(-1, sz) for sz, sg in
                             zip(self.cfg.sac.s_subgraph, self.subgraph_indices)]
@@ -137,6 +135,7 @@ class MulticutEmbeddingsEnv():
         return b_actions
 
     def get_current_soln(self, edge_weights):
+        import h5py
         p_min = 0.001
         p_max = 1.
         segmentations = []

@@ -1,4 +1,5 @@
 import os
+# os.environ["OMP_NUM_THREADS"] = "1"
 import torch
 from utils.general import Counter
 from torch import multiprocessing as mp
@@ -9,7 +10,7 @@ import numpy as np
 from agents.sac import AgentSacTrainer
 
 
-@hydra.main(config_path="config")
+@hydra.main(config_path="conf")
 def main(cfg):
     # Creating directories.
     save_dir = os.path.join(cfg.gen.base_dir, 'results/sac', cfg.gen.target_dir)
@@ -22,9 +23,8 @@ def main(cfg):
         os.remove(os.path.join(save_dir, 'runtime_cfg.yaml'))
 
     print(OmegaConf.to_yaml(cfg))
-    # print(cfg.pretty())
 
-    with open(os.path.join(save_dir, 'config.txt'), "w") as info:
+    with open(os.path.join(save_dir, 'conf.txt'), "w") as info:
         info.write(OmegaConf.to_yaml(cfg))
 
     rt_cfg_dict = dict(cfg.rt_vars)
