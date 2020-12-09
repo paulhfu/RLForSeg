@@ -6,9 +6,9 @@ from torch.nn import functional as F
 from torch.utils.data import DataLoader
 from collections import namedtuple
 from environments.multicut import MulticutEmbeddingsEnv
-from environments.embedding_space import EmbeddingSpaceEnv
+from environments.embedding_space_edge import EmbeddingSpaceEnvEdgeBased
 from utils.exploration_functions import RunningAverage
-from models.agent import Agent
+from models.agent_model import AgentEdge
 from models.feature_extractor import FeExtractor
 from torch.nn.parallel import DistributedDataParallel as DDP
 import torch.distributed as dist
@@ -398,7 +398,7 @@ class AgentSacTrainer(object):
         torch.set_default_tensor_type(torch.FloatTensor)
         self.setup(rank, self.cfg.gen.n_processes_per_gpu * self.cfg.gen.n_gpu)
 
-        model = Agent(self.cfg, device, writer=writer)
+        model = AgentEdge(self.cfg, device, writer=writer)
         fe_ext = FeExtractor(self.cfg.fe.n_raw_channels, self.cfg.fe.n_embedding_features,
                              self.cfg.fe.contrastive_delta, device, writer, self.cfg.gen.p,
                              self.cfg.fe.max_pixel_in_dist_mat)
@@ -408,7 +408,7 @@ class AgentSacTrainer(object):
         if self.cfg.gen.env == "multicut_embedding":
             env = MulticutEmbeddingsEnv(fe_ext, self.cfg, device, writer=writer, writer_counter=self.global_writer_quality_count)
         elif self.cfg.gen.env == "embedding_space":
-            env = EmbeddingSpaceEnv(fe_ext, self.cfg, device, writer=writer, writer_counter=self.global_writer_quality_count)
+            env = EmbeddingSpaceEnvEdgeBased(fe_ext, self.cfg, device, writer=writer, writer_counter=self.global_writer_quality_count)
 
         #Create shared network
         shared_model = DDP(model, device_ids=[device], find_unused_parameters=True)

@@ -5,20 +5,20 @@ import elf
 import nifty
 import collections
 import matplotlib.pyplot as plt
-import nifty.graph.agglo as nagglo
 from utils.reward_functions import UnSupervisedReward, SubGraphDiceReward
 from utils.graphs import collate_edges, get_edge_indices, get_angles_smass_in_rag
 from utils.general import pca_project_1d
 from rag_utils import find_dense_subgraphs
 from scipy.cluster.hierarchy import linkage, fcluster
-from skimage import draw
 
-class EmbeddingSpaceEnv():
+class EmbeddingSpaceEnvEdgeBased():
 
     State = collections.namedtuple("State", ["node_embeddings", "edge_ids", "edge_angles", "sup_masses", "subgraph_indices", "sep_subgraphs", "round_n", "gt_edge_weights"])
 
     def __init__(self, embedding_net, cfg, device, writer=None, writer_counter=None):
-        super(EmbeddingSpaceEnv, self).__init__()
+        super(EmbeddingSpaceEnvEdgeBased, self).__init__()
+        assert False  # @TODO still not clear how to do that. Cannot have Q-vals per node because of noise in rewards.
+                      # @TODO Can also not calc joint probas of node actions on subgraphs in an efficient (batched) way
 
         self.embedding_net = embedding_net
         self.reset()
@@ -34,26 +34,15 @@ class EmbeddingSpaceEnv():
             self.reward_function = UnSupervisedReward(env=self)
 
     def execute_action(self, actions, logg_vals=None, post_stats=False):
-        actions = torch.cat([actions, actions], dim=0)
-        node_embeds = self.current_node_embeddings[self.dir_edge_ids]
-        dists = node_embeds[0] - node_embeds[1]
-        dists = dists / torch.norm(dists, dim=1, p=self.cfg.gen.p, keepdim=True)
-        dists = dists * actions.unsqueeze(1)
-        # scatter node indices for incidental nodes of edges
-        shift = torch.zeros((self.dir_edge_ids[0].max() + 1, ) + dists.size()).to(self.device)
-        shift.scatter_(0, self.dir_edge_ids[0].expand((dists.shape[1], shift.shape[1])).T[None], dists[None])
-        n_neighbors = (self.dir_edge_ids[0].unsqueeze(0) ==
-                       torch.arange(self.dir_edge_ids[0].max() + 1, device=self.device).unsqueeze(1)).float().sum(1)
-        # sum over all dists belonging to a node and average over the number of neighbors
-        shift = shift.sum(1) / n_neighbors.unsqueeze(1)
-        # shift the current node set
-        self.current_node_embeddings += shift
-        self.current_soln, node_labeling = self.get_soln_graph_clustering(self.current_node_embeddings)
+
+        self.current_node_embeddings += actions
+
+        self.current_soln, node_labeling = self.get_soln(self.current_node_embeddings)
 
         sg_edge_weights = []
         for i, sz in enumerate(self.cfg.sac.s_subgraph):
             sg_ne = node_labeling[self.subgraphs[i].view(2, -1, sz)]
-            sg_edge_weights.append(1 - (sg_ne[0] == sg_ne[1]).float())
+            sg_edge_weights.append((sg_ne[0] == sg_ne[1]).float())
 
         reward = self.reward_function.get(sg_edge_weights, self.sg_gt_edges) #self.current_soln)
 
@@ -79,8 +68,7 @@ class EmbeddingSpaceEnv():
                 a4.imshow(cm.prism(self.current_soln[0].cpu()/self.current_soln[0].max().item()))
                 a4.set_title('prediction')
                 self.writer.add_figure("image/state", fig, self.writer_counter.value() // 10)
-                self.writer.add_figure("image/actions", self.vis_edge_actions(actions.cpu(), 0), self.writer_counter.value() // 10)
-                self.writer.add_figure("image/shift_proj", self.vis_node_actions(shift.cpu(), 0), self.writer_counter.value() // 10)
+                self.writer.add_figure("image/shift_proj", self.vis_node_actions(actions.cpu(), 0), self.writer_counter.value() // 10)
                 self.embedding_net.post_pca(self.embeddings[0].cpu(), tag="image/pix_embedding_proj")
                 self.embedding_net.post_pca(self.current_node_embeddings[:self.n_offs[1]][self.init_sp_seg[0].long(), :].T.cpu(),
                                             tag="image/node_embedding_proj")
@@ -96,7 +84,7 @@ class EmbeddingSpaceEnv():
     def get_state(self):
         return self.State(self.current_node_embeddings, self.edge_ids, self.edge_angles, self.sup_masses, self.subgraph_indices, self.sep_subgraphs, self.counter, self.gt_edge_weights)
 
-    def update_data(self, edge_ids, gt_edges, edge_features, sp_seg, raw, gt, **kwargs):
+    def update_data(self, edge_ids, gt_edges, sp_seg, raw, gt, **kwargs):
         bs = len(edge_ids)
         dev = edge_ids[0].device
         subgraphs, self.sep_subgraphs = [], []
@@ -147,7 +135,11 @@ class EmbeddingSpaceEnv():
             b_actions[i] = torch.where(mask, actions.float(), other.float()).sum() / num
         return b_actions
 
-    def get_soln_free_clustering(self, node_features):
+    def get_soln(self, node_features):
+        # shape = list(node_features.unsqueeze(0).size())
+        # shape[0] = shape[1]
+        # feature_matrix = node_features.expand(shape)
+        # distance_matrix = torch.norm(feature_matrix - feature_matrix.transpose(0, 1), p=2, dim=-1)
         labels = []
         node_labels = []
         for i, sp_seg in enumerate(self.init_sp_seg):
@@ -157,35 +149,6 @@ class EmbeddingSpaceEnv():
             rag = elf.segmentation.features.compute_rag(np.expand_dims(sp_seg.cpu(), axis=0))
             labels.append(elf.segmentation.features.project_node_labels_to_pixels(rag, node_labels[-1]).squeeze())
 
-        return torch.from_numpy(np.stack(labels).astype(np.float)).to(node_features.device), \
-               torch.from_numpy(np.concatenate(node_labels).astype(np.float)).to(node_features.device)
-
-    def get_soln_graph_clustering(self, node_features):
-        labels = []
-        node_labels = []
-        for i, sp_seg in enumerate(self.init_sp_seg):
-            single_node_features = node_features[self.n_offs[i]:self.n_offs[i+1]].detach().cpu().numpy()
-            rag = nifty.graph.undirectedGraph(single_node_features.shape[0])
-            rag.insertEdges((self.edge_ids[:, self.e_offs[i]:self.e_offs[i+1]] - self.n_offs[i]).T.detach().cpu().numpy())
-
-            edge_weights = np.ones(rag.numberOfEdges, dtype=np.int)
-            edge_sizes = np.ones(rag.numberOfEdges, dtype=np.int)
-            node_sizes = np.ones(rag.numberOfNodes, dtype=np.int)
-
-            policy = nagglo.nodeAndEdgeWeightedClusterPolicy(
-                graph=rag,
-                edgeIndicators=edge_weights,
-                edgeSizes=edge_sizes,
-                nodeFeatures=single_node_features,
-                nodeSizes=node_sizes,
-                numberOfNodesStop=self.cfg.gen.n_max_object
-            )
-            clustering = nagglo.agglomerativeClustering(policy)
-            clustering.run()
-
-            node_labels.append(clustering.result())
-            rag = elf.segmentation.features.compute_rag(np.expand_dims(sp_seg.cpu(), axis=0))
-            labels.append(elf.segmentation.features.project_node_labels_to_pixels(rag, node_labels[-1]).squeeze())
         return torch.from_numpy(np.stack(labels).astype(np.float)).to(node_features.device), \
                torch.from_numpy(np.concatenate(node_labels).astype(np.float)).to(node_features.device)
 
@@ -233,43 +196,7 @@ class EmbeddingSpaceEnv():
         plt.quiver(com[:, 1], com[:, 0], proj[0], proj[1], color=colors, width=0.005)
         return fig
 
-    def vis_edge_actions(self, actions, sb):
-        plt.clf()
-        fig = plt.figure()
-        acts = actions[self.e_offs[sb]:self.e_offs[sb + 1]]
-        e_ids = self.edge_ids.T[self.e_offs[sb]:self.e_offs[sb + 1]] - self.n_offs[sb]
-        img = np.zeros(self.gt_seg[sb].shape + (3, ))
-        img[..., 2] = self.gt_seg[sb].cpu()
-        img = img / img.max()
-        for edge, action in zip(e_ids, acts):
-            mask = (self.init_sp_seg[sb] == edge[0]).long() + (self.init_sp_seg[sb] == edge[1]).long()
-            e1 = torch.nonzero(self.init_sp_seg_edge[sb, 0] * mask, as_tuple=False)
-            if e1.shape[0] == 0:
-                e1 = torch.nonzero(self.init_sp_seg_edge[sb, 0] * (mask==0).long(), as_tuple=False)
-            e2 = torch.nonzero(self.init_sp_seg_edge[sb, 1] * mask, as_tuple=False)
-            if e2.shape[0] == 0:
-                e2 = torch.nonzero(self.init_sp_seg_edge[sb, 1] * (mask==0).long(), as_tuple=False)
-            e1_mat = e1.expand((e2.shape[0], ) + e1.shape).float()
-            e2_mat = e2.expand((e1.shape[0],) + e2.shape).transpose(0, 1).float()
-            diff = torch.norm(e1_mat-e2_mat, dim=-1).min(0)[0]
-            line = e1[diff <= 1].cpu()
-            if action <= 0:
-                img[line[:, 0], line[:, 1], 2] = 0.0
-                img[line[:, 0], line[:, 1], 0] = -2 * action
-            else:
-                img[line[:, 0], line[:, 1], 2] = 0.0
-                img[line[:, 0], line[:, 1], 1] = 2 * action
-
-        plt.imshow(img)
-        plt.title("red:repulsive; green:attractive")
-        return fig
-
-
-
-
     def reset(self):
         self.done = False
         self.acc_reward = []
         self.counter = 0
-
-

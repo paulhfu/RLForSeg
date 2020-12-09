@@ -5,9 +5,9 @@ from models.gnn import Gcnn, QGcnn, GlobalEdgeGcnn
 from utils.sigmoid_normal import SigmNorm
 import numpy as np
 
-class Agent(torch.nn.Module):
+class AgentEdge(torch.nn.Module):
     def __init__(self, cfg, device, writer=None):
-        super(Agent, self).__init__()
+        super(AgentEdge, self).__init__()
         self.writer = writer
         self.cfg = cfg
         self.std_bounds = self.cfg.sac.diag_gaussian_actor.std_bounds
@@ -71,9 +71,12 @@ class Agent(torch.nn.Module):
     
 
 class PolicyNet(torch.nn.Module):
-    def __init__(self, n_in_features, n_classes, n_hidden_layer, hl_factor, device, writer):
+    def __init__(self, n_in_features, n_classes, n_hidden_layer, hl_factor, device, writer, edge_actions):
         super(PolicyNet, self).__init__()
-        self.gcn = Gcnn(n_in_features, n_classes, n_hidden_layer, hl_factor, device, "actor", writer)
+        if edge_actions:
+            self.gcn = Gcnn(n_in_features, n_classes, n_hidden_layer, hl_factor, device, "actor", writer)
+        else:
+            self.gcn = Gcnn(n_in_features, n_classes, n_hidden_layer, hl_factor, device, "actor", writer)
 
     def forward(self, node_features, edge_index, angles, gt_edges, post_input):
         actor_stats, side_loss = self.gcn(node_features, edge_index, angles, gt_edges, post_input)

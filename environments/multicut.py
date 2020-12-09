@@ -68,8 +68,6 @@ class MulticutEmbeddingsEnv():
                 a4.set_title('prediction')
                 self.writer.add_figure("image/state", fig, self.writer_counter.value() // 10)
                 self.embedding_net.post_pca(self.embeddings[0].cpu(), tag="image/pix_embedding_proj")
-            self.writer.add_scalar("step/gt_mean", self.gt_edge_weights.mean().item(), self.writer_counter.value())
-            self.writer.add_scalar("step/gt_std", self.gt_edge_weights.std().item(), self.writer_counter.value())
             if logg_vals is not None:
                 for key, val in logg_vals.items():
                     self.writer.add_scalar("step/" + key, val, self.writer_counter.value())
