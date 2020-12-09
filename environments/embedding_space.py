@@ -68,7 +68,6 @@ class EmbeddingSpaceEnv():
         if self.writer is not None and post_stats:
             self.writer.add_scalar("step/avg_return", total_reward, self.writer_counter.value())
             if self.writer_counter.value() % 20 == 0:
-                self.writer.add_histogram("step/pred_mean", self.current_edge_weights.view(-1).cpu().numpy(), self.writer_counter.value() // 10)
                 fig, (a1, a2, a3, a4) = plt.subplots(1, 4, sharex='col', sharey='row', gridspec_kw={'hspace': 0, 'wspace': 0})
                 a1.imshow(self.raw[0].cpu().permute(1,2,0).squeeze())
                 a1.set_title('raw image')
@@ -125,9 +124,6 @@ class EmbeddingSpaceEnv():
         self.gt_soln = self.get_mc_soln(self.gt_edge_weights)
         self.sg_gt_edges = [self.gt_edge_weights[sg].view(-1, sz) for sz, sg in
                             zip(self.cfg.sac.s_subgraph, self.subgraph_indices)]
-
-        self.initial_edge_weights = torch.cat([edge_fe[:, 0] for edge_fe in edge_features], dim=0)
-        self.current_edge_weights = self.initial_edge_weights.clone()
 
         stacked_superpixels = [torch.zeros((int(sp.max()+1), ) + sp.shape, device=self.device).scatter_(0, sp[None].long(), 1) for sp in self.init_sp_seg]
         self.sp_indices = [[torch.nonzero(sp, as_tuple=False) for sp in stacked_superpixel] for stacked_superpixel in stacked_superpixels]

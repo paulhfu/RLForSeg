@@ -67,6 +67,7 @@ class MulticutEmbeddingsEnv():
                 a4.imshow(cm.prism(self.current_soln[0].cpu()/self.current_soln[0].max().item()))
                 a4.set_title('prediction')
                 self.writer.add_figure("image/state", fig, self.writer_counter.value() // 10)
+                self.embedding_net.post_pca(self.embeddings[0].cpu(), tag="image/pix_embedding_proj")
             self.writer.add_scalar("step/gt_mean", self.gt_edge_weights.mean().item(), self.writer_counter.value())
             self.writer.add_scalar("step/gt_std", self.gt_edge_weights.std().item(), self.writer_counter.value())
             if logg_vals is not None:
@@ -110,8 +111,7 @@ class MulticutEmbeddingsEnv():
         self.sg_gt_edges = [self.gt_edge_weights[sg].view(-1, sz) for sz, sg in
                             zip(self.cfg.sac.s_subgraph, self.subgraph_indices)]
 
-        self.initial_edge_weights = torch.ones(self.edge_ids.shape[1], device=self.edge_ids.device) / 2
-        self.current_edge_weights = self.initial_edge_weights.clone()
+        self.current_edge_weights = torch.ones(self.edge_ids.shape[1], device=self.edge_ids.device) / 2
 
         stacked_superpixels = [torch.zeros((int(sp.max()+1), ) + sp.shape, device=self.device).scatter_(0, sp[None].long(), 1) for sp in self.init_sp_seg]
         self.sp_indices = [[torch.nonzero(sp, as_tuple=False) for sp in stacked_superpixel] for stacked_superpixel in stacked_superpixels]
