@@ -14,7 +14,7 @@ from data.spg_dset import SpgDset
 import matplotlib.pyplot as plt
 from matplotlib import cm
 
-set_seed_everywhere(10)
+set_seed_everywhere(19)
 
 
 def get_pix_data(shape=(256, 256)):
@@ -238,12 +238,3 @@ if __name__ == "__main__":
     get_pix_data()
 
     dset = SpgDset(dir)
-    raw, gt, sp_seg, idx = dset.__getitem__(20)
-    edges, edge_feat, diff_to_gt, gt_edge_weights = dset.get_graphs(idx)
-    gt_seg = get_current_soln(gt_edge_weights[0].numpy().astype(np.float64), sp_seg[0].numpy().astype(np.uint64), edges[0].numpy().transpose().astype(np.int64))
-    fig, (ax1, ax2, ax3) = plt.subplots(1, 3)
-    ax1.imshow(gt[0]);ax1.set_title('gt')
-    ax2.imshow(cm.prism(sp_seg[0]/ sp_seg[0].max()));ax2.set_title('sp')
-    ax3.imshow(gt_seg);ax3.set_title('mc')
-    plt.show()
-    a=1

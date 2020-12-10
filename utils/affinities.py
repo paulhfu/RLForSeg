@@ -21,20 +21,18 @@ def computeAffs(file_from, offsets):
 def get_naive_affinities(raw, offsets):
     """get naive pixel affinities based on differences in pixel intensities. This is extremely slow.
     If opting for speed, use np.roll"""
-    affinities = np.zeros([len(offsets)] + list(raw.shape[:2]))
+    affinities = []
     normed_raw = raw / raw.max()
-    for y in range(normed_raw.shape[0]):
-        for x in range(normed_raw.shape[1]):
-            for i, off in enumerate(offsets):
-                if 0 <= y+off[0] < normed_raw.shape[0] and 0 <= x+off[1] < normed_raw.shape[1]:
-                    affinities[i, y, x, ...] = np.linalg.norm(normed_raw[y, x] - normed_raw[y+off[0], x+off[1]])
-    return affinities
+    for i, off in enumerate(offsets):
+        rolled = np.roll(raw, tuple(-np.array(off)), (0, 1))
+        affinities.append(np.linalg.norm(normed_raw - rolled, axis=-1))
+    return np.stack(affinities)
 
 def get_affinities_from_embeddings_2d(embeddings, offsets, delta, p=2):
     """implementing eq. 6 in https://arxiv.org/pdf/1909.09872.pdf"""
     affs = torch.empty(((len(offsets), embeddings.shape[0]) + embeddings.shape[2:]), device=embeddings.device)
     for i, off in enumerate(offsets):
-        rolled = torch.roll(embeddings, off, dims=(-2, -1))
+        rolled = torch.roll(embeddings, tuple(-np.array(off)), dims=(-2, -1))
         affs[i] = torch.maximum((delta - torch.norm(embeddings - rolled, p=p, dim=1)) / 2 * delta, torch.tensor([0], device=embeddings.device)) ** 2
 
     return affs
