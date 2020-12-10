@@ -21,10 +21,10 @@ def computeAffs(file_from, offsets):
 def get_naive_affinities(raw, offsets):
     """get naive pixel affinities based on differences in pixel intensities."""
     affinities = []
-    normed_raw = raw / raw.max()
     for i, off in enumerate(offsets):
         rolled = np.roll(raw, tuple(-np.array(off)), (0, 1))
-        affinities.append(np.linalg.norm(normed_raw - rolled, axis=-1))
+        dist = np.linalg.norm(raw - rolled, axis=-1)
+        affinities.append(dist / dist.max())
     return np.stack(affinities)
 
 def get_affinities_from_embeddings_2d(embeddings, offsets, delta, p=2):

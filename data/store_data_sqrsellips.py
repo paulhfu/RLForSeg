@@ -14,13 +14,14 @@ from data.spg_dset import SpgDset
 import matplotlib.pyplot as plt
 from matplotlib import cm
 
-set_seed_everywhere(19)
+# set_seed_everywhere(19)
 
 
 def get_pix_data(shape=(256, 256)):
     """ This generates raw-gt-superpixels and correspondinng rags of rectangles and circles"""
 
     edge_offsets = [[0, -1], [-1, 0], [-3, 0], [0, -3], [-6, 0], [0, -6]]  # offsets defining the edges for pixel affinities
+    overseg_factor = 1.8
     sep_chnl = 2  # channel separating attractive from repulsive edges
     n_circles = 5  # number of ellipses in image
     n_polys = 10  # number of rand polys in image
@@ -146,8 +147,9 @@ def get_pix_data(shape=(256, 256)):
     affinities = get_naive_affinities(gaussian(np.clip(img, 0, 1), sigma=.2), edge_offsets)
     affinities[:sep_chnl] *= -1
     affinities[:sep_chnl] += +1
-    affinities[:sep_chnl] /= 1.3
-    affinities[sep_chnl:] *= 1.3
+    # scale affinities in order to get an oversegmentation
+    affinities[:sep_chnl] /= overseg_factor
+    affinities[sep_chnl:] *= overseg_factor
     affinities = np.clip(affinities, 0, 1)
     node_labeling = compute_mws_segmentation(affinities, edge_offsets, sep_chnl)
     node_labeling = node_labeling - 1
