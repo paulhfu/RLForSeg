@@ -7,7 +7,6 @@ from torch.utils.data import DataLoader
 from collections import namedtuple
 from environments.multicut import MulticutEmbeddingsEnv
 from environments.embedding_space_edge import EmbeddingSpaceEnvEdgeBased
-from utils.exploration_functions import RunningAverage
 from models.agent_model import AgentEdge
 from models.feature_extractor import FeExtractor
 from torch.nn.parallel import DistributedDataParallel as DDP
@@ -15,8 +14,11 @@ import torch.distributed as dist
 from tensorboardX import SummaryWriter
 import os
 import numpy as np
+from utils.exploration_functions import RunningAverage
 from utils.general import adjust_learning_rate, soft_update_params, set_seed_everywhere, cluster_embeddings, pca_project
 from utils.matching import matching
+from utils.replay_memory import TransitionData_ts
+from utils.graphs import get_joint_sg_logprobs_edges, get_joint_sg_logprobs_nodes
 import matplotlib.pyplot as plt
 import matplotlib.cm as cm
 import yaml
@@ -24,7 +26,6 @@ import portalocker
 from shutil import copyfile
 from torch.optim.lr_scheduler import ReduceLROnPlateau
 from losses.contrastive_loss import ContrastiveLoss
-from utils.replay_memory import TransitionData_ts
 
 
 class AgentSacTrainer(object):
@@ -43,6 +44,10 @@ class AgentSacTrainer(object):
 
         self.memory = TransitionData_ts(capacity=self.cfg.trainer.t_max)
         self.save_dir = save_dir
+        if 'nodes' in cfg.gen.env:
+            self.get_joint_sg_logprobs = get_joint_sg_logprobs_nodes
+        else:
+            self.get_joint_sg_logprobs = get_joint_sg_logprobs_edges
 
     def setup(self, rank, world_size):
         # BLAS setup
@@ -269,7 +274,7 @@ class AgentSacTrainer(object):
         mean_reward = 0
 
         for i, sz in enumerate(self.cfg.sac.s_subgraph):
-            _log_prob = log_prob[next_obs.subgraph_indices[i].view(-1, sz)].sum(-1)
+            _log_prob = self.get_joint_sg_logprobs(log_prob, next_obs.subgraph_indices[i].view(-1, sz))
 
             if self.cfg.sac.use_closed_form_entropy:
                 sg_entropy = (1 / 2 * (1 + (2 * np.pi * distribution.scale[next_obs.subgraph_indices[i].view(-1, sz)] ** 2).log())).sum(-1)
@@ -300,7 +305,7 @@ class AgentSacTrainer(object):
         for i, sz in enumerate(self.cfg.sac.s_subgraph):
             actor_Q = torch.min(actor_Q1[i], actor_Q2[i])
 
-            _log_prob = log_prob[obs.subgraph_indices[i].view(-1, sz)].sum(-1)
+            _log_prob = self.get_joint_sg_logprobs(log_prob, obs.subgraph_indices[i].view(-1, sz))
             loss = (model.module.alpha[i].detach() * _log_prob - actor_Q).mean()
             actor_loss = actor_loss + loss# + self.cfg.sac.sl_beta * side_loss
 
@@ -315,7 +320,7 @@ class AgentSacTrainer(object):
                 alpha_loss = alpha_loss + (model.module.alpha[i] \
                                            * (sg_entropy - (self.cfg.sac.s_subgraph[i] * self.cfg.sac.min_exp_entropy))).mean()
             else:
-                _log_prob = log_prob[obs.subgraph_indices[i].view(-1, sz)].sum(-1).detach()
+                _log_prob = self.get_joint_sg_logprobs(log_prob, obs.subgraph_indices[i].view(-1, sz)).detach()  # very inefficient when doing node based actions
                 alpha_loss = alpha_loss + (model.module.alpha[i] *
                                            (-_log_prob - (self.cfg.sac.s_subgraph[i] * self.cfg.sac.min_exp_entropy))).mean()
 
@@ -407,7 +412,9 @@ class AgentSacTrainer(object):
 
         if self.cfg.gen.env == "multicut_embedding":
             env = MulticutEmbeddingsEnv(fe_ext, self.cfg, device, writer=writer, writer_counter=self.global_writer_quality_count)
-        elif self.cfg.gen.env == "embedding_space":
+        elif self.cfg.gen.env == "embedding_space_edges":
+            env = EmbeddingSpaceEnvEdgeBased(fe_ext, self.cfg, device, writer=writer, writer_counter=self.global_writer_quality_count)
+        elif self.cfg.gen.env == "embedding_space_nodes":
             env = EmbeddingSpaceEnvEdgeBased(fe_ext, self.cfg, device, writer=writer, writer_counter=self.global_writer_quality_count)
 
         #Create shared network

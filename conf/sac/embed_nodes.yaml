@@ -12,7 +12,7 @@ alpha_betas: [0.9, 0.999]
 actor_lr: 1e-4
 actor_betas: [0.9, 0.999]
 actor_update_frequency: 1  # optim step every n-th step
-n_actions: 2
+n_actions: 32
 critic_lr: 1e-4
 critic_betas: [0.9, 0.999]
 critic_tau: 0.005
@@ -24,5 +24,4 @@ diag_gaussian_actor:  # specification of multinomial gaussian, acting as policy
   std_bounds: [0.01, 3.0]
   mu_bounds: [-5, 5]
   sample_offset: -0.5
-
 

@@ -82,6 +82,15 @@ def get_angles_smass_in_rag(edges, segmentation):
     return angles, sup_sizes / float(segmentation.shape[-1] * segmentation.shape[-2]), cms
 
 
+def get_joint_sg_logprobs_edges(logprobs, subgraphs):
+    return logprobs[subgraphs].sum(-1)
+
+def get_joint_sg_logprobs_nodes(logprobs, subgraphs):
+    joint_logprobs = torch.zeros(subgraphs.shape[0], device=subgraphs.device)
+    for i, sg in enumerate(subgraphs):
+        joint_logprobs[i] = logprobs[torch.unique(sg)].sum()
+    return joint_logprobs
+
 if __name__ == "__main__":
     # edges = np.array([[1, 3], [2, 4], [1, 2], [2, 3], [3, 5], [3, 6], [1, 5], [2, 8], [4, 8], [4, 9], [5, 9], [8, 9]])
     # edge_list = edges[np.random.choice(np.arange(edges.shape[0]), size=(20 * 10))]

@@ -6,9 +6,9 @@ from utils.general import pca_project_1d, plt_bar_plot
 from models.message_passing import NodeConv, EdgeConv, EdgeConvNoNodes
 
 
-class Gcnn(nn.Module):
+class EdgeGnn(nn.Module):
     def __init__(self, n_in_channels, n_out_channels, n_hidden_layer, hl_factor, device, name, writer=None, start_bn_nl=False):
-        super(Gcnn, self).__init__()
+        super(EdgeGnn, self).__init__()
         self.name = name
         self.device = device
 
@@ -58,9 +58,33 @@ class Gcnn(nn.Module):
         return edge_features, side_loss
 
 
-class QGcnn(nn.Module):
+class NodeGnn(nn.Module):
     def __init__(self, n_in_channels, n_out_channels, n_hidden_layer, hl_factor, device, name, writer=None, start_bn_nl=False):
-        super(QGcnn, self).__init__()
+        super(NodeGnn, self).__init__()
+        self.name = name
+        self.device = device
+
+        self.writer = writer
+        self.writer_counter = 0
+        self.n_in_channels = n_in_channels
+        self.node_conv1 = NodeConv(n_in_channels, n_in_channels,
+                                   n_hidden_layer=n_hidden_layer, hl_factor=hl_factor, start_bn_nl=start_bn_nl)
+        self.node_conv2 = NodeConv(n_in_channels, n_in_channels,
+                                   n_hidden_layer=n_hidden_layer, hl_factor=hl_factor)
+        self.node_conv3 = NodeConv(n_in_channels, n_out_channels,
+                                   n_hidden_layer=n_hidden_layer, hl_factor=hl_factor)
+
+    def forward(self, node_features, edge_index, angles, gt_edges, post_input=False):
+
+        node_features = self.node_conv1(node_features, edge_index)
+        node_features = node_features + self.node_conv2(node_features, edge_index)
+        node_features = node_features + self.node_conv3(node_features, edge_index)
+        return node_features
+
+
+class QGnn(nn.Module):
+    def __init__(self, n_in_channels, n_out_channels, n_hidden_layer, hl_factor, device, name, writer=None, start_bn_nl=False):
+        super(QGnn, self).__init__()
         self.name = name
         self.device = device
 
@@ -100,9 +124,9 @@ class QGcnn(nn.Module):
         return edge_features, side_loss
 
 
-class GlobalEdgeGcnn(nn.Module):
+class GlobalEdgeGnn(nn.Module):
     def __init__(self, n_in_channels, n_out_channels, n_conv_its, hl_factor, device):
-        super(GlobalEdgeGcnn, self).__init__()
+        super(GlobalEdgeGnn, self).__init__()
         self.device = device
 
         self.n_in_channels = n_in_channels
@@ -110,7 +134,7 @@ class GlobalEdgeGcnn(nn.Module):
         self.node_conv = []
         for i in range(n_conv_its):
             self.node_conv.append(NodeConv(n_in_channels, n_in_channels, n_hidden_layer=0, hl_factor=hl_factor))
-            super(GlobalEdgeGcnn, self).add_module(f"node_conv_{i}", self.node_conv[-1])
+            super(GlobalEdgeGnn, self).add_module(f"node_conv_{i}", self.node_conv[-1])
 
         self.edge_conv = EdgeConv(n_in_channels, n_out_channels, use_init_edge_feats=False, n_hidden_layer=0)
 

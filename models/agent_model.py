@@ -1,7 +1,6 @@
 import torch
 import torch.nn as nn
-from models.feature_extractor import FeExtractor
-from models.gnn import Gcnn, QGcnn, GlobalEdgeGcnn
+from models.gnn import EdgeGnn, NodeGnn, QGnn, GlobalEdgeGnn
 from utils.sigmoid_normal import SigmNorm
 import numpy as np
 
@@ -16,7 +15,8 @@ class AgentEdge(torch.nn.Module):
         self.device = device
         self.writer_counter = 0
 
-        self.actor = PolicyNet(self.cfg.fe.n_embedding_features + 2, 2, cfg.model.n_hidden, cfg.model.hl_factor, device, writer)
+        self.actor = PolicyNet(self.cfg.fe.n_embedding_features+2, self.cfg.sac.n_actions, cfg.model.n_hidden,
+                               cfg.model.hl_factor, device, writer, "nodes" in self.cfg.gen.env)
         self.critic = DoubleQValueNet(self.cfg.sac.s_subgraph, self.cfg.fe.n_embedding_features + 2, 1,
                                       cfg.model.n_hidden, cfg.model.hl_factor, device, writer)
         self.critic_tgt = DoubleQValueNet(self.cfg.sac.s_subgraph, self.cfg.fe.n_embedding_features + 2, 1,
@@ -71,12 +71,12 @@ class AgentEdge(torch.nn.Module):
     
 
 class PolicyNet(torch.nn.Module):
-    def __init__(self, n_in_features, n_classes, n_hidden_layer, hl_factor, device, writer, edge_actions):
+    def __init__(self, n_in_features, n_classes, n_hidden_layer, hl_factor, device, writer, node_actions):
         super(PolicyNet, self).__init__()
-        if edge_actions:
-            self.gcn = Gcnn(n_in_features, n_classes, n_hidden_layer, hl_factor, device, "actor", writer)
+        if node_actions:
+            self.gcn = EdgeGnn(n_in_features, n_classes, n_hidden_layer, hl_factor, device, "actor", writer)
         else:
-            self.gcn = Gcnn(n_in_features, n_classes, n_hidden_layer, hl_factor, device, "actor", writer)
+            self.gcn = NodeGnn(n_in_features, n_classes, n_hidden_layer, hl_factor, device, "actor", writer)
 
     def forward(self, node_features, edge_index, angles, gt_edges, post_input):
         actor_stats, side_loss = self.gcn(node_features, edge_index, angles, gt_edges, post_input)
@@ -89,14 +89,14 @@ class DoubleQValueNet(torch.nn.Module):
 
         self.s_subgraph = s_subgraph
 
-        self.gcn1_1 = QGcnn(n_in_features, n_in_features, n_hidden_layer, hl_factor, device, "critic", writer)
-        self.gcn2_1 = QGcnn(n_in_features, n_in_features, n_hidden_layer, hl_factor, device, "critic", writer)
+        self.gcn1_1 = QGnn(n_in_features, n_in_features, n_hidden_layer, hl_factor, device, "critic", writer)
+        self.gcn2_1 = QGnn(n_in_features, n_in_features, n_hidden_layer, hl_factor, device, "critic", writer)
 
         self.gcn1_2, self.gcn2_2 = [], []
 
         for i, ssg in enumerate(self.s_subgraph):
-            self.gcn1_2.append(GlobalEdgeGcnn(n_in_features, n_in_features, ssg//2, hl_factor, device))
-            self.gcn2_2.append(GlobalEdgeGcnn(n_in_features, n_in_features, ssg//2, hl_factor, device))
+            self.gcn1_2.append(GlobalEdgeGnn(n_in_features, n_in_features, ssg//2, hl_factor, device))
+            self.gcn2_2.append(GlobalEdgeGnn(n_in_features, n_in_features, ssg//2, hl_factor, device))
             super(DoubleQValueNet, self).add_module(f"gcn1_2_{i}", self.gcn1_2[-1])
             super(DoubleQValueNet, self).add_module(f"gcn2_2_{i}", self.gcn2_2[-1])
 
