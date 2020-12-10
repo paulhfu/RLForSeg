@@ -1,6 +1,6 @@
 # @package _group_
 algorithm: sac #Algorithm used for training
-master_port: !!str "12351" #port num on localhost for icp
+master_port: !!str "12353" #port num on localhost for icp
 no_save: false #dont save models
 n_processes_per_gpu: 1 #Number of training async agents
 n_gpu: 1 #Number of gpus per process

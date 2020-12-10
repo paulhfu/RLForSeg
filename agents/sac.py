@@ -520,7 +520,7 @@ class AgentSacTrainer(object):
                     post_model &= self.memory.is_full()
                     distr = None
                     if not self.memory.is_full():
-                        action = torch.rand_like(env.current_edge_weights)
+                        action = torch.rand(env.edge_ids.shape[-1], device=device)
                         if self.cfg.gen.env == "embedding_space":
                             action -= 0.5
                     else:

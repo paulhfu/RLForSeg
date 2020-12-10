@@ -5,6 +5,7 @@ import elf
 import nifty
 import collections
 import matplotlib.pyplot as plt
+import nifty.graph.agglo as nagglo
 from utils.reward_functions import UnSupervisedReward, SubGraphDiceReward
 from utils.graphs import collate_edges, get_edge_indices, get_angles_smass_in_rag
 from utils.general import pca_project_1d
@@ -36,7 +37,7 @@ class EmbeddingSpaceEnv():
         actions = torch.cat([actions, actions], dim=0)
         node_embeds = self.current_node_embeddings[self.dir_edge_ids]
         dists = node_embeds[0] - node_embeds[1]
-        dists = dists / torch.norm(dists, dim=1, p=2, keepdim=True)
+        dists = dists / torch.norm(dists, dim=1, p=self.cfg.gen.p, keepdim=True)
         dists = dists * actions.unsqueeze(1)
         # scatter node indices for incidental nodes of edges
         shift = torch.zeros((self.dir_edge_ids[0].max() + 1, ) + dists.size()).to(self.device)
@@ -47,12 +48,12 @@ class EmbeddingSpaceEnv():
         shift = shift.sum(1) / n_neighbors.unsqueeze(1)
         # shift the current node set
         self.current_node_embeddings += shift
-        self.current_soln, node_labeling = self.get_soln(self.current_node_embeddings)
+        self.current_soln, node_labeling = self.get_soln_graph_clustering(self.current_node_embeddings)
 
         sg_edge_weights = []
         for i, sz in enumerate(self.cfg.sac.s_subgraph):
             sg_ne = node_labeling[self.subgraphs[i].view(2, -1, sz)]
-            sg_edge_weights.append(1 - (sg_ne[0] == sg_ne[1]).float())
+            sg_edge_weights.append((sg_ne[0] == sg_ne[1]).float())
 
         reward = self.reward_function.get(sg_edge_weights, self.sg_gt_edges) #self.current_soln)
 
@@ -146,11 +147,7 @@ class EmbeddingSpaceEnv():
             b_actions[i] = torch.where(mask, actions.float(), other.float()).sum() / num
         return b_actions
 
-    def get_soln(self, node_features):
-        # shape = list(node_features.unsqueeze(0).size())
-        # shape[0] = shape[1]
-        # feature_matrix = node_features.expand(shape)
-        # distance_matrix = torch.norm(feature_matrix - feature_matrix.transpose(0, 1), p=2, dim=-1)
+    def get_soln_free_clustering(self, node_features):
         labels = []
         node_labels = []
         for i, sp_seg in enumerate(self.init_sp_seg):
@@ -160,6 +157,35 @@ class EmbeddingSpaceEnv():
             rag = elf.segmentation.features.compute_rag(np.expand_dims(sp_seg.cpu(), axis=0))
             labels.append(elf.segmentation.features.project_node_labels_to_pixels(rag, node_labels[-1]).squeeze())
 
+        return torch.from_numpy(np.stack(labels).astype(np.float)).to(node_features.device), \
+               torch.from_numpy(np.concatenate(node_labels).astype(np.float)).to(node_features.device)
+
+    def get_soln_graph_clustering(self, node_features):
+        labels = []
+        node_labels = []
+        for i, sp_seg in enumerate(self.init_sp_seg):
+            single_node_features = node_features[self.n_offs[i]:self.n_offs[i+1]].detach().cpu().numpy()
+            rag = nifty.graph.undirectedGraph(single_node_features.shape[0])
+            rag.insertEdges((self.edge_ids[:, self.e_offs[i]:self.e_offs[i+1]] - self.n_offs[i]).T.detach().cpu().numpy())
+
+            edge_weights = np.ones(rag.numberOfEdges, dtype=np.int)
+            edge_sizes = np.ones(rag.numberOfEdges, dtype=np.int)
+            node_sizes = np.ones(rag.numberOfNodes, dtype=np.int)
+
+            policy = nagglo.nodeAndEdgeWeightedClusterPolicy(
+                graph=rag,
+                edgeIndicators=edge_weights,
+                edgeSizes=edge_sizes,
+                nodeFeatures=single_node_features,
+                nodeSizes=node_sizes,
+                numberOfNodesStop=self.cfg.gen.n_max_object
+            )
+            clustering = nagglo.agglomerativeClustering(policy)
+            clustering.run()
+
+            node_labels.append(clustering.result())
+            rag = elf.segmentation.features.compute_rag(np.expand_dims(sp_seg.cpu(), axis=0))
+            labels.append(elf.segmentation.features.project_node_labels_to_pixels(rag, node_labels[-1]).squeeze())
         return torch.from_numpy(np.stack(labels).astype(np.float)).to(node_features.device), \
                torch.from_numpy(np.concatenate(node_labels).astype(np.float)).to(node_features.device)
 

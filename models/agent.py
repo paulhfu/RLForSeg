@@ -16,10 +16,10 @@ class Agent(torch.nn.Module):
         self.device = device
         self.writer_counter = 0
 
-        self.actor = PolicyNet(self.cfg.fe.n_embedding_features+1, 2, cfg.model.n_hidden, cfg.model.hl_factor, device, writer)
-        self.critic = DoubleQValueNet(self.cfg.sac.s_subgraph, self.cfg.fe.n_embedding_features + 1, 1,
+        self.actor = PolicyNet(self.cfg.fe.n_embedding_features + 2, 2, cfg.model.n_hidden, cfg.model.hl_factor, device, writer)
+        self.critic = DoubleQValueNet(self.cfg.sac.s_subgraph, self.cfg.fe.n_embedding_features + 2, 1,
                                       cfg.model.n_hidden, cfg.model.hl_factor, device, writer)
-        self.critic_tgt = DoubleQValueNet(self.cfg.sac.s_subgraph, self.cfg.fe.n_embedding_features + 1, 1,
+        self.critic_tgt = DoubleQValueNet(self.cfg.sac.s_subgraph, self.cfg.fe.n_embedding_features + 2, 1,
                                           cfg.model.n_hidden, cfg.model.hl_factor, device, writer)
 
         self.log_alpha = torch.tensor([np.log(self.cfg.sac.init_temperature)] * len(self.cfg.sac.s_subgraph)).to(device)
@@ -36,8 +36,8 @@ class Agent(torch.nn.Module):
 
     def forward(self, state, actions, post_input, policy_opt, embeddings_opt, return_node_features):
         node_features, edge_index, angles, sup_masses, sub_graphs, sep_subgraphs, round_n, gt_edges = state
-        node_features = torch.cat((node_features, sup_masses), 1)
         round_n /= self.cfg.trainer.max_episode_length
+        node_features = torch.cat((node_features, sup_masses, torch.ones_like(sup_masses) * round_n), 1)
         edge_index = torch.cat([edge_index, torch.stack([edge_index[1], edge_index[0]], dim=0)], dim=1)  # gcnn expects two directed edges for one undirected edge
         if actions is None:
             with torch.set_grad_enabled(policy_opt):

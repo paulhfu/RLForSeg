@@ -5,6 +5,7 @@ import elf.segmentation.features as feats
 import torch
 
 def computeAffs(file_from, offsets):
+    """computes affinities of a segmentation"""
     file = h5py.File(file_from, 'a')
     keys = list(file.keys())
     file.create_group('masks')
@@ -18,6 +19,8 @@ def computeAffs(file_from, offsets):
     return
 
 def get_naive_affinities(raw, offsets):
+    """get naive pixel affinities based on differences in pixel intensities. This is extremely slow.
+    If opting for speed, use np.roll"""
     affinities = np.zeros([len(offsets)] + list(raw.shape[:2]))
     normed_raw = raw / raw.max()
     for y in range(normed_raw.shape[0]):
@@ -35,44 +38,6 @@ def get_affinities_from_embeddings_2d(embeddings, offsets, delta, p=2):
         affs[i] = torch.maximum((delta - torch.norm(embeddings - rolled, p=p, dim=1)) / 2 * delta, torch.tensor([0], device=embeddings.device)) ** 2
 
     return affs
-
-def get_stacked_node_data(nodes, edges, segmentation, raw, size):
-    raw_nodes = torch.empty([len(nodes), *size])
-    cms = torch.empty((len(nodes), 2))
-    angles = torch.zeros(len(edges) * 2) - 11
-    for i, n in enumerate(nodes):
-        mask = (n == segmentation)
-        # x, y = utils.bbox(mask.unsqueeze(0).numpy())
-        # x, y = x[0], y[0]
-        # masked_seg = mask.float() * raw
-        # masked_seg = masked_seg[x[0]:x[1]+1, y[0]:y[1]+1]
-        # if 0 in masked_seg.shape:
-        #     a=1
-        # raw_nodes[i] = torch.nn.functional.interpolate(masked_seg.unsqueeze(0).unsqueeze(0), size=size)
-        idxs = torch.where(mask)
-        cms[n.long()] = torch.tensor([torch.sum(idxs[0]).long(), torch.sum(idxs[1]).long()]) / mask.sum()
-    for i, e in enumerate(edges):
-        vec = cms[e[1]] - cms[e[0]]
-        angle = abs(np.arctan(vec[0] / (vec[1] + np.finfo(float).eps)))
-        if vec[0] <= 0 and vec[1] <= 0:
-            angles[i] = np.pi + angle
-            angles[i + len(edges)] = angle
-        elif vec[0] >= 0 and vec[1] <= 0:
-            angles[i] = np.pi - angle
-            angles[i + len(edges)] = 2 * np.pi - angle
-        elif vec[0] <= 0 and vec[1] >= 0:
-            angles[i] = 2 * np.pi - angle
-            angles[i + len(edges)] = np.pi - angle
-        elif vec[0] >= 0 and vec[1] >= 0:
-            angles[i] = angle
-            angles[i + len(edges)] = np.pi + angle
-        else:
-            assert False
-    if angles.max() > 2 * np.pi + 1e-20 or angles.min() + 1e-20 < 0:
-        assert False
-    angles = np.rint(angles / (2 * np.pi) * 63)
-    return raw_nodes, angles.long()
-
 
 def get_edge_features_1d(sp_seg, offsets, affinities):
     offsets_3d = []

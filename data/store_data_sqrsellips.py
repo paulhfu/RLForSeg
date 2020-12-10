@@ -2,7 +2,6 @@ import os
 
 import h5py
 import numpy as np
-from affogato.segmentation.mws import get_valid_edges
 from skimage import draw
 from skimage.filters import gaussian
 import elf
@@ -18,27 +17,24 @@ from matplotlib import cm
 set_seed_everywhere(10)
 
 
-def get_pix_data(length=50000, shape=(128, 128), radius=72):
+def get_pix_data(shape=(256, 256)):
     """ This generates raw-gt-superpixels and correspondinng rags of rectangles and circles"""
-    shape = (256, 256)
-    edge_offsets = [[0, -1], [-1, 0],
-               # direct 3d nhood for attractive edges
-               # [0, -1], [-1, 0]]
-               [-3, 0], [0, -3],
-               [-6, 0], [0, -6]]
-    sep_chnl = 2
-    n_ellips = 5
-    n_polys = 10
-    n_rect = 5
-    ellips_color = np.array([1, 0, 0], dtype=np.float)
+
+    edge_offsets = [[0, -1], [-1, 0], [-3, 0], [0, -3], [-6, 0], [0, -6]]  # offsets defining the edges for pixel affinities
+    sep_chnl = 2  # channel separating attractive from repulsive edges
+    n_circles = 5  # number of ellipses in image
+    n_polys = 10  # number of rand polys in image
+    n_rect = 5  # number rectangles in image
+    circle_color = np.array([1, 0, 0], dtype=np.float)
     rect_color = np.array([0, 0, 1], dtype=np.float)
-    col_diff = 0.4
-    min_r, max_r = 10, 20
+    col_diff = 0.4  # by this margin object color can vary ranomly
+    min_r, max_r = 10, 20  # min and max radii of ellipses/circles
     min_dist = max_r
 
-    img = np.random.randn(*(shape + (3,))) / 5
+    img = np.random.randn(*(shape + (3,))) / 5  # init image with some noise
     gt = np.zeros(shape)
 
+    #  get some random frequencies
     ri1, ri2, ri3, ri4, ri5, ri6 = np.sign(np.random.randint(-100, 100)) * ((np.random.rand() * 2) + .5), np.sign(
         np.random.randint(-100, 100)) * ((np.random.rand() * 2) + .5), (np.random.rand() * 4) + 3, (
                                            np.random.rand() * 4) + 3, np.sign(np.random.randint(-100, 100)) * (
@@ -47,14 +43,17 @@ def get_pix_data(length=50000, shape=(128, 128), radius=72):
     x = np.zeros(shape)
     x[:, :] = np.arange(img.shape[0])[np.newaxis, :]
     y = x.transpose()
+    # add background frequency interferences
     img += (np.sin(np.sqrt((x * ri1) ** 2 + ((shape[1] - y) * ri2) ** 2) * ri3 * np.pi / shape[0]))[
         ..., np.newaxis]
     img += (np.sin(np.sqrt((x * ri5) ** 2 + ((shape[1] - y) * ri6) ** 2) * ri4 * np.pi / shape[1]))[
         ..., np.newaxis]
+    # smooth a bit
     img = gaussian(np.clip(img, 0.1, 1), sigma=.8)
+    # add some circles
     circles = []
     cmps = []
-    while len(circles) < n_ellips:
+    while len(circles) < n_circles:
         mp = np.random.randint(min_r, shape[0] - min_r, 2)
         too_close = False
         for cmp in cmps:
@@ -66,6 +65,7 @@ def get_pix_data(length=50000, shape=(128, 128), radius=72):
         circles.append(draw.circle(mp[0], mp[1], r[0], shape=shape))
         cmps.append(mp)
 
+    # add some random polygons
     polys = []
     while len(polys) < n_polys:
         mp = np.random.randint(min_r, shape[0] - min_r, 2)
@@ -80,6 +80,7 @@ def get_pix_data(length=50000, shape=(128, 128), radius=72):
         polys.append(draw.polygon(circle[0][poly_vert], circle[1][poly_vert], shape=shape))
         cmps.append(mp)
 
+    # add some random rectangles
     rects = []
     while len(rects) < n_rect:
         mp = np.random.randint(min_r, shape[0] - min_r, 2)
@@ -94,33 +95,36 @@ def get_pix_data(length=50000, shape=(128, 128), radius=72):
         rects.append(draw.rectangle(start, extent=(_len[0] * 2, _len[1] * 2), shape=shape))
         cmps.append(mp)
 
+
+    # draw polys and give them some noise
     for poly in polys:
         color = np.random.rand(3)
-        while np.linalg.norm(color - ellips_color) < col_diff or np.linalg.norm(
+        while np.linalg.norm(color - circle_color) < col_diff or np.linalg.norm(
                 color - rect_color) < col_diff:
             color = np.random.rand(3)
         img[poly[0], poly[1], :] = color
-        img[poly[0], poly[1], :] += np.random.randn(len(poly[1]), 3) / 5
+        img[poly[0], poly[1], :] += np.random.randn(len(poly[1]), 3) / 5  # add noise to the polygons
 
-    cols = np.random.choice(np.arange(4, 11, 1).astype(np.float) / 10, n_ellips, replace=False)
-    for i, ellipse in enumerate(circles):
-        gt[ellipse[0], ellipse[1]] = 1 + (i/10)
+    # draw circles with some frequency
+    cols = np.random.choice(np.arange(4, 11, 1).astype(np.float) / 10, n_circles, replace=False)
+    for i, circle in enumerate(circles):
+        gt[circle[0], circle[1]] = 1 + (i/10)
         ri1, ri2, ri3, ri4, ri5, ri6 = np.sign(np.random.randint(-100, 100)) * ((np.random.rand() * 4) + 7), np.sign(
             np.random.randint(-100, 100)) * ((np.random.rand() * 4) + 7), (np.random.rand() + 1) * 3, (
                                                np.random.rand() + 1) * 3, np.sign(np.random.randint(-100, 100)) * (
                                                    (np.random.rand() * 4) + 7), np.sign(
             np.random.randint(-100, 100)) * ((np.random.rand() * 4) + 7)
-        img[ellipse[0], ellipse[1], :] = np.array([cols[i], 0.0, 0.0])
-        img[ellipse[0], ellipse[1], :] += np.array([1.0, 1.0, 0.0]) * ((np.sin(np.sqrt(
-            (x[ellipse[0], ellipse[1]] * ri5) ** 2 + (
-                        (shape[1] - y[ellipse[0], ellipse[1]]) * ri2) ** 2) * ri3 * np.pi / shape[0]))[
+        img[circle[0], circle[1], :] = np.array([cols[i], 0.0, 0.0])
+        img[circle[0], circle[1], :] += np.array([1.0, 1.0, 0.0]) * ((np.sin(np.sqrt(
+            (x[circle[0], circle[1]] * ri5) ** 2 + (
+                        (shape[1] - y[circle[0], circle[1]]) * ri2) ** 2) * ri3 * np.pi / shape[0]))[
                                                                            ..., np.newaxis] * 0.15) + 0.2
-        img[ellipse[0], ellipse[1], :] += np.array([1.0, 1.0, 0.0]) * ((np.sin(np.sqrt(
-            (x[ellipse[0], ellipse[1]] * ri6) ** 2 + (
-                        (shape[1] - y[ellipse[0], ellipse[1]]) * ri1) ** 2) * ri4 * np.pi / shape[1]))[
+        img[circle[0], circle[1], :] += np.array([1.0, 1.0, 0.0]) * ((np.sin(np.sqrt(
+            (x[circle[0], circle[1]] * ri6) ** 2 + (
+                        (shape[1] - y[circle[0], circle[1]]) * ri1) ** 2) * ri4 * np.pi / shape[1]))[
                                                                            ..., np.newaxis] * 0.15) + 0.2
-        # img[ellipse[0], ellipse[1], :] += np.random.randn(len(ellipse[1]), 3) / 10
 
+    # draw rectangles with some frequency
     cols = np.random.choice(np.arange(4, 11, 1).astype(np.float) / 10, n_rect, replace=False)
     for i, rect in enumerate(rects):
         gt[rect[0], rect[1]] = 2+(i/10)
@@ -136,17 +140,15 @@ def get_pix_data(length=50000, shape=(128, 128), radius=72):
         img[rect[0], rect[1], :] += np.array([1.0, 1.0, 0.0]) * ((np.sin(
             np.sqrt((x[rect[0], rect[1]] * ri1) ** 2 + ((shape[1] - y[rect[0], rect[1]]) * ri6) ** 2) * ri4 * np.pi /
             shape[1]))[..., np.newaxis] * 0.15) + 0.2
-        # img[rect[0], rect[1], :] += np.random.randn(*(rect[1].shape + (3,)))/10
 
-    img = np.clip(img, 0, 1)
-
+    img = np.clip(img, 0, 1)  # clip to valid range
+    # get affinities and calc superpixels with mutex watershed
     affinities = get_naive_affinities(gaussian(np.clip(img, 0, 1), sigma=.2), edge_offsets)
     affinities[:sep_chnl] *= -1
     affinities[:sep_chnl] += +1
     affinities[:sep_chnl] /= 1.3
     affinities[sep_chnl:] *= 1.3
     affinities = np.clip(affinities, 0, 1)
-    #
     node_labeling = compute_mws_segmentation(affinities, edge_offsets, sep_chnl)
     node_labeling = node_labeling - 1
     nodes = np.unique(node_labeling)
@@ -155,17 +157,22 @@ def get_pix_data(length=50000, shape=(128, 128), radius=72):
     except:
         Warning("node ids are off")
 
+    # get edges from node labeling and edge features from affinity stats
     edge_feat, neighbors = get_edge_features_1d(node_labeling, edge_offsets, affinities)
+    # get gt edge weights based on edges and gt image
     gt_edge_weights = calculate_gt_edge_costs(neighbors, node_labeling.squeeze(), gt.squeeze())
     edges = neighbors.astype(np.long)
 
+    # calc multicut from gt
     gt_seg = get_current_soln(gt_edge_weights, node_labeling, edges)
-    fig, (ax1, ax2, ax3) = plt.subplots(1, 3)
+    # show result (uncomment for testing)
+
+    fig, (ax1, ax2, ax3, ax4) = plt.subplots(1, 4)
     ax1.imshow(cm.prism(gt/gt.max()));ax1.set_title('gt')
     ax2.imshow(cm.prism(node_labeling / node_labeling.max()));ax2.set_title('sp')
     ax3.imshow(cm.prism(gt_seg / gt_seg.max()));ax3.set_title('mc')
+    ax4.imshow(img);ax4.set_title('raw')
     plt.show()
-
 
     affinities = affinities.astype(np.float32)
     edge_feat = edge_feat.astype(np.float32)
