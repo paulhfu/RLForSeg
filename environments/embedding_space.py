@@ -53,7 +53,7 @@ class EmbeddingSpaceEnv():
         sg_edge_weights = []
         for i, sz in enumerate(self.cfg.sac.s_subgraph):
             sg_ne = node_labeling[self.subgraphs[i].view(2, -1, sz)]
-            sg_edge_weights.append((sg_ne[0] == sg_ne[1]).float())
+            sg_edge_weights.append(1 - (sg_ne[0] == sg_ne[1]).float())
 
         reward = self.reward_function.get(sg_edge_weights, self.sg_gt_edges) #self.current_soln)
 
