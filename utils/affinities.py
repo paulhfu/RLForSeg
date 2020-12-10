@@ -19,8 +19,7 @@ def computeAffs(file_from, offsets):
     return
 
 def get_naive_affinities(raw, offsets):
-    """get naive pixel affinities based on differences in pixel intensities. This is extremely slow.
-    If opting for speed, use np.roll"""
+    """get naive pixel affinities based on differences in pixel intensities."""
     affinities = []
     normed_raw = raw / raw.max()
     for i, off in enumerate(offsets):
