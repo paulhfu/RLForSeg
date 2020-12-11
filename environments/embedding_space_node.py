@@ -17,9 +17,6 @@ class EmbeddingSpaceEnvEdgeBased():
 
     def __init__(self, embedding_net, cfg, device, writer=None, writer_counter=None):
         super(EmbeddingSpaceEnvEdgeBased, self).__init__()
-        assert False  # @TODO still not clear how to do that. Cannot have Q-vals per node because of noise in rewards.
-                      # @TODO Can also not calc joint probas of node actions on subgraphs in an efficient (batched) way
-
         self.embedding_net = embedding_net
         self.reset()
         self.cfg = cfg

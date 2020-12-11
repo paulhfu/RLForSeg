@@ -10,7 +10,7 @@ data_dir: /g/kreshuk/hilt/projects/fewShotLearning/mutexWtsd/data/storage/sqrs_c
 n_max_object: 14
 p: 2 # p norm in embedding space
 # env and model defs
-env: embedding_space # multicut_embedding/embedding_space
+env: embedding_space_nodes # multicut_embedding/embedding_space
 model_name: 'agent_model'
 resume: false # resume from state dict model_name in base_dir
 

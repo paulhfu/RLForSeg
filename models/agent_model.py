@@ -125,7 +125,8 @@ class DoubleQValueNet(torch.nn.Module):
         )
 
     def forward(self, node_features, actions, edge_index, angles, sub_graphs, sep_subgraphs, gt_edges, post_input):
-        actions = actions.unsqueeze(-1)
+        if actions.ndim < 2:
+            actions = actions.unsqueeze(-1)
         _sg_edge_features1, side_loss = self.gcn1_1(node_features, edge_index, angles, gt_edges, actions, post_input)
 
         _sg_edge_features2, _side_loss = self.gcn2_1(node_features, edge_index, angles, gt_edges, actions, post_input)

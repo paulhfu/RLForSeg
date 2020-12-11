@@ -86,7 +86,7 @@ def get_joint_sg_logprobs_edges(logprobs, subgraphs):
     return logprobs[subgraphs].sum(-1)
 
 def get_joint_sg_logprobs_nodes(logprobs, subgraphs):
-    joint_logprobs = torch.zeros(subgraphs.shape[0], device=subgraphs.device)
+    joint_logprobs = torch.zeros(subgraphs.shape[0], device=logprobs.device)
     for i, sg in enumerate(subgraphs):
         joint_logprobs[i] = logprobs[torch.unique(sg)].sum()
     return joint_logprobs
