@@ -6,4 +6,4 @@
 *.out
 *.toc
 *.synctex.gz
-./conf/*
+conf/
