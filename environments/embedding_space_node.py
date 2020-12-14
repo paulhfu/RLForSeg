@@ -9,14 +9,15 @@ from utils.reward_functions import UnSupervisedReward, SubGraphDiceReward
 from utils.graphs import collate_edges, get_edge_indices, get_angles_smass_in_rag
 from utils.general import pca_project_1d
 from rag_utils import find_dense_subgraphs
+import nifty.graph.agglo as nagglo
 from scipy.cluster.hierarchy import linkage, fcluster
 
-class EmbeddingSpaceEnvEdgeBased():
+class EmbeddingSpaceEnvNodeBased():
 
-    State = collections.namedtuple("State", ["node_embeddings", "edge_ids", "edge_angles", "sup_masses", "subgraph_indices", "sep_subgraphs", "round_n", "gt_edge_weights"])
+    State = collections.namedtuple("State", ["node_embeddings", "edge_ids", "edge_angles", "sup_masses", "subgraph_indices", "sep_subgraphs", "subgraphs", "round_n", "gt_edge_weights"])
 
     def __init__(self, embedding_net, cfg, device, writer=None, writer_counter=None):
-        super(EmbeddingSpaceEnvEdgeBased, self).__init__()
+        super(EmbeddingSpaceEnvNodeBased, self).__init__()
         self.embedding_net = embedding_net
         self.reset()
         self.cfg = cfg
@@ -30,11 +31,18 @@ class EmbeddingSpaceEnvEdgeBased():
         else:
             self.reward_function = UnSupervisedReward(env=self)
 
+        if self.cfg.gen.embedding_dist == "cosine":
+            self.cluster_policy = nagglo.cosineDistNodeAndEdgeWeightedClusterPolicy
+        else:
+            self.cluster_policy = nagglo.nodeAndEdgeWeightedClusterPolicy
+
     def execute_action(self, actions, logg_vals=None, post_stats=False):
 
         self.current_node_embeddings += actions
+        if self.cfg.gen.embedding_dist == 'cosine':
+            self.current_node_embeddings /= (torch.norm(self.current_node_embeddings, dim=-1) + 1e-6)
 
-        self.current_soln, node_labeling = self.get_soln(self.current_node_embeddings)
+        self.current_soln, node_labeling = self.get_soln_graph_clustering(self.current_node_embeddings)
 
         sg_edge_weights = []
         for i, sz in enumerate(self.cfg.sac.s_subgraph):
@@ -79,7 +87,7 @@ class EmbeddingSpaceEnvEdgeBased():
         return self.get_state(), reward
 
     def get_state(self):
-        return self.State(self.current_node_embeddings, self.edge_ids, self.edge_angles, self.sup_masses, self.subgraph_indices, self.sep_subgraphs, self.counter, self.gt_edge_weights)
+        return self.State(self.current_node_embeddings, self.edge_ids, self.edge_angles, self.sup_masses, self.subgraph_indices, self.sep_subgraphs, self.subgraphs, self.counter, self.gt_edge_weights)
 
     def update_data(self, edge_ids, gt_edges, sp_seg, raw, gt, **kwargs):
         bs = len(edge_ids)
@@ -132,11 +140,7 @@ class EmbeddingSpaceEnvEdgeBased():
             b_actions[i] = torch.where(mask, actions.float(), other.float()).sum() / num
         return b_actions
 
-    def get_soln(self, node_features):
-        # shape = list(node_features.unsqueeze(0).size())
-        # shape[0] = shape[1]
-        # feature_matrix = node_features.expand(shape)
-        # distance_matrix = torch.norm(feature_matrix - feature_matrix.transpose(0, 1), p=2, dim=-1)
+    def get_soln_free_clustering(self, node_features):
         labels = []
         node_labels = []
         for i, sp_seg in enumerate(self.init_sp_seg):
@@ -146,6 +150,37 @@ class EmbeddingSpaceEnvEdgeBased():
             rag = elf.segmentation.features.compute_rag(np.expand_dims(sp_seg.cpu(), axis=0))
             labels.append(elf.segmentation.features.project_node_labels_to_pixels(rag, node_labels[-1]).squeeze())
 
+        return torch.from_numpy(np.stack(labels).astype(np.float)).to(node_features.device), \
+               torch.from_numpy(np.concatenate(node_labels).astype(np.float)).to(node_features.device)
+
+    def get_soln_graph_clustering(self, node_features):
+        labels = []
+        node_labels = []
+        for i, sp_seg in enumerate(self.init_sp_seg):
+            single_node_features = node_features[self.n_offs[i]:self.n_offs[i+1]].detach().cpu().numpy()
+            rag = nifty.graph.undirectedGraph(single_node_features.shape[0])
+            rag.insertEdges((self.edge_ids[:, self.e_offs[i]:self.e_offs[i+1]] - self.n_offs[i]).T.detach().cpu().numpy())
+
+            edge_weights = np.ones(rag.numberOfEdges, dtype=np.int)
+            edge_sizes = np.ones(rag.numberOfEdges, dtype=np.int)
+            node_sizes = np.ones(rag.numberOfNodes, dtype=np.int)
+
+            policy = nagglo.nodeAndEdgeWeightedClusterPolicy(
+                graph=rag,
+                edgeIndicators=edge_weights,
+                edgeSizes=edge_sizes,
+                nodeFeatures=single_node_features,
+                nodeSizes=node_sizes,
+                numberOfNodesStop=self.cfg.gen.n_max_object,
+                beta = 1,
+                sizeRegularizer = 0
+            )
+            clustering = nagglo.agglomerativeClustering(policy)
+            clustering.run()
+
+            node_labels.append(clustering.result())
+            rag = elf.segmentation.features.compute_rag(np.expand_dims(sp_seg.cpu(), axis=0))
+            labels.append(elf.segmentation.features.project_node_labels_to_pixels(rag, node_labels[-1]).squeeze())
         return torch.from_numpy(np.stack(labels).astype(np.float)).to(node_features.device), \
                torch.from_numpy(np.concatenate(node_labels).astype(np.float)).to(node_features.device)
 

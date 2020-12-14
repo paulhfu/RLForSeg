@@ -82,14 +82,20 @@ def get_angles_smass_in_rag(edges, segmentation):
     return angles, sup_sizes / float(segmentation.shape[-1] * segmentation.shape[-2]), cms
 
 
-def get_joint_sg_logprobs_edges(logprobs, subgraphs):
-    return logprobs[subgraphs].sum(-1)
+def get_joint_sg_logprobs_edges(logprobs, scale, obs, sg_ind, sz):
+    return logprobs[obs.subgraph_indices[sg_ind].view(-1, sz)].sum(-1), \
+           (1 / 2 * (1 + (2 * np.pi * scale[obs.subgraph_indices[sg_ind].view(-1, sz)] ** 2).log())).sum(-1)
 
-def get_joint_sg_logprobs_nodes(logprobs, subgraphs):
-    joint_logprobs = torch.zeros(subgraphs.shape[0], device=logprobs.device)
-    for i, sg in enumerate(subgraphs):
-        joint_logprobs[i] = logprobs[torch.unique(sg)].sum()
-    return joint_logprobs
+def get_joint_sg_logprobs_nodes(logprobs, scale, obs, sg_ind, sz):
+    sgs = obs.subgraphs[sg_ind].view(2, -1, sz).permute(1, 2, 0)
+    joint_logprobs = torch.zeros(sgs.shape[0], device=logprobs.device)
+    sg_entropy = torch.zeros(sgs.shape[0], device=logprobs.device)
+    for i, sg in enumerate(sgs):
+        un = torch.unique(sg)
+        joint_logprobs[i] = logprobs[un].sum()
+        sg_entropy[i] = (1 / 2 * (
+                    1 + (2 * np.pi * scale[un] ** 2).log())).sum()
+    return joint_logprobs, sg_entropy
 
 if __name__ == "__main__":
     # edges = np.array([[1, 3], [2, 4], [1, 2], [2, 3], [3, 5], [3, 6], [1, 5], [2, 8], [4, 8], [4, 9], [5, 9], [8, 9]])

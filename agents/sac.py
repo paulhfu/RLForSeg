@@ -7,7 +7,8 @@ from torch.utils.data import DataLoader
 from collections import namedtuple
 from environments.multicut import MulticutEmbeddingsEnv
 from environments.embedding_space_edge import EmbeddingSpaceEnvEdgeBased
-from models.agent_model import AgentEdge
+from environments.embedding_space_node import EmbeddingSpaceEnvNodeBased
+from models.agent_model import Agent
 from models.feature_extractor import FeExtractor
 from torch.nn.parallel import DistributedDataParallel as DDP
 import torch.distributed as dist
@@ -274,13 +275,11 @@ class AgentSacTrainer(object):
         mean_reward = 0
 
         for i, sz in enumerate(self.cfg.sac.s_subgraph):
-            _log_prob = self.get_joint_sg_logprobs(log_prob, next_obs.subgraph_indices[i].view(-1, sz))
-
+            _log_prob, sg_entropy = self.get_joint_sg_logprobs(log_prob, distribution.scale, next_obs, i , sz)
             if self.cfg.sac.use_closed_form_entropy:
-                sg_entropy = (1 / 2 * (1 + (2 * np.pi * distribution.scale[next_obs.subgraph_indices[i].view(-1, sz)] ** 2).log())).sum(-1)
                 target_V = torch.min(target_Q1[i], target_Q2[i]) - model.module.alpha[i].detach() * sg_entropy
             else:
-                target_V = torch.min(target_Q1[i], target_Q2[i]) - model.module.alpha[i].detach() * log_prob[next_obs[5][i].view(-1, sz)].sum(-1)
+                target_V = torch.min(target_Q1[i], target_Q2[i]) - model.module.alpha[i].detach() * _log_prob
 
             target_Q = reward[i] + (not_done * self.cfg.sac.discount * target_V)
             target_Q = target_Q.detach()
@@ -301,12 +300,14 @@ class AgentSacTrainer(object):
         log_prob = distribution.log_prob(action)
         actor_loss = torch.tensor([0.0], device=actor_Q1[0].device)
         alpha_loss = torch.tensor([0.0], device=actor_Q1[0].device)
-
+        _log_prob, sg_entropy = [], []
         for i, sz in enumerate(self.cfg.sac.s_subgraph):
             actor_Q = torch.min(actor_Q1[i], actor_Q2[i])
+            ret = self.get_joint_sg_logprobs(log_prob, distribution.scale, obs, i , sz)
+            _log_prob.append(ret[0])
+            sg_entropy.append(ret[1])
 
-            _log_prob = self.get_joint_sg_logprobs(log_prob, obs.subgraph_indices[i].view(-1, sz))
-            loss = (model.module.alpha[i].detach() * _log_prob - actor_Q).mean()
+            loss = (model.module.alpha[i].detach() * _log_prob[i] - actor_Q).mean()
             actor_loss = actor_loss + loss# + self.cfg.sac.sl_beta * side_loss
 
         actor_loss = actor_loss / len(self.cfg.sac.s_subgraph)
@@ -316,13 +317,11 @@ class AgentSacTrainer(object):
 
         for i, sz in enumerate(self.cfg.sac.s_subgraph):
             if self.cfg.sac.use_closed_form_entropy:
-                sg_entropy = (1/2 * (1 + (2 * np.pi * distribution.scale[obs.subgraph_indices[i].view(-1, sz)] ** 2).log())).sum(-1).detach()
                 alpha_loss = alpha_loss + (model.module.alpha[i] \
-                                           * (sg_entropy - (self.cfg.sac.s_subgraph[i] * self.cfg.sac.min_exp_entropy))).mean()
+                                           * (sg_entropy[i].detach() - (self.cfg.sac.s_subgraph[i] * self.cfg.sac.min_exp_entropy))).mean()
             else:
-                _log_prob = self.get_joint_sg_logprobs(log_prob, obs.subgraph_indices[i].view(-1, sz)).detach()  # very inefficient when doing node based actions
                 alpha_loss = alpha_loss + (model.module.alpha[i] *
-                                           (-_log_prob - (self.cfg.sac.s_subgraph[i] * self.cfg.sac.min_exp_entropy))).mean()
+                                           (-_log_prob[i].detach() - (self.cfg.sac.s_subgraph[i] * self.cfg.sac.min_exp_entropy))).mean()
 
         alpha_loss = alpha_loss / len(self.cfg.sac.s_subgraph)
         optimizers.temperature.zero_grad()
@@ -397,17 +396,16 @@ class AgentSacTrainer(object):
         return
 
     def train_step(self, rank, writer):
+        is_edge_based = True
         device = torch.device("cuda:" + str(rank // self.cfg.gen.n_processes_per_gpu))
         print('Running on device: ', device)
         torch.cuda.set_device(device)
         torch.set_default_tensor_type(torch.FloatTensor)
         self.setup(rank, self.cfg.gen.n_processes_per_gpu * self.cfg.gen.n_gpu)
 
-        model = AgentEdge(self.cfg, device, writer=writer)
         fe_ext = FeExtractor(self.cfg.fe.n_raw_channels, self.cfg.fe.n_embedding_features,
                              self.cfg.fe.contrastive_delta, device, writer, self.cfg.gen.p,
                              self.cfg.fe.max_pixel_in_dist_mat)
-        model.cuda(device)
         fe_ext.cuda(device)
 
         if self.cfg.gen.env == "multicut_embedding":
@@ -415,8 +413,11 @@ class AgentSacTrainer(object):
         elif self.cfg.gen.env == "embedding_space_edges":
             env = EmbeddingSpaceEnvEdgeBased(fe_ext, self.cfg, device, writer=writer, writer_counter=self.global_writer_quality_count)
         elif self.cfg.gen.env == "embedding_space_nodes":
-            env = EmbeddingSpaceEnvEdgeBased(fe_ext, self.cfg, device, writer=writer, writer_counter=self.global_writer_quality_count)
+            is_edge_based = False
+            env = EmbeddingSpaceEnvNodeBased(fe_ext, self.cfg, device, writer=writer, writer_counter=self.global_writer_quality_count)
 
+        model = Agent(self.cfg, env.State, device, writer=writer)
+        model.cuda(device)
         #Create shared network
         shared_model = DDP(model, device_ids=[device], find_unused_parameters=True)
         if 'extra' in self.cfg.fe.optim:
@@ -527,8 +528,11 @@ class AgentSacTrainer(object):
                     post_model &= self.memory.is_full()
                     distr = None
                     if not self.memory.is_full():
-                        action = torch.rand(env.edge_ids.shape[-1], device=device)
-                        if self.cfg.gen.env == "embedding_space":
+                        if is_edge_based:
+                            action = torch.rand(env.edge_ids.shape[-1], device=device)
+                        else:
+                            action = torch.rand(env.current_node_embeddings.shape, device=device)
+                        if self.cfg.gen.env == "embedding_space" or not is_edge_based:
                             action -= 0.5
                     else:
                         distr, _, _, action, _, _ = self.agent_forward(env, shared_model, state=state, grad=False,

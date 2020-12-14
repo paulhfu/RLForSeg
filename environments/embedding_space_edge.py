@@ -48,6 +48,9 @@ class EmbeddingSpaceEnvEdgeBased():
         shift = shift.sum(1) / n_neighbors.unsqueeze(1)
         # shift the current node set
         self.current_node_embeddings += shift
+        if self.cfg.gen.embedding_dist == 'cosine':
+            self.current_node_embeddings /= (torch.norm(self.current_node_embeddings, dim=-1) + 1e-6)
+
         self.current_soln, node_labeling = self.get_soln_graph_clustering(self.current_node_embeddings)
 
         sg_edge_weights = []
@@ -178,7 +181,9 @@ class EmbeddingSpaceEnvEdgeBased():
                 edgeSizes=edge_sizes,
                 nodeFeatures=single_node_features,
                 nodeSizes=node_sizes,
-                numberOfNodesStop=self.cfg.gen.n_max_object
+                numberOfNodesStop=self.cfg.gen.n_max_object,
+                beta = 1,
+                sizeRegularizer = 0
             )
             clustering = nagglo.agglomerativeClustering(policy)
             clustering.run()
