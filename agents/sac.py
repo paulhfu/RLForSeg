@@ -70,7 +70,7 @@ class AgentSacTrainer(object):
         model.eval()
         n_examples = 4
         taus = [0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8, 0.9]
-        dset = SpgDset(self.cfg.gen.data_dir, self.cfg.gen.patch_manager, self.cfg.gen.patch_stride, self.cfg.gen.patch_shape, self.cfg.gen.reorder_sp)
+        dset = SpgDset(self.cfg.gen.data_dir, max(self.cfg.sac.s_subgraph), self.cfg.gen.patch_manager, self.cfg.gen.patch_stride, self.cfg.gen.patch_shape, self.cfg.gen.reorder_sp)
         dloader = DataLoader(dset, batch_size=1, shuffle=True, pin_memory=True,
                              num_workers=0)
         clst_scores, clst_scores_sp, rl_scores, keys = [], [], [], None
@@ -200,7 +200,7 @@ class AgentSacTrainer(object):
 
     def pretrain_embeddings_gt(self, model, device, writer=None):
         wu_cfg = self.cfg.fe.warmup
-        dset = SpgDset(self.cfg.gen.data_dir, wu_cfg.patch_manager, wu_cfg.patch_stride, wu_cfg.patch_shape, wu_cfg.reorder_sp)
+        dset = SpgDset(self.cfg.gen.data_dir, max(self.cfg.sac.s_subgraph), wu_cfg.patch_manager, wu_cfg.patch_stride, wu_cfg.patch_shape, wu_cfg.reorder_sp)
         dloader = DataLoader(dset, batch_size=wu_cfg.batch_size, shuffle=True, pin_memory=True, num_workers=0)
         optimizer = torch.optim.Adam(model.parameters(), lr=wu_cfg.lr,  betas=wu_cfg.betas)
         sheduler = ReduceLROnPlateau(optimizer)
@@ -240,7 +240,12 @@ class AgentSacTrainer(object):
     def update_env_data(self, env, dloader, device):
         raw, gt, sp_seg, indices = next(iter(dloader))
         raw, gt, sp_seg = raw.to(device), gt.to(device), sp_seg.to(device)
-        edges, edge_feat, _, gt_edges = dloader.dataset.get_graphs(indices, sp_seg, device)
+        ret = dloader.dataset.get_graphs(indices, sp_seg, device)
+        while ret == None:
+            raw, gt, sp_seg, indices = next(iter(dloader))
+            raw, gt, sp_seg = raw.to(device), gt.to(device), sp_seg.to(device)
+            ret = dloader.dataset.get_graphs(indices, sp_seg, device)
+        edges, edge_feat, _, gt_edges  = ret
         env.update_data(edge_ids=edges, gt_edges=gt_edges, edge_features=edge_feat, sp_seg=sp_seg, raw=raw, gt=gt)
 
     def agent_forward(self, env, model, state, actions=None, grad=True, post_input=False, post_model=False,
@@ -499,7 +504,7 @@ class AgentSacTrainer(object):
             for param in fe_ext.parameters():
                 param.requires_grad = False
 
-        dset = SpgDset(self.cfg.gen.data_dir, self.cfg.gen.patch_manager, self.cfg.gen.patch_stride, self.cfg.gen.patch_shape, self.cfg.gen.reorder_sp)
+        dset = SpgDset(self.cfg.gen.data_dir, max(self.cfg.sac.s_subgraph), self.cfg.gen.patch_manager, self.cfg.gen.patch_stride, self.cfg.gen.patch_shape, self.cfg.gen.reorder_sp)
         step = 0
 
         while self.global_count.value() <= self.cfg.trainer.T_max:

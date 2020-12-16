@@ -167,9 +167,9 @@ def get_pix_data(shape=(256, 256)):
     gt_edge_weights = calculate_gt_edge_costs(neighbors, node_labeling.squeeze(), gt.squeeze())
     edges = neighbors.astype(np.long)
 
-    # # calc multicut from gt
-    # gt_seg = get_current_soln(gt_edge_weights, node_labeling, edges)
-    # # show result (uncomment for testing)
+    # calc multicut from gt
+    gt_seg = get_current_soln(gt_edge_weights, node_labeling, edges)
+    # show result (uncomment for testing)
     #
     # fig, (ax1, ax2, ax3, ax4) = plt.subplots(1, 4)
     # ax1.imshow(cm.prism(gt/gt.max()));ax1.set_title('gt')
@@ -239,6 +239,7 @@ def store_all(base_dir, n_samples):
 
 if __name__ == "__main__":
     dir = "/g/kreshuk/hilt/projects/data/rects_crcls_sp/pix_and_graphs_hfreq"
-    get_pix_data()
+    for i in range(10):
+        get_pix_data()
     #
     # store_all(dir, 100)

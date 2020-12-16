@@ -17,7 +17,7 @@ warmup:  # the feature extractor might need pretraining to produce meaningful fe
   betas: [0.9, 0.999]
 
   method: gt
-  n_iterations: 20  # number of iterations of feature extrqactor warmup
+  n_iterations: 2  # number of iterations of feature extrqactor warmup
   batch_size: 10  # batch size for feature extractor warmup
 
   patch_shape: [256, 256]
