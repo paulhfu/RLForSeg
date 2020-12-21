@@ -4,7 +4,7 @@ master_port: !!str "12352" #port num on localhost for icp
 no_save: false #dont save models
 n_processes_per_gpu: 1 #Number of training async agents
 n_gpu: 1 #Number of gpus per process
-target_dir: mc # dir name in base-dir. Logs are in here
+target_dir: mc_lp # dir name in base-dir. Logs are in here
 base_dir: /g/kreshuk/hilt/projects/RLForSeg # base-dir
 data_dir: /g/kreshuk/kaziakhm/circles_s025_gs0035_ps04_alln # circles sqrs_crclspn
 n_max_object: 14
@@ -15,7 +15,7 @@ model_name: 'agent_model'
 resume: false # resume from state dict model_name in base_dir
 
 # patch manager conf
-patch_shape: [32, 32]
+patch_shape: [100, 100]
 patch_stride: [16, 16]
 reorder_sp: false
 patch_manager: no_cross # rotated/no_cross/none

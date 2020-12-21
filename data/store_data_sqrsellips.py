@@ -170,13 +170,13 @@ def get_pix_data(shape=(256, 256)):
     # calc multicut from gt
     gt_seg = get_current_soln(gt_edge_weights, node_labeling, edges)
     # show result (uncomment for testing)
-    #
-    # fig, (ax1, ax2, ax3, ax4) = plt.subplots(1, 4)
-    # ax1.imshow(cm.prism(gt/gt.max()));ax1.set_title('gt')
-    # ax2.imshow(cm.prism(node_labeling / node_labeling.max()));ax2.set_title('sp')
-    # ax3.imshow(cm.prism(gt_seg / gt_seg.max()));ax3.set_title('mc')
-    # ax4.imshow(img);ax4.set_title('raw')
-    # plt.show()
+
+    fig, (ax1, ax2, ax3, ax4) = plt.subplots(1, 4)
+    ax1.imshow(cm.prism(gt/gt.max()));ax1.set_title('gt')
+    ax2.imshow(cm.prism(node_labeling / node_labeling.max()));ax2.set_title('sp')
+    ax3.imshow(cm.prism(gt_seg / gt_seg.max()));ax3.set_title('mc')
+    ax4.imshow(img);ax4.set_title('raw')
+    plt.show()
 
     affinities = affinities.astype(np.float32)
     edge_feat = edge_feat.astype(np.float32)
@@ -236,10 +236,62 @@ def store_all(base_dir, n_samples):
         graph_file.close()
         pix_file.close()
 
+def get_graphs(fname, sigma, edge_offsets):
+    overseg_factor = 1.7
+    sep_chnl = 2
+
+    file = h5py.File(fname, 'r')
+    img = file['raw'][:]
+    gt = file['gt'][:]
+
+
+    affinities = get_naive_affinities(gaussian(img, sigma=sigma), edge_offsets)
+    affinities[:sep_chnl] *= -1
+    affinities[:sep_chnl] += +1
+    # scale affinities in order to get an oversegmentation
+    affinities[:sep_chnl] /= overseg_factor
+    affinities[sep_chnl:] *= overseg_factor
+    affinities = np.clip(affinities, 0, 1)
+    node_labeling = compute_mws_segmentation(affinities, edge_offsets, sep_chnl)
+    node_labeling = node_labeling - 1
+    nodes = np.unique(node_labeling)
+    try:
+        assert all(nodes == np.array(range(len(nodes)), dtype=np.float))
+    except:
+        Warning("node ids are off")
+
+    # get edges from node labeling and edge features from affinity stats
+    edge_feat, neighbors = get_edge_features_1d(node_labeling, edge_offsets, affinities)
+    # get gt edge weights based on edges and gt image
+    gt_edge_weights = calculate_gt_edge_costs(neighbors, node_labeling.squeeze(), gt.squeeze())
+    edges = neighbors.astype(np.long)
+
+    # calc multicut from gt
+    gt_seg = get_current_soln(gt_edge_weights, node_labeling, edges)
+
+    fig, (ax1, ax2, ax3, ax4) = plt.subplots(1, 4)
+    ax1.imshow(cm.prism(gt/gt.max()));ax1.set_title('gt')
+    ax2.imshow(cm.prism(node_labeling / node_labeling.max()));ax2.set_title('sp')
+    ax3.imshow(cm.prism(gt_seg / gt_seg.max()));ax3.set_title('mc')
+    ax4.imshow(img);ax4.set_title('raw')
+    plt.show()
+
+    affinities = affinities.astype(np.float32)
+    edge_feat = edge_feat.astype(np.float32)
+    nodes = nodes.astype(np.float32)
+    node_labeling = node_labeling.astype(np.float32)
+    gt_edge_weights = gt_edge_weights.astype(np.float32)
+    diff_to_gt = np.abs((edge_feat[:, 0] - gt_edge_weights)).sum()
+
+    edges = np.sort(edges, axis=-1)
+    edges = edges.T
+
+    return img, gt, edges, edge_feat, diff_to_gt, gt_edge_weights, node_labeling, nodes, affinities
+
 
 if __name__ == "__main__":
     dir = "/g/kreshuk/hilt/projects/data/rects_crcls_sp/pix_and_graphs_hfreq"
-    for i in range(10):
-        get_pix_data()
-    #
-    # store_all(dir, 100)
+    # for i in range(10):
+    #     get_pix_data()
+    get_graphs("/g/kreshuk/kaziakhm/circles_s025_gs0035_ps04_alln/pix_data/pix_28.h5", .8,
+                [[0, -1], [-1, 0], [-5, 0], [0, -5]])
