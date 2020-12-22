@@ -106,7 +106,7 @@ class EmbeddingSpaceEnvEdgeBased():
         temp_code = self.step_encoder(self.counter, self.current_node_embeddings.device)[None]
         state = self.current_node_embeddings + temp_code
         return self.State(state, self.edge_ids, self.edge_angles, self.sup_masses, self.subgraph_indices,
-                          self.sep_subgraphs, self.subgraphs, self.gt_edge_weights)
+                          self.sep_subgraphs, self.gt_edge_weights)
 
     def update_data(self, edge_ids, gt_edges, sp_seg, raw, gt, **kwargs):
         bs = len(edge_ids)

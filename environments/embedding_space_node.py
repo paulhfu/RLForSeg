@@ -7,12 +7,9 @@ import collections
 import matplotlib.pyplot as plt
 from utils.reward_functions import UnSupervisedReward, SubGraphDiceReward
 from utils.graphs import collate_edges, get_edge_indices, get_angles_smass_in_rag
-<<<<<<< HEAD
 from utils.general import pca_project_1d
 from utils.temporal_encoding import TemporalSineEncoding
-=======
 from utils.general import pca_project_1d, get_angles
->>>>>>> embedding space edges not working
 from rag_utils import find_dense_subgraphs
 import nifty.graph.agglo as nagglo
 from scipy.cluster.hierarchy import linkage, fcluster

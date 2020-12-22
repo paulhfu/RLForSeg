@@ -12,7 +12,7 @@ alpha_betas: [0.9, 0.999]
 actor_lr: 1e-4
 actor_betas: [0.9, 0.999]
 actor_update_frequency: 1  # optim step every n-th step
-n_actions: 16
+n_actions: 1
 critic_lr: 1e-4
 critic_betas: [0.9, 0.999]
 critic_tau: 0.005
