@@ -8,13 +8,14 @@ import matplotlib.pyplot as plt
 from utils.reward_functions import UnSupervisedReward, SubGraphDiceReward
 from utils.graphs import collate_edges, get_edge_indices, get_angles_smass_in_rag
 from utils.general import pca_project_1d
+from utils.temporal_encoding import TemporalSineEncoding
 from rag_utils import find_dense_subgraphs
 import nifty.graph.agglo as nagglo
 from scipy.cluster.hierarchy import linkage, fcluster
 
 class EmbeddingSpaceEnvNodeBased():
 
-    State = collections.namedtuple("State", ["node_embeddings", "edge_ids", "edge_angles", "sup_masses", "subgraph_indices", "sep_subgraphs", "subgraphs", "round_n", "gt_edge_weights"])
+    State = collections.namedtuple("State", ["node_embeddings", "edge_ids", "edge_angles", "sup_masses", "subgraph_indices", "sep_subgraphs", "subgraphs", "gt_edge_weights"])
 
     def __init__(self, embedding_net, cfg, device, writer=None, writer_counter=None):
         super(EmbeddingSpaceEnvNodeBased, self).__init__()
@@ -25,6 +26,8 @@ class EmbeddingSpaceEnvNodeBased():
         self.writer = writer
         self.writer_counter = writer_counter
         self.max_p = torch.nn.MaxPool2d(3, padding=1, stride=1)
+        self.step_encoder = TemporalSineEncoding(max_step=cfg.trainer.max_episode_length,
+                                                 size=cfg.fe.n_embedding_features)
 
         if self.cfg.sac.reward_function == 'sub_graph_dice':
             self.reward_function = SubGraphDiceReward()
@@ -40,7 +43,7 @@ class EmbeddingSpaceEnvNodeBased():
 
         self.current_node_embeddings += actions
         if self.cfg.gen.embedding_dist == 'cosine':
-            self.current_node_embeddings /= (torch.norm(self.current_node_embeddings, dim=-1) + 1e-6)
+            self.current_node_embeddings /= (torch.norm(self.current_node_embeddings, dim=-1, keepdim=True) + 1e-6)
 
         self.current_soln, node_labeling = self.get_soln_graph_clustering(self.current_node_embeddings)
 
@@ -87,7 +90,10 @@ class EmbeddingSpaceEnvNodeBased():
         return self.get_state(), reward
 
     def get_state(self):
-        return self.State(self.current_node_embeddings, self.edge_ids, self.edge_angles, self.sup_masses, self.subgraph_indices, self.sep_subgraphs, self.subgraphs, self.counter, self.gt_edge_weights)
+        temp_code = self.step_encoder(self.counter, self.current_node_embeddings.device)[None]
+        state = self.current_node_embeddings + temp_code
+        return self.State(state, self.edge_ids, self.edge_angles, self.sup_masses, self.subgraph_indices,
+                          self.sep_subgraphs, self.subgraphs, self.gt_edge_weights)
 
     def update_data(self, edge_ids, gt_edges, sp_seg, raw, gt, **kwargs):
         bs = len(edge_ids)

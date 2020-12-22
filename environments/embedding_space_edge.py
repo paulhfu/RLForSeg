@@ -11,11 +11,12 @@ from utils.graphs import collate_edges, get_edge_indices, get_angles_smass_in_ra
 from utils.general import pca_project_1d
 from rag_utils import find_dense_subgraphs
 from scipy.cluster.hierarchy import linkage, fcluster
+from utils.temporal_encoding import TemporalSineEncoding
 from skimage import draw
 
 class EmbeddingSpaceEnvEdgeBased():
 
-    State = collections.namedtuple("State", ["node_embeddings", "edge_ids", "edge_angles", "sup_masses", "subgraph_indices", "sep_subgraphs", "round_n", "gt_edge_weights"])
+    State = collections.namedtuple("State", ["node_embeddings", "edge_ids", "edge_angles", "sup_masses", "subgraph_indices", "sep_subgraphs", "gt_edge_weights"])
 
     def __init__(self, embedding_net, cfg, device, writer=None, writer_counter=None):
         super(EmbeddingSpaceEnvEdgeBased, self).__init__()
@@ -27,6 +28,8 @@ class EmbeddingSpaceEnvEdgeBased():
         self.writer = writer
         self.writer_counter = writer_counter
         self.max_p = torch.nn.MaxPool2d(3, padding=1, stride=1)
+        self.step_encoder = TemporalSineEncoding(max_step=cfg.trainer.max_episode_length,
+                                                 size=cfg.fe.n_embedding_features)
 
         if self.cfg.sac.reward_function == 'sub_graph_dice':
             self.reward_function = SubGraphDiceReward()
@@ -49,7 +52,7 @@ class EmbeddingSpaceEnvEdgeBased():
         # shift the current node set
         self.current_node_embeddings += shift
         if self.cfg.gen.embedding_dist == 'cosine':
-            self.current_node_embeddings /= (torch.norm(self.current_node_embeddings, dim=-1) + 1e-6)
+            self.current_node_embeddings /= (torch.norm(self.current_node_embeddings, dim=-1, keepdim=True) + 1e-6)
 
         self.current_soln, node_labeling = self.get_soln_graph_clustering(self.current_node_embeddings)
 
@@ -97,7 +100,10 @@ class EmbeddingSpaceEnvEdgeBased():
         return self.get_state(), reward
 
     def get_state(self):
-        return self.State(self.current_node_embeddings, self.edge_ids, self.edge_angles, self.sup_masses, self.subgraph_indices, self.sep_subgraphs, self.counter, self.gt_edge_weights)
+        temp_code = self.step_encoder(self.counter, self.current_node_embeddings.device)[None]
+        state = self.current_node_embeddings + temp_code
+        return self.State(state, self.edge_ids, self.edge_angles, self.sup_masses, self.subgraph_indices,
+                          self.sep_subgraphs, self.subgraphs, self.gt_edge_weights)
 
     def update_data(self, edge_ids, gt_edges, sp_seg, raw, gt, **kwargs):
         bs = len(edge_ids)
