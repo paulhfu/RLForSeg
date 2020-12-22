@@ -8,7 +8,7 @@ import matplotlib.pyplot as plt
 import nifty.graph.agglo as nagglo
 from utils.reward_functions import UnSupervisedReward, SubGraphDiceReward
 from utils.graphs import collate_edges, get_edge_indices, get_angles_smass_in_rag
-from utils.general import pca_project_1d
+from utils.general import pca_project_1d, get_angles
 from rag_utils import find_dense_subgraphs
 from scipy.cluster.hierarchy import linkage, fcluster
 from utils.temporal_encoding import TemporalSineEncoding
@@ -36,6 +36,9 @@ class EmbeddingSpaceEnvEdgeBased():
         else:
             self.reward_function = UnSupervisedReward(env=self)
 
+        self.cluster_policy = nagglo.cosineDistNodeAndEdgeWeightedClusterPolicy
+        # self.cluster_policy = nagglo.nodeAndEdgeWeightedClusterPolicy
+
     def execute_action(self, actions, logg_vals=None, post_stats=False):
         actions = torch.cat([actions, actions], dim=0)
         node_embeds = self.current_node_embeddings[self.dir_edge_ids]
@@ -51,8 +54,8 @@ class EmbeddingSpaceEnvEdgeBased():
         shift = shift.sum(1) / n_neighbors.unsqueeze(1)
         # shift the current node set
         self.current_node_embeddings += shift
-        if self.cfg.gen.embedding_dist == 'cosine':
-            self.current_node_embeddings /= (torch.norm(self.current_node_embeddings, dim=-1, keepdim=True) + 1e-6)
+        # normalize
+        self.current_node_embeddings /= (torch.norm(self.current_node_embeddings, dim=-1, keepdim=True) + 1e-6)
 
         self.current_soln, node_labeling = self.get_soln_graph_clustering(self.current_node_embeddings)
 
@@ -87,8 +90,8 @@ class EmbeddingSpaceEnvEdgeBased():
                 self.writer.add_figure("image/state", fig, self.writer_counter.value() // 10)
                 self.writer.add_figure("image/actions", self.vis_edge_actions(actions.cpu(), 0), self.writer_counter.value() // 10)
                 self.writer.add_figure("image/shift_proj", self.vis_node_actions(shift.cpu(), 0), self.writer_counter.value() // 10)
-                self.embedding_net.post_pca(self.embeddings[0].cpu(), tag="image/pix_embedding_proj")
-                self.embedding_net.post_pca(self.current_node_embeddings[:self.n_offs[1]][self.init_sp_seg[0].long(), :].T.cpu(),
+                self.embedding_net.post_pca(get_angles(self.embeddings)[0].cpu(), tag="image/pix_embedding_proj")
+                self.embedding_net.post_pca(get_angles(self.current_node_embeddings[:self.n_offs[1]][self.init_sp_seg[0].long()].permute(2, 0, 1)[None])[0].cpu(),
                                             tag="image/node_embedding_proj")
 
             if logg_vals is not None:
@@ -139,12 +142,15 @@ class EmbeddingSpaceEnvEdgeBased():
         self.sp_indices = [[torch.nonzero(sp, as_tuple=False) for sp in stacked_superpixel] for stacked_superpixel in stacked_superpixels]
 
         self.embeddings = self.embedding_net(self.raw).detach()
+        # normalize
+        self.embeddings /= (torch.norm(self.embeddings, dim=1, keepdim=True) + 1e-6)
         node_feats = []
         for i, sp_ind in enumerate(self.sp_indices):
             n_f = self.embedding_net.get_node_features(self.embeddings[i], sp_ind)
             node_feats.append(n_f)
         self.current_node_embeddings = torch.cat(node_feats, dim=0)
-
+        # normalize
+        self.current_node_embeddings /= (torch.norm(self.current_node_embeddings, dim=-1, keepdim=True) + 1e-6)
         return
 
     def get_batched_actions_from_global_graph(self, actions):

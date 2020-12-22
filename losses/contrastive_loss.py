@@ -158,7 +158,7 @@ class ContrastiveLoss(nn.Module):
         # return the average norm per batch
         return torch.sum(norms, dim=1).div(C)
 
-    def forward(self, input_, target):
+    def forward(self, input_, target, **kwargs):
         """
         Args:
              input_ (torch.tensor): embeddings predicted by the network (NxExDxHxW) (E - embedding dims)
