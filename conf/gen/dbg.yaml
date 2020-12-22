@@ -13,6 +13,7 @@ p: 2 # p norm in embedding space
 env: embedding_space_nodes # multicut_embedding/embedding_space
 model_name: 'agent_model'
 resume: false # resume from state dict model_name in base_dir
+embedding_dist: cosine
 
 # patch manager conf
 patch_shape: [128, 128]
