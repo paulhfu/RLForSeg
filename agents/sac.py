@@ -27,6 +27,8 @@ import portalocker
 from shutil import copyfile
 from torch.optim.lr_scheduler import ReduceLROnPlateau
 from losses.contrastive_loss import ContrastiveLoss
+from losses.rag_contrastive_loss import RagContrastiveLoss
+from losses.rag_infonce_loss import RagInfoNceLoss
 
 
 class AgentSacTrainer(object):
@@ -41,8 +43,6 @@ class AgentSacTrainer(object):
         self.global_writer_quality_count = global_writer_quality_count
         self.action_stats_count = action_stats_count
         self.global_writer_count = global_writer_count
-        self.contr_loss = ContrastiveLoss(delta_var=0.5, delta_dist=self.cfg.fe.contrastive_delta)
-
         self.memory = TransitionData_ts(capacity=self.cfg.trainer.t_max)
         self.save_dir = save_dir
         if 'nodes' in cfg.gen.env:
@@ -198,20 +198,34 @@ class AgentSacTrainer(object):
             axs[1, 3].set_title('pred RL', y=-0.3)
             plt.show()
 
-    def pretrain_embeddings_gt(self, model, device, writer=None):
+    def pretrain_embeddings(self, model, device, writer=None):
         wu_cfg = self.cfg.fe.warmup
         dset = SpgDset(self.cfg.gen.data_dir, max(self.cfg.sac.s_subgraph), wu_cfg.patch_manager, wu_cfg.patch_stride, wu_cfg.patch_shape, wu_cfg.reorder_sp)
         dloader = DataLoader(dset, batch_size=wu_cfg.batch_size, shuffle=True, pin_memory=True, num_workers=0)
         optimizer = torch.optim.Adam(model.parameters(), lr=wu_cfg.lr,  betas=wu_cfg.betas)
         sheduler = ReduceLROnPlateau(optimizer)
+        criterion = RagContrastiveLoss(delta_var=self.cfg.fe.contrastive_delta_var,
+                                       delta_dist=self.cfg.fe.contrastive_delta_dist,
+                                       distance=self.distance)
         acc_loss = 0
         iteration = 0
 
         while iteration <= wu_cfg.n_iterations:
             for it, (raw, gt, sp_seg, indices) in enumerate(dloader):
                 raw, gt, sp_seg = raw.to(device), gt.to(device), sp_seg.to(device)
-                embeddings = model(raw)
-                loss = self.contr_loss(embeddings, gt.long().squeeze(1))
+                edges = dloader.dataset.get_graphs(indices, sp_seg, device)[0]
+
+                off = 0
+                for i in range(len(edges)):
+                    sp_seg[i] += off
+                    edges[i] += off
+                    off = int(sp_seg[i].max()) + 1
+                edges = torch.cat(edges, 1)
+                embeddings = model(raw).unsqueeze(2)
+                # put embeddings on unit sphere so we can use cosine distance
+                embeddings = embeddings / torch.norm(embeddings, dim=1, keepdim=True)
+
+                loss = criterion(embeddings=embeddings, gt=gt, sp_seg=sp_seg.unsqueeze(2), edges=edges)
 
                 optimizer.zero_grad()
                 loss.backward(retain_graph=False)
@@ -231,8 +245,6 @@ class AgentSacTrainer(object):
                 del loss
                 del embeddings
         return
-
-
 
     def cleanup(self):
         dist.destroy_process_group()
@@ -407,10 +419,11 @@ class AgentSacTrainer(object):
         torch.cuda.set_device(device)
         torch.set_default_tensor_type(torch.FloatTensor)
         self.setup(rank, self.cfg.gen.n_processes_per_gpu * self.cfg.gen.n_gpu)
+        # cosine distance (input should always be normalized)
+        self.distance = lambda x, y, dim, kd=True: 1.0 - (x * y).sum(dim=dim, keepdim=kd)
 
         fe_ext = FeExtractor(self.cfg.fe.n_raw_channels, self.cfg.fe.n_embedding_features,
-                             self.cfg.fe.contrastive_delta, device, writer, self.cfg.gen.p,
-                             self.cfg.fe.max_pixel_in_dist_mat)
+                             self.distance, device, writer, self.cfg.fe.max_pixel_in_dist_mat)
         fe_ext.cuda(device)
 
         if self.cfg.gen.env == "multicut_embedding":
@@ -496,7 +509,7 @@ class AgentSacTrainer(object):
                 assert False  # not working yet
                 self.pretrain_embeddings_prot_nce(fe_ext, device, writer)
             else:
-                self.pretrain_embeddings_gt(fe_ext, device, writer)
+                self.pretrain_embeddings(fe_ext, device, writer)
             torch.save(fe_ext.state_dict(),
                        os.path.join(self.save_dir, self.cfg.fe.model_name))
         dist.barrier()

@@ -59,7 +59,14 @@ def get_all_arg_combos(grid, paths):
         return get_all_arg_combos(new_grid, new_paths)
     return new_paths
 
-
+def get_angles(x):
+    """
+        for a set of vectors this returns the angle [-pi, pi]
+        of the vector with each vector in the unit othonormal basis.
+        x should be a set of normalized vectors (NCHW)
+    """
+    ob = torch.eye(x.shape[1], device=x.device)
+    return torch.acos(torch.matmul(ob[None, None, None], x.permute(0, 2, 3, 1)[..., None])).squeeze(-1).permute(0, 3, 1, 2)
 
 def calculate_naive_gt_edge_costs(edges, sp_gt):
     return (sp_gt.squeeze()[edges.astype(np.int)][:, 0] != sp_gt.squeeze()[edges.astype(np.int)][:, 1]).float()
