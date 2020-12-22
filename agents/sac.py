@@ -271,26 +271,30 @@ class AgentSacTrainer(object):
 
         return ret
 
-    def update_critic(self, obs, action, reward, next_obs, not_done, env, model, optimizers):
-        distribution, target_Q1, target_Q2, next_action, _, side_loss = self.agent_forward(env, model, state=next_obs)
-        current_Q1, current_Q2, side_loss = self.agent_forward(env, model, state=obs, actions=action)
+    def update_critic(self, partial_episode, env, model, optimizers):
+        critic_loss = torch.tensor([0.0], device=model.device)
+        for obs, action, reward, next_obs, done in partial_episode:
+            not_done = int(not done)
 
-        log_prob = distribution.log_prob(next_action)
-        critic_loss = torch.tensor([0.0], device=target_Q1[0].device)
-        mean_reward = 0
+            distribution, target_Q1, target_Q2, next_action, _, side_loss = self.agent_forward(env, model, state=next_obs)
+            current_Q1, current_Q2, side_loss = self.agent_forward(env, model, state=obs, actions=action)
 
-        for i, sz in enumerate(self.cfg.sac.s_subgraph):
-            _log_prob, sg_entropy = self.get_joint_sg_logprobs(log_prob, distribution.scale, next_obs, i , sz)
-            if self.cfg.sac.use_closed_form_entropy:
-                target_V = torch.min(target_Q1[i], target_Q2[i]) - model.module.alpha[i].detach() * sg_entropy
-            else:
-                target_V = torch.min(target_Q1[i], target_Q2[i]) - model.module.alpha[i].detach() * _log_prob
+            log_prob = distribution.log_prob(next_action)
+            mean_reward = 0
 
-            target_Q = reward[i] + (not_done * self.cfg.sac.discount * target_V)
-            target_Q = target_Q.detach()
+            for i, sz in enumerate(self.cfg.sac.s_subgraph):
+                _log_prob, sg_entropy = self.get_joint_sg_logprobs(log_prob, distribution.scale, next_obs, i , sz)
+                if self.cfg.sac.use_closed_form_entropy:
+                    target_V = torch.min(target_Q1[i], target_Q2[i]) - model.module.alpha[i].detach() * sg_entropy
+                else:
+                    target_V = torch.min(target_Q1[i], target_Q2[i]) - model.module.alpha[i].detach() * _log_prob
 
-            critic_loss = critic_loss + (F.mse_loss(current_Q1[i], target_Q) + F.mse_loss(current_Q2[i], target_Q))# / 2) + self.cfg.sac.sl_beta * side_loss
-            mean_reward += reward[i].mean()
+                target_Q = reward[i] + (not_done * self.cfg.sac.discount * target_V)
+                target_Q = target_Q.detach()
+
+                critic_loss = critic_loss + (F.mse_loss(current_Q1[i], target_Q) + F.mse_loss(current_Q2[i], target_Q))# / 2) + self.cfg.sac.sl_beta * side_loss
+                mean_reward += reward[i].mean()
+
         critic_loss = critic_loss / len(self.cfg.sac.s_subgraph)
         optimizers.critic.zero_grad()
         critic_loss.backward()
@@ -298,42 +302,47 @@ class AgentSacTrainer(object):
 
         return critic_loss.item(), mean_reward / len(self.cfg.sac.s_subgraph)
 
-    def update_actor_and_alpha(self, obs, env, model, optimizers, embeddings_opt=False):
-        distribution, actor_Q1, actor_Q2, action, side_loss = \
-            self.agent_forward(env, model, state=obs, policy_opt=True, embeddings_opt=embeddings_opt)
+    def update_actor_and_alpha(self, partial_episode, env, model, optimizers, embeddings_opt=False):
+        mean_actor_loss, mean_alpha_loss = 0, 0
+        for obs, _, _, _, _ in partial_episode:
+            distribution, actor_Q1, actor_Q2, action, side_loss = \
+                self.agent_forward(env, model, state=obs, policy_opt=True, embeddings_opt=embeddings_opt)
 
-        log_prob = distribution.log_prob(action)
-        actor_loss = torch.tensor([0.0], device=actor_Q1[0].device)
-        alpha_loss = torch.tensor([0.0], device=actor_Q1[0].device)
-        _log_prob, sg_entropy = [], []
-        for i, sz in enumerate(self.cfg.sac.s_subgraph):
-            actor_Q = torch.min(actor_Q1[i], actor_Q2[i])
-            ret = self.get_joint_sg_logprobs(log_prob, distribution.scale, obs, i , sz)
-            _log_prob.append(ret[0])
-            sg_entropy.append(ret[1])
+            log_prob = distribution.log_prob(action)
+            actor_loss = torch.tensor([0.0], device=actor_Q1[0].device)
+            alpha_loss = torch.tensor([0.0], device=actor_Q1[0].device)
+            _log_prob, sg_entropy = [], []
+            for i, sz in enumerate(self.cfg.sac.s_subgraph):
+                actor_Q = torch.min(actor_Q1[i], actor_Q2[i])
+                ret = self.get_joint_sg_logprobs(log_prob, distribution.scale, obs, i , sz)
+                _log_prob.append(ret[0])
+                sg_entropy.append(ret[1])
 
-            loss = (model.module.alpha[i].detach() * _log_prob[i] - actor_Q).mean()
-            actor_loss = actor_loss + loss# + self.cfg.sac.sl_beta * side_loss
+                loss = (model.module.alpha[i].detach() * _log_prob[i] - actor_Q).mean()
+                actor_loss = actor_loss + loss# + self.cfg.sac.sl_beta * side_loss
 
-        actor_loss = actor_loss / len(self.cfg.sac.s_subgraph)
-        optimizers.actor.zero_grad()
-        actor_loss.backward()
-        optimizers.actor.step()
+            actor_loss = actor_loss / len(self.cfg.sac.s_subgraph)
+            optimizers.actor.zero_grad()
+            actor_loss.backward()
+            optimizers.actor.step()
 
-        for i, sz in enumerate(self.cfg.sac.s_subgraph):
-            if self.cfg.sac.use_closed_form_entropy:
-                alpha_loss = alpha_loss + (model.module.alpha[i] \
-                                           * (sg_entropy[i].detach() - (self.cfg.sac.s_subgraph[i] * self.cfg.sac.min_exp_entropy))).mean()
-            else:
-                alpha_loss = alpha_loss + (model.module.alpha[i] *
-                                           (-_log_prob[i].detach() - (self.cfg.sac.s_subgraph[i] * self.cfg.sac.min_exp_entropy))).mean()
+            for i, sz in enumerate(self.cfg.sac.s_subgraph):
+                if self.cfg.sac.use_closed_form_entropy:
+                    alpha_loss = alpha_loss + (model.module.alpha[i] \
+                                               * (sg_entropy[i].detach() - (self.cfg.sac.s_subgraph[i] * self.cfg.sac.min_exp_entropy))).mean()
+                else:
+                    alpha_loss = alpha_loss + (model.module.alpha[i] *
+                                               (-_log_prob[i].detach() - (self.cfg.sac.s_subgraph[i] * self.cfg.sac.min_exp_entropy))).mean()
 
-        alpha_loss = alpha_loss / len(self.cfg.sac.s_subgraph)
-        optimizers.temperature.zero_grad()
-        alpha_loss.backward()
-        optimizers.temperature.step()
+            alpha_loss = alpha_loss / len(self.cfg.sac.s_subgraph)
+            optimizers.temperature.zero_grad()
+            alpha_loss.backward()
+            optimizers.temperature.step()
 
-        return actor_loss.item(), alpha_loss.item()
+            mean_actor_loss += actor_loss.item()
+            mean_alpha_loss += alpha_loss.item()
+
+        return mean_actor_loss / len(partial_episode), mean_alpha_loss / len(partial_episode)
 
     def _step(self, replay_buffer, optimizers, mov_sum_loss, env, model, step, writer=None):
 
@@ -341,10 +350,10 @@ class AgentSacTrainer(object):
         not_done = int(not done)
         embeddings_opt = step - self.cfg.fe.n_prep_steps > 0 and (step - self.cfg.fe.n_prep_steps) % self.cfg.fe.update_frequency == 0
 
-        critic_loss, mean_reward = self.update_critic(obs, action, reward, next_obs, not_done, env, model, optimizers)
+        critic_loss, mean_reward = self.update_critic(partial_episode, env, model, optimizers)
         replay_buffer.report_sample_loss(critic_loss + mean_reward, sample_idx)
 
-        actor_loss, alpha_loss = self.update_actor_and_alpha(obs, env, model, optimizers, embeddings_opt)
+        actor_loss, alpha_loss = self.update_actor_and_alpha(partial_episode, env, model, optimizers, embeddings_opt)
 
         mov_sum_loss.critic.apply(critic_loss)
         mov_sum_loss.actor.apply(actor_loss)
