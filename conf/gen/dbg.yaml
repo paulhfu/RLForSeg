@@ -8,7 +8,6 @@ target_dir: dbg # dir name in base-dir. Logs are in here
 base_dir: /g/kreshuk/hilt/projects/RLForSeg # base-dir
 data_dir: /g/kreshuk/hilt/projects/fewShotLearning/mutexWtsd/data/storage/sqrs_crclspn/pix_and_graphs # circles sqrs_crclspn
 n_max_object: 14
-p: 2 # p norm in embedding space
 # env and model defs
 env: embedding_space_edges # multicut_embedding/embedding_space_nodes/embedding_space_edges
 model_name: 'agent_model'

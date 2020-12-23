@@ -4,18 +4,17 @@ master_port: !!str "12351" #port num on localhost for icp
 no_save: false #dont save models
 n_processes_per_gpu: 1 #Number of training async agents
 n_gpu: 1 #Number of gpus per process
-target_dir: embed # dir name in base-dir. Logs are in here
+target_dir: embed_edge # dir name in base-dir. Logs are in here
 base_dir: /g/kreshuk/hilt/projects/RLForSeg # base-dir
-data_dir: /g/kreshuk/hilt/projects/fewShotLearning/mutexWtsd/data/storage/sqrs_crclspn/pix_and_graphs # circles sqrs_crclspn
-n_max_object: 14
-p: 2 # p norm in embedding space
+data_dir: /g/kreshuk/hilt/projects/data/artificial_cells # circles sqrs_crclspn
+n_max_object: 6
 # env and model defs
 env: embedding_space_edges # multicut_embedding/embedding_space
 model_name: 'agent_model'
 resume: false # resume from state dict model_name in base_dir
 
 # patch manager conf
-patch_shape: [256, 256]
+patch_shape: [128, 128]
 patch_stride: [16, 16]
 reorder_sp: false
 patch_manager: no_cross # rotated/no_cross/none

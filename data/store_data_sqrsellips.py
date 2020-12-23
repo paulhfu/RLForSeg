@@ -1,5 +1,6 @@
 import os
 
+from glob import glob
 import h5py
 import numpy as np
 from skimage import draw
@@ -212,13 +213,13 @@ def get_current_soln(edge_weights, sp_seg, edge_ids):
     return mc_seg
 
 
-def store_all(base_dir, n_samples):
+def store_all(base_dir, n_samples, fnames):
     pix_dir = os.path.join(base_dir, 'pix_data')
     graph_dir = os.path.join(base_dir, 'graph_data')
 
 
-    for i in range(n_samples):
-        raw, gt, edges, edge_feat, diff_to_gt, gt_edge_weights, node_labeling, nodes, affinities = get_pix_data()
+    for i, fname in enumerate(fnames):
+        raw, gt, edges, edge_feat, diff_to_gt, gt_edge_weights, node_labeling, nodes, affinities = get_graphs(fname, .8, [[0, -1], [-1, 0], [-5, 0], [0, -5]])
 
         graph_file = h5py.File(os.path.join(graph_dir, "graph_" + str(i) + ".h5"), 'w')
         pix_file = h5py.File(os.path.join(pix_dir, "pix_" + str(i) + ".h5"), 'w')
@@ -269,12 +270,12 @@ def get_graphs(fname, sigma, edge_offsets):
     # calc multicut from gt
     gt_seg = get_current_soln(gt_edge_weights, node_labeling, edges)
 
-    fig, (ax1, ax2, ax3, ax4) = plt.subplots(1, 4)
-    ax1.imshow(cm.prism(gt/gt.max()));ax1.set_title('gt')
-    ax2.imshow(cm.prism(node_labeling / node_labeling.max()));ax2.set_title('sp')
-    ax3.imshow(cm.prism(gt_seg / gt_seg.max()));ax3.set_title('mc')
-    ax4.imshow(img);ax4.set_title('raw')
-    plt.show()
+    # fig, (ax1, ax2, ax3, ax4) = plt.subplots(1, 4)
+    # ax1.imshow(cm.prism(gt/gt.max()));ax1.set_title('gt')
+    # ax2.imshow(cm.prism(node_labeling / node_labeling.max()));ax2.set_title('sp')
+    # ax3.imshow(cm.prism(gt_seg / gt_seg.max()));ax3.set_title('mc')
+    # ax4.imshow(img);ax4.set_title('raw')
+    # plt.show()
 
     affinities = affinities.astype(np.float32)
     edge_feat = edge_feat.astype(np.float32)
@@ -290,8 +291,10 @@ def get_graphs(fname, sigma, edge_offsets):
 
 
 if __name__ == "__main__":
-    dir = "/g/kreshuk/hilt/projects/data/rects_crcls_sp/pix_and_graphs_hfreq"
+    dir = "/g/kreshuk/hilt/projects/data/artificial_cells"
+    fnames = sorted(glob('/g/kreshuk/kaziakhm/circles_s025_gs0035_ps04_alln/pix_data/*.h5'))
+    store_all(dir, 10, fnames)
     # for i in range(10):
     #     get_pix_data()
-    get_graphs("/g/kreshuk/kaziakhm/circles_s025_gs0035_ps04_alln/pix_data/pix_28.h5", .8,
-                [[0, -1], [-1, 0], [-5, 0], [0, -5]])
+    # get_graphs("/g/kreshuk/kaziakhm/circles_s025_gs0035_ps04_alln/pix_data/pix_28.h5", .8,
+    #             [[0, -1], [-1, 0], [-5, 0], [0, -5]])

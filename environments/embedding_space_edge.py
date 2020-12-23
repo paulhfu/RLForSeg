@@ -43,7 +43,7 @@ class EmbeddingSpaceEnvEdgeBased():
         actions = torch.cat([actions, actions], dim=0)
         node_embeds = self.current_node_embeddings[self.dir_edge_ids]
         dists = node_embeds[0] - node_embeds[1]
-        dists = dists / torch.norm(dists, dim=1, p=self.cfg.gen.p, keepdim=True)
+        dists = dists / torch.norm(dists, dim=1, keepdim=True)
         dists = dists * actions.unsqueeze(1)
         # scatter node indices for incidental nodes of edges
         shift = torch.zeros((self.dir_edge_ids[0].max() + 1, ) + dists.size()).to(self.device)
