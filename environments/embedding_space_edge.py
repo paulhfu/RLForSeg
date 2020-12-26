@@ -78,18 +78,20 @@ class EmbeddingSpaceEnvEdgeBased():
         if self.writer is not None and post_stats:
             self.writer.add_scalar("step/avg_return", total_reward, self.writer_counter.value())
             if self.writer_counter.value() % 20 == 0:
-                fig, (a1, a2, a3, a4) = plt.subplots(1, 4, sharex='col', sharey='row', gridspec_kw={'hspace': 0, 'wspace': 0})
+                fig, (a0, a1, a2, a3, a4) = plt.subplots(1, 5, sharex='col', sharey='row', gridspec_kw={'hspace': 0, 'wspace': 0})
+                a0.imshow(self.gt_seg[0].cpu().squeeze())
+                a0.set_title('gt')
                 a1.imshow(self.raw[0].cpu().permute(1,2,0).squeeze())
                 a1.set_title('raw image')
                 a2.imshow(cm.prism(self.init_sp_seg[0].cpu() / self.init_sp_seg[0].max().item()))
                 a2.set_title('superpixels')
                 a3.imshow(cm.prism(self.gt_soln[0].cpu()/self.gt_soln[0].max().item()))
-                a3.set_title('gt')
+                a3.set_title('mc_gt')
                 a4.imshow(cm.prism(self.current_soln[0].cpu()/self.current_soln[0].max().item()))
                 a4.set_title('prediction')
                 self.writer.add_figure("image/state", fig, self.writer_counter.value() // 10)
                 self.writer.add_figure("image/actions", self.vis_edge_actions(actions.cpu(), 0), self.writer_counter.value() // 10)
-                self.writer.add_figure("image/shift_proj", self.vis_node_actions(shift.cpu(), 0), self.writer_counter.value() // 10)
+                # self.writer.add_figure("image/shift_proj", self.vis_node_actions(shift.cpu(), 0), self.writer_counter.value() // 10)
                 self.embedding_net.post_pca(get_angles(self.embeddings)[0].cpu(), tag="image/pix_embedding_proj")
                 self.embedding_net.post_pca(get_angles(self.current_node_embeddings[:self.n_offs[1]][self.init_sp_seg[0].long()].permute(2, 0, 1)[None])[0].cpu(),
                                             tag="image/node_embedding_proj")

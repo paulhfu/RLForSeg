@@ -16,6 +16,6 @@ lr_sched:
   mov_avg_offset: 10
   torch_sched:  # conf for torch reduceOnPlateau scheduler
     patience: 100
-    min_lr: 1e-6
+    min_lr: 1e-4
     factor: 0.8
     threshold: 1e-2

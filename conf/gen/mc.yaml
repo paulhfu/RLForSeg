@@ -14,7 +14,7 @@ model_name: 'agent_model'
 resume: false # resume from state dict model_name in base_dir
 
 # patch manager conf
-patch_shape: [128, 128]
+patch_shape: [256, 256]
 patch_stride: [16, 16]
 reorder_sp: false
 patch_manager: no_cross # rotated/no_cross/none

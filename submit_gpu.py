@@ -36,7 +36,7 @@ def write_slurm_template(script, out_path, env_name,
 
 #V100 2080Ti
 def submit_slurm(script, input_, n_threads=2, n_gpus=1,
-                 gpu_type='2080Ti', mem_limit='64G',
+                 gpu_type='V100', mem_limit='64G',
                  time_limit=2*DAYS, qos='normal',
                  env_name=None, base_dir='/g/kreshuk/hilt/projects/RLForSeg'):
     """ Submit python script that needs gpus with given inputs on a slurm node.

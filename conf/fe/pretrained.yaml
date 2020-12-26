@@ -19,9 +19,9 @@ warmup:  # the feature extractor might need pretraining to produce meaningful fe
 
   method: gt
   n_iterations: 1000 # number of iterations of feature extrqactor warmup
-  batch_size: 2  # batch size for feature extractor warmup
+  batch_size: 1  # batch size for feature extractor warmup
 
-  patch_shape: [128, 128]
+  patch_shape: [256, 256]
   patch_stride: [16, 16]
   reorder_sp: true
   patch_manager: no_cross # rotated, no_cross, none

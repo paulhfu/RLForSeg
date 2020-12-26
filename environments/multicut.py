@@ -57,7 +57,9 @@ class MulticutEmbeddingsEnv():
             self.writer.add_scalar("step/avg_return", total_reward, self.writer_counter.value())
             if self.writer_counter.value() % 10 == 0:
                 self.writer.add_histogram("step/pred_mean", self.current_edge_weights.view(-1).cpu().numpy(), self.writer_counter.value() // 10)
-                fig, (a1, a2, a3, a4) = plt.subplots(1, 4, sharex='col', sharey='row', gridspec_kw={'hspace': 0, 'wspace': 0})
+                fig, (a0, a1, a2, a3, a4) = plt.subplots(1, 5, sharex='col', sharey='row', gridspec_kw={'hspace': 0, 'wspace': 0})
+                a0.imshow(self.gt_seg[0].cpu().squeeze())
+                a0.set_title('gt')
                 a1.imshow(self.raw[0].cpu().permute(1,2,0).squeeze())
                 a1.set_title('raw image')
                 a2.imshow(cm.prism(self.init_sp_seg[0].cpu() / self.init_sp_seg[0].max().item()))
