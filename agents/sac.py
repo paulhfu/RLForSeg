@@ -20,6 +20,7 @@ from utils.general import adjust_learning_rate, soft_update_params, set_seed_eve
 from utils.matching import matching
 from utils.replay_memory import TransitionData_ts
 from utils.graphs import get_joint_sg_logprobs_edges, get_joint_sg_logprobs_nodes
+from utils.distances import CosineDistance
 import matplotlib.pyplot as plt
 import matplotlib.cm as cm
 import yaml
@@ -420,7 +421,7 @@ class AgentSacTrainer(object):
         torch.set_default_tensor_type(torch.FloatTensor)
         self.setup(rank, self.cfg.gen.n_processes_per_gpu * self.cfg.gen.n_gpu)
         # cosine distance (input should always be normalized)
-        self.distance = lambda x, y, dim, kd=True: 1.0 - (x * y).sum(dim=dim, keepdim=kd)
+        self.distance = CosineDistance()
 
         fe_ext = FeExtractor(self.cfg.fe.n_raw_channels, self.cfg.fe.n_embedding_features,
                              self.distance, device, writer, self.cfg.fe.max_pixel_in_dist_mat)
@@ -434,7 +435,7 @@ class AgentSacTrainer(object):
             is_edge_based = False
             env = EmbeddingSpaceEnvNodeBased(fe_ext, self.cfg, device, writer=writer, writer_counter=self.global_writer_quality_count)
 
-        model = Agent(self.cfg, env.State, device, writer=writer)
+        model = Agent(self.cfg, env.State, self.distance, device, writer=writer)
         model.cuda(device)
         #Create shared network
         shared_model = DDP(model, device_ids=[device], find_unused_parameters=True)
@@ -547,11 +548,11 @@ class AgentSacTrainer(object):
                     distr = None
                     if not self.memory.is_full():
                         if is_edge_based:
-                            action = torch.rand(env.edge_ids.shape[-1], device=device)
+                            action = torch.rand((env.edge_ids.shape[-1], self.cfg.sac.n_actions), device=device)
                         else:
-                            action = torch.rand(env.current_node_embeddings.shape, device=device)
-                        if self.cfg.gen.env == "embedding_space" or not is_edge_based:
-                            action -= 0.5
+                            action = torch.rand((env.current_node_embeddings.shape[0], self.cfg.sac.n_actions), device=device)
+                        action *= self.cfg.sac.diag_gaussian_actor.sample_factor
+                        action += self.cfg.sac.diag_gaussian_actor.sample_offset
                     else:
                         distr, _, _, action, _, _ = self.agent_forward(env, shared_model, state=state, grad=False,
                                                                        post_input=post_stats, post_model=post_model)

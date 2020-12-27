@@ -219,7 +219,7 @@ class EdgeConvNoNodes(EdgeMessagePassing):
         :param n_init_edge_channels:
         :param n_hidden_layer:
         """
-        super(EdgeConvNoNodes, self).__init__(aggr='mean')  # no need for aggregation when only updating edges.
+        super(EdgeConvNoNodes, self).__init__(aggr='mean')
 
     def forward(self, edge_index, edge_features):
         edge_features = torch.cat([edge_features, edge_features], 0)
@@ -229,10 +229,13 @@ class EdgeConvNoNodes(EdgeMessagePassing):
         return edge_features
 
 class NodeConv(EdgeMessagePassing):
-    def __init__(self, n_channels_in, n_channels_out, n_hidden_layer=0, hl_factor=128, start_bn_nl=True):
-        super(NodeConv, self).__init__(aggr='mean')  # no need for aggregation when only updating edges.
+    def __init__(self, n_channels_in, n_channels_out, distance=None, n_hidden_layer=0, hl_factor=128, start_bn_nl=True,
+                 normalize_input=False):
+        super(NodeConv, self).__init__(aggr='mean')
 
         m = 2
+        self.distance = distance
+        self.normalize_input = normalize_input
         if start_bn_nl:
             hli = [torch.nn.BatchNorm1d(n_channels_in * m, track_running_stats=False)]
             hli.append(torch.nn.LeakyReLU())
@@ -269,7 +272,12 @@ class NodeConv(EdgeMessagePassing):
         return self.propagate(edge_index, size=(x.size(0), x.size(0)), x=x)
 
     def message(self, x_i, x_j, edge_index, size):
-        edge_conv = self.lin_inner(torch.cat((x_i, x_j), dim=-1))
+        feat = torch.cat((x_i, x_j), -1)
+        if self.normalize_input:
+            feat = feat / (torch.norm(feat, dim=-1, keepdim=True) + 1e-6)
+        if self.distance is not None and self.distance.has_normed_similarity:
+            feat = feat * self.distance.similarity(x_i, x_j, dim=-1)
+        edge_conv = self.lin_inner(feat)
         return edge_conv
 
     def update(self, aggr_out, x):
