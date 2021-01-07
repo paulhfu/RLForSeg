@@ -9,7 +9,7 @@ base_dir: /g/kreshuk/hilt/projects/RLForSeg # base-dir
 data_dir: /g/kreshuk/hilt/projects/fewShotLearning/mutexWtsd/data/storage/sqrs_crclspn/pix_and_graphs # circles sqrs_crclspn
 n_max_object: 14
 # env and model defs
-env: embedding_space_edges # multicut_embedding/embedding_space_nodes/embedding_space_edges
+env: multicut_embedding # multicut_embedding/embedding_space_nodes/embedding_space_edges
 model_name: 'agent_model'
 resume: false # resume from state dict model_name in base_dir
 embedding_dist: cosine
