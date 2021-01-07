@@ -177,7 +177,7 @@ class EmbeddingSpaceEnvNodeBased():
             edge_sizes = np.ones(rag.numberOfEdges, dtype=np.int)
             node_sizes = np.ones(rag.numberOfNodes, dtype=np.int)
 
-            policy = nagglo.nodeAndEdgeWeightedClusterPolicy(
+            policy = self.cluster_policy(
                 graph=rag,
                 edgeIndicators=edge_weights,
                 edgeSizes=edge_sizes,

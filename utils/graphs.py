@@ -83,8 +83,8 @@ def get_angles_smass_in_rag(edges, segmentation):
 
 
 def get_joint_sg_logprobs_edges(logprobs, scale, obs, sg_ind, sz):
-    return logprobs[obs.subgraph_indices[sg_ind].view(-1, sz)].sum(-1), \
-           (1 / 2 * (1 + (2 * np.pi * scale[obs.subgraph_indices[sg_ind].view(-1, sz)] ** 2).log())).sum(-1)
+    return logprobs[obs.subgraph_indices[sg_ind].view(-1, sz)].sum(-1).sum(-1), \
+           (1 / 2 * (1 + (2 * np.pi * scale[obs.subgraph_indices[sg_ind].view(-1, sz)] ** 2).log())).sum(-1).sum(-1)
 
 def get_joint_sg_logprobs_nodes(logprobs, scale, obs, sg_ind, sz):
     sgs = obs.subgraphs[sg_ind].view(2, -1, sz).permute(1, 2, 0)

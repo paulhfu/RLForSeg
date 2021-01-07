@@ -1,6 +1,6 @@
 # @package _group_
 # main training
-T_max: 100000  # Number of training steps
+T_max: 1000000  # Number of training steps
 t_max: 100  # Mem size in replay memory buffer
 data_update_frequency: 10  # update env data after n steps
 post_stats_frequency: 10  # post logs after n steps

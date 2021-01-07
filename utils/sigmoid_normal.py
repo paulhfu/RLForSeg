@@ -6,30 +6,31 @@ import math
 
 class ShiftedSigmoidTransform(SigmoidTransform):
 
-    def __init__(self, shift=0):
+    def __init__(self, shift, factor):
         self.shift = shift
+        self.factor = factor
         super().__init__()
 
     def __eq__(self, other):
         return isinstance(other, SigmoidTransform)
 
     def _call(self, x):
-        return super(ShiftedSigmoidTransform, self)._call(x) + self.shift
+        return super(ShiftedSigmoidTransform, self)._call(x) * self.factor + self.shift
 
     def _inverse(self, y):
-        return super(ShiftedSigmoidTransform, self)._inverse(y - self.shift)
+        return super(ShiftedSigmoidTransform, self)._inverse((y - self.shift) / self.factor)
 
     def log_abs_det_jacobian(self, x, y):
         return super(ShiftedSigmoidTransform, self).log_abs_det_jacobian(x, y - self.shift)
 
 class SigmNorm(TransformedDistribution):
 
-    def __init__(self, loc, scale, sample_offset=0):
+    def __init__(self, loc, scale, sample_offset=0, sample_factor=1):
         self.loc = loc
         self.scale = scale
 
         self.base_dist = Normal(loc, scale)
-        transforms = [ShiftedSigmoidTransform(sample_offset)]
+        transforms = [ShiftedSigmoidTransform(sample_offset, sample_factor)]
         self._mean = None
         super().__init__(self.base_dist, transforms)
 

@@ -34,7 +34,7 @@ class MulticutEmbeddingsEnv():
             self.reward_function = UnSupervisedReward(env=self)
 
     def execute_action(self, actions, logg_vals=None, post_stats=False):
-        self.current_edge_weights = actions
+        self.current_edge_weights = actions.squeeze()
 
         self.sg_current_edge_weights = []
         for i, sz in enumerate(self.cfg.sac.s_subgraph):

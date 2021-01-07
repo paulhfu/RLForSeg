@@ -40,6 +40,7 @@ class EmbeddingSpaceEnvEdgeBased():
         # self.cluster_policy = nagglo.nodeAndEdgeWeightedClusterPolicy
 
     def execute_action(self, actions, logg_vals=None, post_stats=False):
+        actions = actions[:, 0] - actions[:, 1]
         actions = torch.cat([actions, actions], dim=0)
         node_embeds = self.current_node_embeddings[self.dir_edge_ids]
         dists = node_embeds[0] - node_embeds[1]
@@ -48,8 +49,7 @@ class EmbeddingSpaceEnvEdgeBased():
         # scatter node indices for incidental nodes of edges
         shift = torch.zeros((self.dir_edge_ids[0].max() + 1, ) + dists.size()).to(self.device)
         shift.scatter_(0, self.dir_edge_ids[0].expand((dists.shape[1], shift.shape[1])).T[None], dists[None])
-        n_neighbors = (self.dir_edge_ids[0].unsqueeze(0) ==
-                       torch.arange(self.dir_edge_ids[0].max() + 1, device=self.device).unsqueeze(1)).float().sum(1)
+        n_neighbors = torch.bincount(self.dir_edge_ids[0])
         # sum over all dists belonging to a node and average over the number of neighbors
         shift = shift.sum(1) / n_neighbors.unsqueeze(1)
         # shift the current node set
@@ -189,7 +189,7 @@ class EmbeddingSpaceEnvEdgeBased():
             edge_sizes = np.ones(rag.numberOfEdges, dtype=np.int)
             node_sizes = np.ones(rag.numberOfNodes, dtype=np.int)
 
-            policy = nagglo.nodeAndEdgeWeightedClusterPolicy(
+            policy = self.cluster_policy(
                 graph=rag,
                 edgeIndicators=edge_weights,
                 edgeSizes=edge_sizes,

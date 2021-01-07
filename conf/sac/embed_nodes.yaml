@@ -2,7 +2,7 @@
 # specific confics for the sac algorithm
 reward_function: sub_graph_dice #Reward function: sub_graph_dice, fully_supervised, defining_rules, defining_rules_lg,defining_rules_edge_based
 s_subgraph: [8, 16, 32] # [8, 16, 32, 64] # subgraph sizes
-min_exp_entropy: 0.2  # min entropy that prediction is allowed to converge to
+min_exp_entropy: 1.0  # min entropy that prediction is allowed to converge to
 discount: 0.99  # discount factor (commonly referred to as \gamma in RL)
 init_temperature: 0.1  # initial temperature in Gibbs distribution
 temperature_regulation: optimized #constant/follow_quality/optimized
@@ -23,5 +23,6 @@ sl_beta: 10  # weight for side loss
 diag_gaussian_actor:  # specification of multinomial gaussian, acting as policy
   std_bounds: [0.01, 3.0]
   mu_bounds: [-5, 5]
-  sample_offset: -0.5
+  sample_factor: 0.5 # samples before scaling and offset are in [0, 1]
+  sample_offset: -0.25
 
