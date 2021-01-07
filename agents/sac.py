@@ -311,7 +311,7 @@ class AgentSacTrainer(object):
 
         return critic_loss.item(), mean_reward / len(self.cfg.sac.s_subgraph)
 
-    def update_actor_and_alpha(self, obs, env, model, optimizers, embeddings_opt=False):
+    def update_actor_and_alpha(self, obs, reward, env, model, optimizers, embeddings_opt=False):
         distribution, actor_Q1, actor_Q2, action, side_loss = \
             self.agent_forward(env, model, state=obs, policy_opt=True, embeddings_opt=embeddings_opt)
 
@@ -333,13 +333,17 @@ class AgentSacTrainer(object):
         actor_loss.backward()
         optimizers.actor.step()
 
+        min_entropy = (self.cfg.sac.entropy_range[1] - self.cfg.sac.entropy_range[0]) * (1-reward[-1]) \
+                      + self.cfg.sac.entropy_range[0]
+
         for i, sz in enumerate(self.cfg.sac.s_subgraph):
+            min_entropy = min_entropy.to(model.module.alpha[i].device).squeeze()
             if self.cfg.sac.use_closed_form_entropy:
                 alpha_loss = alpha_loss + (model.module.alpha[i] \
-                                           * (sg_entropy[i].detach() - (self.cfg.sac.s_subgraph[i] * self.cfg.sac.min_exp_entropy))).mean()
+                                           * (sg_entropy[i].detach() - (self.cfg.sac.s_subgraph[i] * min_entropy))).mean()
             else:
                 alpha_loss = alpha_loss + (model.module.alpha[i] *
-                                           (-_log_prob[i].detach() - (self.cfg.sac.s_subgraph[i] * self.cfg.sac.min_exp_entropy))).mean()
+                                           (-_log_prob[i].detach() - (self.cfg.sac.s_subgraph[i] * min_entropy))).mean()
 
         alpha_loss = alpha_loss / len(self.cfg.sac.s_subgraph)
         optimizers.temperature.zero_grad()
@@ -357,7 +361,7 @@ class AgentSacTrainer(object):
         critic_loss, mean_reward = self.update_critic(obs, action, reward, next_obs, not_done, env, model, optimizers)
         replay_buffer.report_sample_loss(critic_loss + mean_reward, sample_idx)
 
-        actor_loss, alpha_loss = self.update_actor_and_alpha(obs, env, model, optimizers, embeddings_opt)
+        actor_loss, alpha_loss = self.update_actor_and_alpha(obs, reward, env, model, optimizers, embeddings_opt)
 
         mov_sum_loss.critic.apply(critic_loss)
         mov_sum_loss.actor.apply(actor_loss)

@@ -142,7 +142,6 @@ class SubGraphDiceReward(object):
         self.class_weights = torch.tensor([1.0, 1.0]).unsqueeze(-1)
 
     def get(self, inp, tgt):
-        # compute per channel Dice Coefficient
         reward = []
         for i in range(len(inp)):
             input = torch.stack([1-inp[i], inp[i]], 0)
@@ -156,6 +155,18 @@ class SubGraphDiceReward(object):
 
             reward.append(dice_score.sum(0) - 0.9)
         return reward
+
+    def get_global(self, inp, tgt):
+        input = torch.stack([1 - inp, inp], 0)
+        target = torch.stack([tgt == 0, tgt == 1], 0).float()
+        intersect = (input * target).sum(-1)
+
+        # here we can use standard dice (input + target).sum(-1) or extension (see V-Net) (input^2 + target^2).sum(-1)
+        denominator = (input * input).sum(-1) + (target * target).sum(-1)
+        dice_score = 2 * (intersect / denominator.clamp(min=self.epsilon))
+        dice_score = dice_score * self.class_weights.to(dice_score.device).squeeze(1)
+        dice_score = dice_score / self.class_weights.sum()
+        return dice_score.sum()
 
 
 class FocalReward(object):
