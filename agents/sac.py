@@ -204,7 +204,7 @@ class AgentSacTrainer(object):
         dset = SpgDset(self.cfg.gen.data_dir, max(self.cfg.sac.s_subgraph), wu_cfg.patch_manager, wu_cfg.patch_stride, wu_cfg.patch_shape, wu_cfg.reorder_sp)
         dloader = DataLoader(dset, batch_size=wu_cfg.batch_size, shuffle=True, pin_memory=True, num_workers=0)
         optimizer = torch.optim.Adam(model.parameters(), lr=wu_cfg.lr,  betas=wu_cfg.betas)
-        sheduler = ReduceLROnPlateau(optimizer)
+        sheduler = ReduceLROnPlateau(optimizer, min_lr=5e-5)
         criterion = RagContrastiveLoss(delta_var=self.cfg.fe.contrastive_delta_var,
                                        delta_dist=self.cfg.fe.contrastive_delta_dist,
                                        distance=self.distance)

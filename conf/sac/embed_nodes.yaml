@@ -1,7 +1,7 @@
 # @package _group_
 # specific confics for the sac algorithm
 reward_function: sub_graph_dice #Reward function: sub_graph_dice, fully_supervised, defining_rules, defining_rules_lg,defining_rules_edge_based
-s_subgraph: [8, 16, 32] # [8, 16, 32, 64] # subgraph sizes
+s_subgraph: [4, 8, 16] # [8, 16, 32, 64] # subgraph sizes
 entropy_range: [0.05, 2.0]  # min entropy that prediction is allowed to converge to
 discount: 0.99  # discount factor (commonly referred to as \gamma in RL)
 init_temperature: 0.1  # initial temperature in Gibbs distribution
