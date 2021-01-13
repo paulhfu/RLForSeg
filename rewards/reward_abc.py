@@ -3,7 +3,7 @@ import torch
 
 class RewardFunctionAbc(metaclass=ABCMeta):
     @abstractmethod
-    def __init__(self, shape_samples: list):
+    def __init__(self, shape_samples: torch.Tensor):
         """
         This method should process some shape sample images and store shape discriptors for them.
         The shape descriptors can be obtained by various transforms such as Fourier or Radon
