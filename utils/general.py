@@ -186,8 +186,6 @@ def multicut_from_probas(segmentation, edges, edge_weights):
         else:
             costs[i] = edge_dict[(neighbors[1], neighbors[0])]
     costs = transform_probabilities_to_costs(costs)
-    if rag.uvIds().max() != segmentation.max():
-        stop=1
     node_labels = multicut_kernighan_lin(rag, costs)
 
     return project_node_labels_to_pixels(rag, node_labels).squeeze()
