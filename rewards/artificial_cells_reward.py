@@ -1,10 +1,11 @@
 from rewards.reward_abc import RewardFunctionAbc
 from skimage.measure import approximate_polygon,  find_contours
 from skimage.draw import polygon_perimeter
-from utils.poly_tangent_space import PolyTangentSpace
+from utils.polygon_2d import Polygon2d
 import torch
 
 def show_conts(cont, shape, tolerance):
+    """Helper to find a good setting for <tolerance>"""
     cont_image = np.zeros(shape)
     approx_image = np.zeros(shape)
     rr, cc = polygon_perimeter(cont[:, 0], cont[:, 1])
@@ -17,29 +18,27 @@ def show_conts(cont, shape, tolerance):
     plt.imshow(approx_image)
     plt.show()
 
-
 class ArtificialCellsReward(RewardFunctionAbc):
 
     def __init__(self, shape_samples):
         #TODO get the descriptors for the shape samples
         dev = shape_samples.device
-        self.gt_turning_functions = []
+        self.gt_descriptors = []
         for shape_sample in shape_samples:
             shape_sample = shape_sample.cpu().numpy()
-            contours = find_contours(shape_sample, level=0)
-            for contour in contours:
-                poly_approx = torch.from_numpy(approximate_polygon(contour, tolerance=1.2)).to(dev)
+            contour = find_contours(shape_sample, level=0)[0]
+            poly_approx = torch.from_numpy(approximate_polygon(contour, tolerance=1.2)).to(dev)
 
-                # show_conts(contour, shape_sample.shape, 1.2)
-
-        pass
+            self.gt_descriptors.append(Polygon2d(poly_approx))
 
     def __call__(self, prediction_segmentation, superpixel_segmentation):
         dev = prediction_segmentation.device
+        return_scores = []
 
         for single_pred, single_sp_seg in zip(prediction_segmentation, superpixel_segmentation):
+            scores = torch.zeros((single_sp_seg.max() + 1,), device=dev)
             # get one-hot representation
-            one_hot = torch.zeros((int(single_pred.max()) + 1, ) + single_pred.size(), device=dev)\
+            one_hot = torch.zeros((int(single_pred.max()) + 1, ) + single_pred.size(), device=dev, dtype=torch.long) \
                 .scatter_(0, single_pred[None], 1)
 
             # need masses to determine what objects can be considered background
@@ -50,16 +49,36 @@ class ArtificialCellsReward(RewardFunctionAbc):
 
             bg = one_hot[bg_ids]  # get background masks
             objects = one_hot[object_ids]  # get object masks
-            bg_sp_ids = torch.unique((single_sp_seg[None] + 1) * bg)[1:] - 1  # mask out the covered superpixels (need to add 1 because the single_sp_seg start from 0)
-            object_sp_ids = torch.unique((single_sp_seg[None] + 1) * objects)[1:] - 1
+            bg_sp_ids = [torch.unique((single_sp_seg[None] + 1) * bg_obj)[1:] - 1 for bg_obj in bg]  # mask out the covered superpixels (need to add 1 because the single_sp_seg start from 0)
+            object_sp_ids = [torch.unique((single_sp_seg[None] + 1) * obj)[1:] - 1 for obj in objects]
 
             #TODO get shape descriptors for objects and get a score by comparing to self.descriptors
 
-            #TODO get score for the background
+            for object, sp_ids in zip(objects, object_sp_ids):
+                contour = find_contours(object.cpu(), level=0)[0]
+                poly_chain = torch.from_numpy(approximate_polygon(contour, tolerance=1.2)).to(dev)
+                polygon = Polygon2d(poly_chain)
+                dist_scores = torch.tensor([des.distance(polygon, 100) for des in self.gt_descriptors], device=dev)
+                scores[sp_ids] = 1 - dist_scores.min()
 
+            #TODO get score for the background
             #TODO project scores from objects to superpixels
 
+            if len(object_ids) <= 3:
+                for bg_sp_id in bg_sp_ids:
+                    scores[bg_sp_id] -= .5
+
+            if len(bg_ids) >= 2:
+                for bg_sp_id in bg_sp_ids:
+                    scores[bg_sp_id] -= .5
+            else:
+                for bg_sp_id in bg_sp_ids:
+                    scores[bg_sp_id] += .2
+
+            return_scores.append(scores)
             #TODO return scores for each superpixel
+
+        return return_scores
 
 
 if __name__ == "__main__":
@@ -103,4 +122,4 @@ if __name__ == "__main__":
     superpixel_seg = superpixel_seg[None]
 
     f = ArtificialCellsReward(sample_shapes)
-    rewards = f(pred_seg, superpixel_seg)
+    rewards = f(pred_seg.long(), superpixel_seg.long())
