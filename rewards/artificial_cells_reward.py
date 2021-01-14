@@ -1,11 +1,37 @@
 from rewards.reward_abc import RewardFunctionAbc
+from skimage.measure import approximate_polygon,  find_contours
+from skimage.draw import polygon_perimeter
+from utils.poly_tangent_space import PolyTangentSpace
 import torch
+
+def show_conts(cont, shape, tolerance):
+    cont_image = np.zeros(shape)
+    approx_image = np.zeros(shape)
+    rr, cc = polygon_perimeter(cont[:, 0], cont[:, 1])
+    cont_image[rr, cc] = 1
+    poly_approx = approximate_polygon(cont, tolerance=tolerance)
+    rra, cca = polygon_perimeter(poly_approx[:, 0], poly_approx[:, 1])
+    approx_image[rra, cca] = 1
+    plt.imshow(cont_image)
+    plt.show()
+    plt.imshow(approx_image)
+    plt.show()
+
 
 class ArtificialCellsReward(RewardFunctionAbc):
 
     def __init__(self, shape_samples):
         #TODO get the descriptors for the shape samples
-        self.descriptors = None
+        dev = shape_samples.device
+        self.gt_turning_functions = []
+        for shape_sample in shape_samples:
+            shape_sample = shape_sample.cpu().numpy()
+            contours = find_contours(shape_sample, level=0)
+            for contour in contours:
+                poly_approx = torch.from_numpy(approximate_polygon(contour, tolerance=1.2)).to(dev)
+
+                # show_conts(contour, shape_sample.shape, 1.2)
+
         pass
 
     def __call__(self, prediction_segmentation, superpixel_segmentation):

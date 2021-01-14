@@ -201,8 +201,8 @@ class EmbeddingSpaceEnvEdgeBased():
                 nodeFeatures=single_node_features,
                 nodeSizes=node_sizes,
                 numberOfNodesStop=self.cfg.gen.n_max_object,
-                beta = 1,
-                sizeRegularizer = 0
+                beta=1,
+                sizeRegularizer=0
             )
             clustering = nagglo.agglomerativeClustering(policy)
             clustering.run()
