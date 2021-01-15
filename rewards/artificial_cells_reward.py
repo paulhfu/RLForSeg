@@ -52,31 +52,31 @@ class ArtificialCellsReward(RewardFunctionAbc):
             bg_sp_ids = [torch.unique((single_sp_seg[None] + 1) * bg_obj)[1:] - 1 for bg_obj in bg]  # mask out the covered superpixels (need to add 1 because the single_sp_seg start from 0)
             object_sp_ids = [torch.unique((single_sp_seg[None] + 1) * obj)[1:] - 1 for obj in objects]
 
-            #TODO get shape descriptors for objects and get a score by comparing to self.descriptors
+            #get shape descriptors for objects and get a score by comparing to self.descriptors
 
             for object, sp_ids in zip(objects, object_sp_ids):
                 contour = find_contours(object.cpu(), level=0)[0]
                 poly_chain = torch.from_numpy(approximate_polygon(contour, tolerance=1.2)).to(dev)
                 polygon = Polygon2d(poly_chain)
                 dist_scores = torch.tensor([des.distance(polygon, 100) for des in self.gt_descriptors], device=dev)
+                #project distances for objects to similarities for superpixels
                 scores[sp_ids] = 1 - dist_scores.min()
 
-            #TODO get score for the background
-            #TODO project scores from objects to superpixels
-
-            if len(object_ids) <= 3:
-                for bg_sp_id in bg_sp_ids:
-                    scores[bg_sp_id] -= .5
-
-            if len(bg_ids) >= 2:
-                for bg_sp_id in bg_sp_ids:
-                    scores[bg_sp_id] -= .5
-            else:
-                for bg_sp_id in bg_sp_ids:
-                    scores[bg_sp_id] += .2
+            # get score for the background
+            # would be nice if this was not necessary. So first see and check if it works without
+            # if len(object_ids) <= 3:
+            #     for bg_sp_id in bg_sp_ids:
+            #         scores[bg_sp_id] -= .5
+            #
+            # if len(bg_ids) >= 2:
+            #     for bg_sp_id in bg_sp_ids:
+            #         scores[bg_sp_id] -= .5
+            # else:
+            #     for bg_sp_id in bg_sp_ids:
+            #         scores[bg_sp_id] += .2
 
             return_scores.append(scores)
-            #TODO return scores for each superpixel
+            #return scores for each superpixel
 
         return return_scores
 
