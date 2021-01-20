@@ -16,7 +16,7 @@ from tensorboardX import SummaryWriter
 import os
 import numpy as np
 from utils.exploration_functions import RunningAverage
-from utils.general import adjust_learning_rate, soft_update_params, set_seed_everywhere, cluster_embeddings, pca_project
+from utils.general import get_angles, adjust_learning_rate, soft_update_params, set_seed_everywhere, cluster_embeddings, pca_project
 from utils.matching import matching
 from utils.replay_memory import TransitionData_ts
 from utils.graphs import get_joint_sg_logprobs_edges, get_joint_sg_logprobs_nodes
@@ -30,6 +30,7 @@ from torch.optim.lr_scheduler import ReduceLROnPlateau
 from losses.contrastive_loss import ContrastiveLoss
 from losses.rag_contrastive_loss import RagContrastiveLoss
 from losses.rag_infonce_loss import RagInfoNceLoss
+from losses.affinity_contrastive_loss import AffinityContrastive
 
 
 class AgentSacTrainer(object):
@@ -204,10 +205,13 @@ class AgentSacTrainer(object):
         dset = SpgDset(self.cfg.gen.data_dir, max(self.cfg.sac.s_subgraph), wu_cfg.patch_manager, wu_cfg.patch_stride, wu_cfg.patch_shape, wu_cfg.reorder_sp)
         dloader = DataLoader(dset, batch_size=wu_cfg.batch_size, shuffle=True, pin_memory=True, num_workers=0)
         optimizer = torch.optim.Adam(model.parameters(), lr=wu_cfg.lr,  betas=wu_cfg.betas)
-        sheduler = ReduceLROnPlateau(optimizer, min_lr=5e-5)
-        criterion = RagContrastiveLoss(delta_var=self.cfg.fe.contrastive_delta_var,
-                                       delta_dist=self.cfg.fe.contrastive_delta_dist,
-                                       distance=self.distance)
+        sheduler = ReduceLROnPlateau(optimizer)
+        if wu_cfg.method == 'superpixel_contrast':
+            criterion = RagContrastiveLoss(delta_var=self.cfg.fe.contrastive_delta_var,
+                                           delta_dist=self.cfg.fe.contrastive_delta_dist,
+                                           distance=self.distance)
+        elif wu_cfg.method == 'affinity_contrast':
+            criterion = AffinityContrastive(delta_var=0.1, delta_dist=0.3)
         acc_loss = 0
         iteration = 0
 
@@ -226,7 +230,7 @@ class AgentSacTrainer(object):
                 # put embeddings on unit sphere so we can use cosine distance
                 embeddings = embeddings / torch.norm(embeddings, dim=1, keepdim=True)
 
-                loss = criterion(embeddings=embeddings, gt=gt, sp_seg=sp_seg.unsqueeze(2), edges=edges)
+                loss = criterion(embeddings=embeddings, gt=gt, sp_seg=sp_seg.unsqueeze(2), edges=edges, raw=raw)
 
                 optimizer.zero_grad()
                 loss.backward(retain_graph=False)
@@ -240,6 +244,8 @@ class AgentSacTrainer(object):
                     sheduler.step(acc_loss / 10)
                     acc_loss = 0
                 iteration += 1
+                if iteration % 100 == 0:
+                    model.post_pca(get_angles(embeddings.squeeze(2).detach())[0].cpu(), tag="image/pix_embedding_proj", writer=False)
                 if iteration > self.cfg.fe.warmup.n_iterations:
                     break
 
@@ -543,7 +549,7 @@ class AgentSacTrainer(object):
                 state = env.get_state()
                 while not env.done:
                     # Calculate policy and values
-                    post_stats = True if (self.global_writer_count.value() + 1) % self.cfg.trainer.post_stats_frequency == 0 \
+                    post_stats = True if (self.global_writer_count.value()) % self.cfg.trainer.post_stats_frequency == 0 \
                         else False
                     post_model = True if (self.global_writer_count.value() + 1) % self.cfg.trainer.post_model_frequency == 0 \
                         else False

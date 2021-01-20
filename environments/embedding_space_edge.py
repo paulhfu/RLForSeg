@@ -56,7 +56,7 @@ class EmbeddingSpaceEnvEdgeBased():
         # shift the current node set
         self.current_node_embeddings += shift
         # normalize
-        self.current_node_embeddings /= (torch.norm(self.current_node_embeddings, dim=-1, keepdim=True) + 1e-6)
+        self.current_node_embeddings /= (torch.norm(self.current_node_embeddings, dim=-1, keepdim=True) + 1e-10)
 
         self.current_soln, node_labeling = self.get_soln_graph_clustering(self.current_node_embeddings)
 
@@ -149,15 +149,9 @@ class EmbeddingSpaceEnvEdgeBased():
         self.sp_indices = [[torch.nonzero(sp, as_tuple=False) for sp in stacked_superpixel] for stacked_superpixel in stacked_superpixels]
 
         self.embeddings = self.embedding_net(self.raw).detach()
-        # normalize
-        self.embeddings /= (torch.norm(self.embeddings, dim=1, keepdim=True) + 1e-6)
-        node_feats = []
-        for i, sp_ind in enumerate(self.sp_indices):
-            n_f = self.embedding_net.get_node_features(self.embeddings[i], sp_ind)
-            node_feats.append(n_f)
-        self.current_node_embeddings = torch.cat(node_feats, dim=0)
-        # normalize
-        self.current_node_embeddings /= (torch.norm(self.current_node_embeddings, dim=-1, keepdim=True) + 1e-6)
+        # get embedding agglomeration over each superpixel
+        self.current_node_embeddings = torch.cat([self.embedding_net.get_mean_sp_embedding(embed, sp) for embed, sp
+                                                  in zip(self.embeddings, self.init_sp_seg)], dim=0)
         return
 
     def get_batched_actions_from_global_graph(self, actions):

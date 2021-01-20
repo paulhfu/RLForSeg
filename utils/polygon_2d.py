@@ -88,7 +88,7 @@ class Polygon2d(object):
         # the area of the absolute enclosed area of every function pair. The minimum of all this values corresponds to
         # the most similar functions. This is what we want to return
         score = ((other_tfs - self.all_tfs) * (1/res)).abs().sum(1).min()
-        #TODO maybe there is some normalization necessary here. E.g. normalizing by the largest possible area (area(other_tfs + other_tfs))
+        score = score / (2 * np.pi)  # normalize by the largest possible area
         return score
 
 
