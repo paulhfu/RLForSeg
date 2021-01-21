@@ -43,7 +43,7 @@ class ArtificialCellsReward(RewardFunctionAbc):
         inner_halo_mask = inner_halo_mask.unsqueeze(0)
 
         for single_pred, single_sp_seg in zip(prediction_segmentation, superpixel_segmentation):
-            scores = torch.zeros(int((single_sp_seg.max()) + 1,), device=dev)
+            scores = torch.ones(int((single_sp_seg.max()) + 1,), device=dev) * 0.5
             if single_pred.max() == 0:
                 return_scores.append(scores - 0.2)
                 continue
@@ -85,7 +85,7 @@ class ArtificialCellsReward(RewardFunctionAbc):
                 polygon = Polygon2d(poly_chain)
                 dist_scores = torch.tensor([des.distance(polygon, res) for des in self.gt_descriptors], device=dev)
                 #project distances for objects to similarities for superpixels
-                scores[sp_ids] = torch.exp((1 - dist_scores.min()) * 8) / torch.exp(torch.tensor([8.0], device=dev))  # do exponential scaling
+                scores[sp_ids] += torch.exp((1 - dist_scores.min()) * 8) / torch.exp(torch.tensor([8.0], device=dev))  # do exponential scaling
                 if torch.isnan(scores).any() or torch.isinf(scores).any():
                     a=1
 

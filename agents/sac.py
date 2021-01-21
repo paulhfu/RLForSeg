@@ -339,7 +339,7 @@ class AgentSacTrainer(object):
         actor_loss.backward()
         optimizers.actor.step()
 
-        min_entropy = (self.cfg.sac.entropy_range[1] - self.cfg.sac.entropy_range[0]) * (1-reward[-1]) \
+        min_entropy = (self.cfg.sac.entropy_range[1] - self.cfg.sac.entropy_range[0]) * ((1.5-reward[-1]) / 1.5) \
                       + self.cfg.sac.entropy_range[0]
 
         for i, sz in enumerate(self.cfg.sac.s_subgraph):
