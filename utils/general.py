@@ -176,6 +176,16 @@ def pca_svd(X, k, center=True):
     return components, explained_variance
 
 
+def get_contour_from_2d_binary(mask: torch.Tensor, inner=False):
+    """
+    :param mask: n_dim should be three (N|H|W). can be bool or long but should be binary if long.
+    :return: tensor of the same shape and type bool containing all inner contours of objects in mask
+    """
+    max_p = torch.nn.MaxPool2d(2, stride=1, padding=1)
+    inner = -1 if inner else 1
+    return (inner * max_p(inner * mask)) != mask
+
+
 def multicut_from_probas(segmentation, edges, edge_weights):
     rag = compute_rag(segmentation)
     edge_dict = dict(zip(list(map(tuple, edges)), edge_weights))

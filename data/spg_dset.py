@@ -79,7 +79,7 @@ class SpgDset(torch_data.Dataset):
         new_gt = torch.zeros_like(gt)
 
         if not self.reorder_sp:
-            return patch[:-2], gt, sp_seg, torch.tensor([img_idx])
+            return patch[:-2], gt.long(), sp_seg.long(), torch.tensor([img_idx])
 
         un = torch.unique(sp_seg)
         for i, sp in enumerate(un):
@@ -87,7 +87,7 @@ class SpgDset(torch_data.Dataset):
         for i, obj in enumerate(torch.unique(gt)):
             new_gt[gt == obj] = i
 
-        return self.transform(patch[:-2]), new_gt, new_sp_seg, torch.tensor([img_idx])
+        return self.transform(patch[:-2]), new_gt.long(), new_sp_seg.long(), torch.tensor([img_idx])
 
 
     def get_graphs(self, indices, patches, device="cpu"):

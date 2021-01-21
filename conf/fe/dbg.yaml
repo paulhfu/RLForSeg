@@ -14,14 +14,14 @@ max_pixel_in_dist_mat: 8191
 
 warmup:  # the feature extractor might need pretraining to produce meaningful features
   # Adam optim conf
-  lr: 1e-3
+  lr: 1e-4
   betas: [0.9, 0.999]
 
-  method: gt
-  n_iterations: 10  # number of iterations of feature extractor warmup
-  batch_size: 2  # batch size for feature extractor warmup
+  method: 'affinity_contrast'
+  n_iterations: 10 # number of iterations of feature extrqactor warmup
+  batch_size: 10  # batch size for feature extractor warmup
 
-  patch_shape: [128, 128]
+  patch_shape: [256, 256]
   patch_stride: [16, 16]
   reorder_sp: true
   patch_manager: no_cross # rotated, no_cross, none

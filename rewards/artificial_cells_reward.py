@@ -1,39 +1,112 @@
 from rewards.reward_abc import RewardFunctionAbc
+from skimage.measure import approximate_polygon,  find_contours
+from skimage.draw import polygon_perimeter
+from utils.polygon_2d import Polygon2d
 import torch
+import matplotlib.pyplot as plt
+
+def show_conts(cont, shape, tolerance):
+    """Helper to find a good setting for <tolerance>"""
+    cont_image = np.zeros(shape)
+    approx_image = np.zeros(shape)
+    rr, cc = polygon_perimeter(cont[:, 0], cont[:, 1])
+    cont_image[rr, cc] = 1
+    poly_approx = approximate_polygon(cont, tolerance=tolerance)
+    rra, cca = polygon_perimeter(poly_approx[:, 0], poly_approx[:, 1])
+    approx_image[rra, cca] = 1
+    plt.imshow(cont_image)
+    plt.show()
+    plt.imshow(approx_image)
+    plt.show()
 
 class ArtificialCellsReward(RewardFunctionAbc):
 
     def __init__(self, shape_samples):
         #TODO get the descriptors for the shape samples
-        self.descriptors = None
-        pass
+        dev = shape_samples.device
+        self.gt_descriptors = []
+        for shape_sample in shape_samples:
+            shape_sample = shape_sample.cpu().numpy()
+            contour = find_contours(shape_sample, level=0)[0]
+            poly_approx = torch.from_numpy(approximate_polygon(contour, tolerance=1.2)).to(dev)
 
-    def __call__(self, prediction_segmentation, superpixel_segmentation):
+            self.gt_descriptors.append(Polygon2d(poly_approx))
+
+    def __call__(self, prediction_segmentation, superpixel_segmentation, res):
         dev = prediction_segmentation.device
+        return_scores = []
+        inner_halo_mask = torch.zeros(superpixel_segmentation.shape[1:], device=dev)
+        inner_halo_mask[0, :] = 1
+        inner_halo_mask[:, 0] = 1
+        inner_halo_mask[-1, :] = 1
+        inner_halo_mask[:, -1] = 1
+        inner_halo_mask = inner_halo_mask.unsqueeze(0)
 
         for single_pred, single_sp_seg in zip(prediction_segmentation, superpixel_segmentation):
+            scores = torch.ones(int((single_sp_seg.max()) + 1,), device=dev) * 0.5
+            if single_pred.max() == 0:
+                return_scores.append(scores - 0.2)
+                continue
             # get one-hot representation
-            one_hot = torch.zeros((int(single_pred.max()) + 1, ) + single_pred.size(), device=dev)\
+            one_hot = torch.zeros((int(single_pred.max()) + 1, ) + single_pred.size(), device=dev, dtype=torch.long) \
                 .scatter_(0, single_pred[None], 1)
 
             # need masses to determine what objects can be considered background
             label_masses = one_hot.flatten(1).sum(-1)
-            mask = label_masses >= one_hot.shape[-2] * one_hot.shape[-1] / 4
-            bg_ids = torch.nonzero(mask).squeeze(1)  # background label IDs
-            object_ids = torch.nonzero(mask == 0).squeeze(1)  # object label IDs
+            bg_mask = torch.zeros_like(label_masses).bool()
+            bg_id = label_masses.argmax()
+            bg_mask[bg_id] = True
+            # get the objects that are torching the patch boarder as for them we cannot compute a relieable sim score
+            invalid_obj_mask = ((one_hot * inner_halo_mask).flatten(1).sum(-1) >= 2) & (bg_mask == False)
+            false_obj_mask = (label_masses < 15) & (label_masses > 50**2)
+            false_obj_mask[bg_id] = False
+            # everything else are potential objects
+            potenial_obj_mask = (false_obj_mask == False) & (invalid_obj_mask == False)
+            potenial_obj_mask[bg_id] = False
+            potential_object_ids = torch.nonzero(potenial_obj_mask).squeeze(1)  # object label IDs
 
-            bg = one_hot[bg_ids]  # get background masks
-            objects = one_hot[object_ids]  # get object masks
-            bg_sp_ids = torch.unique((single_sp_seg[None] + 1) * bg)[1:] - 1  # mask out the covered superpixels (need to add 1 because the single_sp_seg start from 0)
-            object_sp_ids = torch.unique((single_sp_seg[None] + 1) * objects)[1:] - 1
+            bg = one_hot[bg_id]  # get background masks
+            objects = one_hot[potential_object_ids]  # get object masks
+            false_obj_sp_ids = torch.unique((single_sp_seg[None] + 1) * one_hot[false_obj_mask])[1:] - 1
+            bg_sp_ids = [torch.unique((single_sp_seg[None] + 1) * bg_obj)[1:] - 1 for bg_obj in bg]  # mask out the covered superpixels (need to add 1 because the single_sp_seg start from 0)
+            object_sp_ids = [torch.unique((single_sp_seg[None] + 1) * obj)[1:] - 1 for obj in objects]
 
-            #TODO get shape descriptors for objects and get a score by comparing to self.descriptors
+            #get shape descriptors for objects and get a score by comparing to self.descriptors
 
-            #TODO get score for the background
+            for object, sp_ids in zip(objects, object_sp_ids):
+                try:
+                    contour = find_contours(object.cpu().numpy(), level=0)[0]
+                except:
+                    a=1
+                poly_chain = torch.from_numpy(approximate_polygon(contour, tolerance=0.0)).to(dev)
+                if poly_chain.shape[0] <= 3:
+                    scores[sp_ids] -= 0.1
+                    continue
+                polygon = Polygon2d(poly_chain)
+                dist_scores = torch.tensor([des.distance(polygon, res) for des in self.gt_descriptors], device=dev)
+                #project distances for objects to similarities for superpixels
+                scores[sp_ids] += torch.exp((1 - dist_scores.min()) * 8) / torch.exp(torch.tensor([8.0], device=dev))  # do exponential scaling
+                if torch.isnan(scores).any() or torch.isinf(scores).any():
+                    a=1
 
-            #TODO project scores from objects to superpixels
+            scores[false_obj_sp_ids] -= 0.5
+            # get score for the background
+            # would be nice if this was not necessary. So first see and check if it works without
+            # if len(object_ids) <= 3:
+            #     for bg_sp_id in bg_sp_ids:
+            #         scores[bg_sp_id] -= .5
+            #
+            # if len(bg_id) >= 2:
+            #     for bg_sp_id in bg_sp_ids:
+            #         scores[bg_sp_id] -= .5
+            # else:
+            #     for bg_sp_id in bg_sp_ids:
+            #         scores[bg_sp_id] += .2
 
-            #TODO return scores for each superpixel
+            return_scores.append(scores)
+            #return scores for each superpixel
+
+        return torch.cat(return_scores)
 
 
 if __name__ == "__main__":
@@ -77,4 +150,4 @@ if __name__ == "__main__":
     superpixel_seg = superpixel_seg[None]
 
     f = ArtificialCellsReward(sample_shapes)
-    rewards = f(pred_seg, superpixel_seg)
+    rewards = f(pred_seg.long(), superpixel_seg.long())
