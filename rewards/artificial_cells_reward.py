@@ -54,13 +54,15 @@ class ArtificialCellsReward(RewardFunctionAbc):
             # need masses to determine what objects can be considered background
             label_masses = one_hot.flatten(1).sum(-1)
             bg_mask = torch.zeros_like(label_masses).bool()
-            bg_mask[label_masses.max()] = True
+            bg_id = label_masses.argmax()
+            bg_mask[bg_id] = True
             # get the objects that are torching the patch boarder as for them we cannot compute a relieable sim score
             invalid_obj_mask = ((one_hot * inner_halo_mask).flatten(1).sum(-1) >= 2) & (bg_mask == False)
-            false_obj_mask = label_masses < 20
+            false_obj_mask = (label_masses < 15) & (label_masses > 50**2)
+            false_obj_mask[bg_id] = False
             # everything else are potential objects
-            potenial_obj_mask = (false_obj_mask == False) & (bg_mask == False) & (invalid_obj_mask == False)
-            bg_id = torch.nonzero(bg_mask).squeeze(1)  # background label IDs
+            potenial_obj_mask = (false_obj_mask == False) & (invalid_obj_mask == False)
+            potenial_obj_mask[bg_id] = False
             potential_object_ids = torch.nonzero(potenial_obj_mask).squeeze(1)  # object label IDs
 
             bg = one_hot[bg_id]  # get background masks
@@ -76,7 +78,10 @@ class ArtificialCellsReward(RewardFunctionAbc):
                     contour = find_contours(object.cpu().numpy(), level=0)[0]
                 except:
                     a=1
-                poly_chain = torch.from_numpy(approximate_polygon(contour, tolerance=1.2)).to(dev)
+                poly_chain = torch.from_numpy(approximate_polygon(contour, tolerance=0.0)).to(dev)
+                if poly_chain.shape[0] <= 3:
+                    scores[sp_ids] -= 0.1
+                    continue
                 polygon = Polygon2d(poly_chain)
                 dist_scores = torch.tensor([des.distance(polygon, res) for des in self.gt_descriptors], device=dev)
                 #project distances for objects to similarities for superpixels

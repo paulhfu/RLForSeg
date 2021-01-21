@@ -16,11 +16,11 @@ class Polygon2d(object):
 
         # get the lengths of each face and normalize them by the polygon perimeter
         face_vecs = self.poly_chain - torch.roll(self.poly_chain, (-1, ), (0, ))
-        self.face_lengths_fwd = torch.norm(face_vecs, dim=1)
+        self.face_lengths_fwd = torch.norm(face_vecs, dim=1) + 1e-6
         self.face_lengths_fwd /= self.face_lengths_fwd.sum()
         self.face_lengths_bwd = torch.flip(self.face_lengths_fwd, dims=(0,))
 
-        normed_face_vecs = face_vecs / torch.norm(face_vecs, dim=1, keepdim=True)
+        normed_face_vecs = face_vecs / (torch.norm(face_vecs, dim=1, keepdim=True) + 1e-6)
 
         # get the turning  angles at each vertex. turning angles are positive or negative [0, pi] depending in which direction they point
         angles = []
@@ -33,11 +33,13 @@ class Polygon2d(object):
             rolled_padded[:, :2] = torch.roll(nfv, (-1, ), (0, ))
             sign = torch.sign(torch.cross(padded, rolled_padded, dim=1)[:, -1])
 
-            angles.append(torch.acos(dot) * sign)
+            angles.append(torch.acos(dot * (1 - 1e-6)) * sign)
 
         self.angles_fwd = angles[0]
         self.angles_bwd = angles[1]
         self.all_tfs = None
+        if torch.isnan(self.angles_fwd).any() or torch.isinf(self.angles_fwd).any():
+            a = 1
 
     def get_turning_functions(self, n, res):
         """
@@ -65,7 +67,10 @@ class Polygon2d(object):
         tfs_y_fwd = torch.from_numpy(interpolate.interp1d(x_fwd.cpu(), y_fwd.cpu(), kind='previous')(tfs_x)).to(self.poly_chain.device)
         tfs_y_bwd = torch.from_numpy(interpolate.interp1d(x_bwd.cpu(), y_bwd.cpu(), kind='previous')(tfs_x)).to(self.poly_chain.device)
         # return the sampled y-values
-        return torch.stack([tfs_y_bwd, tfs_y_fwd])
+        ret = torch.stack([tfs_y_bwd, tfs_y_fwd])
+        if torch.isnan(ret).any() or torch.isinf(ret).any():
+            a = 1
+        return ret
 
 
     def distance(self, other, res=100):
@@ -89,6 +94,9 @@ class Polygon2d(object):
         # the most similar functions. This is what we want to return
         score = ((other_tfs - self.all_tfs) * (1/res)).abs().sum(1).min()
         score = score / (2 * np.pi)  # normalize by the largest possible area
+
+        if torch.isnan(score).any() or torch.isinf(score).any():
+            a = 1
         return score
 
 
