@@ -24,6 +24,7 @@ class MulticutEmbeddingsEnv():
         self.device = device
         self.writer = writer
         self.writer_counter = writer_counter
+        self.last_final_reward = torch.tensor([0.0])
         self.max_p = torch.nn.MaxPool2d(3, padding=1, stride=1)
         self.aff_offsets = [[0, -1], [-1, 0], [-1, -1], [-8, 0], [0, -8]]
         self.sep_chnl = 3
@@ -43,10 +44,12 @@ class MulticutEmbeddingsEnv():
 
         self.current_soln = self.get_current_soln(self.current_edge_weights)
         reward = self.reward_function.get(self.sg_current_edge_weights, self.sg_gt_edges) #self.current_soln)
+        reward.append(self.last_final_reward)
 
         self.counter += 1
         if self.counter >= self.cfg.trainer.max_episode_length:
             self.done = True
+            self.last_final_reward = self.reward_function.get_global(self.current_edge_weights, self.gt_edge_weights)
 
         total_reward = 0
         for _rew in reward:

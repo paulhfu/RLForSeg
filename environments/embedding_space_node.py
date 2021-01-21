@@ -26,6 +26,7 @@ class EmbeddingSpaceEnvNodeBased():
         self.device = device
         self.writer = writer
         self.writer_counter = writer_counter
+        self.last_final_reward = torch.tensor([0.0])
         self.max_p = torch.nn.MaxPool2d(3, padding=1, stride=1)
         self.step_encoder = TemporalSineEncoding(max_step=cfg.trainer.max_episode_length,
                                                  size=cfg.fe.n_embedding_features)
@@ -53,10 +54,14 @@ class EmbeddingSpaceEnvNodeBased():
             sg_edge_weights.append((sg_ne[0] == sg_ne[1]).float())
 
         reward = self.reward_function.get(sg_edge_weights, self.sg_gt_edges) #self.current_soln)
+        reward.append(self.last_final_reward)
 
         self.counter += 1
         if self.counter >= self.cfg.trainer.max_episode_length:
             self.done = True
+            ne = node_labeling[self.edge_ids]
+            edge_weights = ((ne[0] == ne[1]).float())
+            self.last_final_reward = self.reward_function.get_global(edge_weights, self.gt_edge_weights)
 
         total_reward = 0
         for _rew in reward:
