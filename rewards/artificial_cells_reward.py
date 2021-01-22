@@ -44,8 +44,8 @@ class ArtificialCellsReward(RewardFunctionAbc):
 
         for single_pred, single_sp_seg in zip(prediction_segmentation, superpixel_segmentation):
             scores = torch.ones(int((single_sp_seg.max()) + 1,), device=dev) * 0.5
-            if single_pred.max() == 0:
-                return_scores.append(scores - 0.2)
+            if single_pred.max() == 0:  # image is empty
+                return_scores.append(scores - 0.5)
                 continue
             # get one-hot representation
             one_hot = torch.zeros((int(single_pred.max()) + 1, ) + single_pred.size(), device=dev, dtype=torch.long) \
@@ -58,7 +58,7 @@ class ArtificialCellsReward(RewardFunctionAbc):
             bg_mask[bg_id] = True
             # get the objects that are torching the patch boarder as for them we cannot compute a relieable sim score
             invalid_obj_mask = ((one_hot * inner_halo_mask).flatten(1).sum(-1) >= 2) & (bg_mask == False)
-            false_obj_mask = (label_masses < 15) & (label_masses > 50**2)
+            false_obj_mask = (label_masses < 15) | (label_masses > 50**2)
             false_obj_mask[bg_id] = False
             # everything else are potential objects
             potenial_obj_mask = (false_obj_mask == False) & (invalid_obj_mask == False)

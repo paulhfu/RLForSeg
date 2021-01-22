@@ -79,7 +79,7 @@ def get_angles_smass_in_rag(edges, segmentation):
     vec = cms[edges[0]] - cms[edges[1]]
     angles = torch.atan(vec[:, 0] / (vec[:, 1] + np.finfo(float).eps))
     angles = 2 * angles / np.pi
-    return angles, sup_sizes / float(segmentation.shape[-1] * segmentation.shape[-2]), cms
+    return angles, sup_sizes / sup_sizes.max(), cms
 
 
 def get_joint_sg_logprobs_edges(logprobs, scale, obs, sg_ind, sz):
