@@ -68,7 +68,7 @@ class AgentSacTrainer(object):
 
     def validation_round(self, dset, model, env, device):
         dloader = DataLoader(dset, batch_size=1, shuffle=True, pin_memory=True, num_workers=0)
-        for iteration in range(len(dset) * self.cfg.trainer.data_update_frequency):
+        for iteration in range(10):
             self.update_env_data(env, dloader, device)
             env.reset()
             state = env.get_state()
@@ -77,7 +77,6 @@ class AgentSacTrainer(object):
                 action = torch.sigmoid(distr.loc)
                 next_state, reward = env.execute_action(action, None, post_images=True)
                 state = next_state
-
 
     def validate(self, model, env, device):
         """validates the prediction against the method of clustering the embedding space"""
