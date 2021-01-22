@@ -6,7 +6,7 @@ import matplotlib.pyplot as plt
 from utils.reward_functions import UnSupervisedReward, SubGraphDiceReward
 from rewards.artificial_cells_reward import ArtificialCellsReward
 from utils.graphs import collate_edges, get_edge_indices, get_angles_smass_in_rag
-from utils.general import get_angles
+from utils.general import get_angles, pca_project
 from rag_utils import find_dense_subgraphs
 import elf
 from elf.segmentation.multicut import multicut_kernighan_lin
@@ -52,7 +52,7 @@ class MulticutEmbeddingsEnv():
         else:
             self.reward_function = UnSupervisedReward(env=self)
 
-    def execute_action(self, actions, logg_vals=None, post_stats=False):
+    def execute_action(self, actions, logg_vals=None, post_stats=False, post_images=False):
         self.current_edge_weights = actions.squeeze()
 
         self.current_soln = self.get_current_soln(self.current_edge_weights)
@@ -85,24 +85,25 @@ class MulticutEmbeddingsEnv():
             total_reward += _rew.mean().item()
         total_reward /= len(self.cfg.sac.s_subgraph)
 
-        if self.writer is not None and post_stats:
+        if self.writer is not None:
             self.writer.add_scalar("step/avg_return", total_reward, self.writer_counter.value())
-            if self.writer_counter.value() % 10 == 0:
+            if post_images:
                 self.writer.add_histogram("step/pred_mean", self.current_edge_weights.view(-1).cpu().numpy(), self.writer_counter.value() // 10)
-                fig, (a0, a1, a2, a3, a4) = plt.subplots(1, 5, sharex='col', sharey='row', gridspec_kw={'hspace': 0, 'wspace': 0})
-                a0.imshow(self.gt_seg[0].cpu().squeeze())
-                a0.set_title('gt')
-                a1.imshow(self.raw[0].cpu().permute(1, 2, 0).squeeze())
-                a1.set_title('raw image')
-                a2.imshow(cm.prism(self.init_sp_seg[0].cpu() / self.init_sp_seg[0].max().item()))
-                a2.set_title('superpixels')
-                a3.imshow(cm.prism(self.gt_soln[0].cpu()/self.gt_soln[0].max().item()))
-                a3.set_title('gt')
-                a4.imshow(cm.prism(self.current_soln[0].cpu()/self.current_soln[0].max().item()))
-                a4.set_title('prediction')
+                fig, axes = plt.subplots(2, 3, sharex='col', sharey='row', gridspec_kw={'hspace': 0, 'wspace': 0})
+                axes[0, 0].imshow(self.gt_seg[0].cpu().squeeze())
+                axes[0, 0].set_title('gt')
+                axes[0, 1].imshow(self.raw[0].cpu().permute(1, 2, 0).squeeze())
+                axes[0, 1].set_title('raw image')
+                axes[0, 2].imshow(cm.prism(self.init_sp_seg[0].cpu() / self.init_sp_seg[0].max().item()))
+                axes[0, 2].set_title('superpixels')
+                axes[1, 0].imshow(cm.prism(self.gt_soln[0].cpu()/self.gt_soln[0].max().item()))
+                axes[1, 0].set_title('gt')
+                axes[1, 1].imshow(pca_project(get_angles(self.embeddings)[0].detach().cpu().numpy()))
+                axes[1, 1].set_title('embed')
+                axes[1, 2].imshow(cm.prism(self.current_soln[0].cpu()/self.current_soln[0].max().item()))
+                axes[1, 2].set_title('prediction')
                 self.writer.add_figure("image/state", fig, self.writer_counter.value() // 10)
-                self.embedding_net.post_pca(get_angles(self.embeddings)[0].cpu(), tag="image/pix_embedding_proj")
-            if logg_vals is not None:
+            if logg_vals is not None and post_stats:
                 for key, val in logg_vals.items():
                     self.writer.add_scalar("step/" + key, val, self.writer_counter.value())
             self.writer_counter.increment()

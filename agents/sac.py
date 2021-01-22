@@ -66,6 +66,19 @@ class AgentSacTrainer(object):
         # initialize the process group
         dist.init_process_group("gloo", rank=rank, world_size=world_size)
 
+    def validation_round(self, dset, model, env, device):
+        dloader = DataLoader(dset, batch_size=1, shuffle=True, pin_memory=True, num_workers=0)
+        for iteration in range(len(dset) * self.cfg.trainer.data_update_frequency):
+            self.update_env_data(env, dloader, device)
+            env.reset()
+            state = env.get_state()
+            while not env.done:
+                distr, _, _, _, _, _ = self.agent_forward(env, model, state=state, grad=False, post_input=False, post_model=False)
+                action = torch.sigmoid(distr.loc)
+                next_state, reward = env.execute_action(action, None, post_images=True)
+                state = next_state
+
+
     def validate(self, model, env, device):
         """validates the prediction against the method of clustering the embedding space"""
 
@@ -529,6 +542,7 @@ class AgentSacTrainer(object):
                 param.requires_grad = False
 
         dset = SpgDset(self.cfg.gen.data_dir, max(self.cfg.sac.s_subgraph), self.cfg.gen.patch_manager, self.cfg.gen.patch_stride, self.cfg.gen.patch_shape, self.cfg.gen.reorder_sp)
+        val_dset = SpgDset(self.cfg.gen.val_data_dir, max(self.cfg.sac.s_subgraph), self.cfg.gen.patch_manager, self.cfg.gen.patch_stride, self.cfg.gen.patch_shape, self.cfg.gen.reorder_sp)
         step = 0
 
         while self.global_count.value() <= self.cfg.trainer.T_max:
@@ -586,6 +600,8 @@ class AgentSacTrainer(object):
                     state = next_state
 
                 self.global_count.increment()
+                if self.global_count.value() % self.cfg.trainer.validatoin_freq == 0:
+                    self.validation_round(val_dset, shared_model, env, device)
                 step += 1
                 if rank == 0:
                     self.global_writer_count.increment()
