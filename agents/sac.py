@@ -52,6 +52,7 @@ class AgentSacTrainer(object):
         else:
             self.get_joint_sg_logprobs = get_joint_sg_logprobs_edges
 
+
     def setup(self, rank, world_size):
         # BLAS setup
         os.environ['OMP_NUM_THREADS'] = '10'
