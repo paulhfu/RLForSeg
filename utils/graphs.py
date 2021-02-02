@@ -1,5 +1,7 @@
 import torch
 import numpy as np
+import vigra
+from elf.segmentation.watershed import watershed, apply_size_filter
 import matplotlib.pyplot as plt
 
 
@@ -96,6 +98,16 @@ def get_joint_sg_logprobs_nodes(logprobs, scale, obs, sg_ind, sz):
         sg_entropy[i] = (1 / 2 * (
                     1 + (2 * np.pi * scale[un] ** 2).log())).sum()
     return joint_logprobs, sg_entropy
+
+def run_watershed(hmap, min_size=None, nhood=4):
+    compute_maxima = vigra.analysis.localMaxima if hmap.ndim == 2 else vigra.analysis.localMaxima3D
+    seeds = compute_maxima(hmap, marker=np.nan, allowAtBorder=True, allowPlateaus=True, neighborhood=nhood)
+    seeds = vigra.analysis.labelMultiArrayWithBackground(np.isnan(seeds).view('uint8'))
+
+    ws, _ = watershed(hmap, seeds)
+    if min_size is not None:
+        ws, _ = apply_size_filter(ws, hmap, min_size)
+    return ws
 
 if __name__ == "__main__":
     # edges = np.array([[1, 3], [2, 4], [1, 2], [2, 3], [3, 5], [3, 6], [1, 5], [2, 8], [4, 8], [4, 9], [5, 9], [8, 9]])

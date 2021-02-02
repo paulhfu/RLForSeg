@@ -3,6 +3,7 @@ from affogato.affinities import compute_affinities
 import numpy as np
 import elf.segmentation.features as feats
 import torch
+from skimage.feature import hessian_matrix, hessian_matrix_eigvals, hessian_matrix_det
 
 def get_valid_edges(shape, offsets):
     # compute valid edges
@@ -58,3 +59,15 @@ def get_edge_features_1d(sp_seg, offsets, affinities):
     edge_feat = feats.compute_affinity_features(rag, np.expand_dims(affinities, axis=1), offsets_3d)[:, :]
     return edge_feat, rag.uvIds()
 
+def get_max_hessian_eval(data, sigma=None):
+    if sigma is None:
+        sigma = np.ones(data.ndim)
+    hess = hessian_matrix(data, sigma)
+    evals = hessian_matrix_eigvals(hess)
+    return evals.max(axis=0)
+
+def get_hessian_det(data, sigma=None):
+    if sigma is None:
+        sigma = np.ones(data.ndim)
+    dets = hessian_matrix_det(data, sigma)
+    return dets
