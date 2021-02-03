@@ -8,6 +8,7 @@ post_model_frequency: 100  # post model param distributions after n steps
 n_updates_per_step: 10  # perform n optim steps per env step
 max_episode_length: 1  # Maximum episode length (if env is multicut_embedding this should be 1)
 batch_size: 2  # num of images to segment
+validatoin_freq: 1
 # conf for lr scheduling
 lr_sched:
   mov_avg_bandwidth: 80
