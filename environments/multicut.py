@@ -5,6 +5,7 @@ import collections
 import matplotlib.pyplot as plt
 from utils.reward_functions import UnSupervisedReward, SubGraphDiceReward
 from rewards.artificial_cells_reward import ArtificialCellsReward
+from rewards.leptin_data_reward_2d import LeptinDataReward2D
 from utils.graphs import collate_edges, get_edge_indices, get_angles_smass_in_rag
 from utils.general import get_angles, pca_project
 from rag_utils import find_dense_subgraphs
@@ -49,6 +50,8 @@ class MulticutEmbeddingsEnv():
                                 1:])  # 0 should be background
 
             self.reward_function = ArtificialCellsReward(torch.cat(sample_shapes))
+        elif self.cfg.sac.reward_function == 'leptin_data':
+            self.reward_function = LeptinDataReward2D()
         else:
             self.reward_function = UnSupervisedReward(env=self)
 
@@ -57,9 +60,10 @@ class MulticutEmbeddingsEnv():
 
         self.current_soln = self.get_current_soln(self.current_edge_weights)
 
-        if self.cfg.sac.reward_function == 'artificial_cells':
+        if self.cfg.sac.reward_function == 'artificial_cells' or self.cfg.sac.reward_function == 'leptin_data':
             reward = []
-            sp_reward = self.reward_function(self.current_soln.long(), self.init_sp_seg.long(), res=500)
+            sp_reward = self.reward_function(self.current_soln.long(), self.init_sp_seg.long(), dir_edges=self.edge_ids,
+                                             res=500)
             for i, sz in enumerate(self.cfg.sac.s_subgraph):
                 reward.append(sp_reward[self.edge_ids][:, self.subgraph_indices[i].view(-1, sz)].sum(0).mean(1))
             reward.append(self.last_final_reward)

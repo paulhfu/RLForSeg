@@ -32,7 +32,7 @@ class ArtificialCellsReward(RewardFunctionAbc):
 
             self.gt_descriptors.append(Polygon2d(poly_approx))
 
-    def __call__(self, prediction_segmentation, superpixel_segmentation, res):
+    def __call__(self, prediction_segmentation, superpixel_segmentation, res, *args, **kwargs):
         dev = prediction_segmentation.device
         return_scores = []
         inner_halo_mask = torch.zeros(superpixel_segmentation.shape[1:], device=dev)
