@@ -44,7 +44,7 @@ class EdgeGnn(nn.Module):
 
         side_loss = (side_loss_1 + side_loss_2 + side_loss_3) / 3
 
-        if self.writer is not None and post_input and edge_features.shape[1] > 3:
+        if self.writer is not None and post_input and edge_features.shape[1] > 3 and gt_edges is not None:
             plt.clf()
             pca_proj_edge_fe = pca_project_1d(edge_features.detach().squeeze().cpu().numpy())
             pca_proj_edge_fe -= pca_proj_edge_fe.min()
@@ -114,7 +114,7 @@ class QGnn(nn.Module):
 
         side_loss = (side_loss_1 + side_loss_2) / 2
 
-        if self.writer is not None and post_input and edge_features.shape[1] > 3:
+        if self.writer is not None and post_input and edge_features.shape[1] > 3 and gt_edges is not None:
             pca_proj_edge_fe = pca_project_1d(edge_features.detach().squeeze().cpu().numpy())
             pca_proj_edge_fe -= pca_proj_edge_fe.min()
             pca_proj_edge_fe /= pca_proj_edge_fe.max()

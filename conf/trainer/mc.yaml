@@ -7,16 +7,16 @@ post_stats_frequency: 10  # post logs after n steps
 post_model_frequency: 100  # post model param distributions after n steps
 n_updates_per_step: 10  # perform n optim steps per env step
 max_episode_length: 1  # Maximum episode length (if env is multicut_embedding this should be 1)
-batch_size: 2  # num of images to segment
+batch_size: 1  # num of images to segment
 validatoin_freq: 500
 # conf for lr scheduling
 lr_sched:
-  mov_avg_bandwidth: 80
+  mov_avg_bandwidth: 40
   weight_range: [0.1, 1.0]
-  step_frequency: 20
+  step_frequency: 10
   mov_avg_offset: 10
   torch_sched:  # conf for torch reduceOnPlateau scheduler
-    patience: 100
-    min_lr: 1e-4
-    factor: 0.8
+    patience: 1000
+    min_lr: 1e-6
+    factor: 0.5
     threshold: 1e-2

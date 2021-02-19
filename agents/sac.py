@@ -16,14 +16,15 @@ from tensorboardX import SummaryWriter
 import os
 import numpy as np
 from utils.exploration_functions import RunningAverage
-from utils.general import get_angles, adjust_learning_rate, soft_update_params, set_seed_everywhere, cluster_embeddings, pca_project
+from utils.general import get_angles, adjust_learning_rate, soft_update_params, set_seed_everywhere, cluster_embeddings, pca_project, calculate_gt_edge_costs
 from utils.matching import matching
 from utils.replay_memory import TransitionData_ts
 from utils.graphs import get_joint_sg_logprobs_edges, get_joint_sg_logprobs_nodes
-from utils.distances import CosineDistance
+from utils.distances import CosineDistance, LpDistance
 import matplotlib.pyplot as plt
 import matplotlib.cm as cm
 import yaml
+import copy
 import portalocker
 from shutil import copyfile
 from torch.optim.lr_scheduler import ReduceLROnPlateau
@@ -31,6 +32,7 @@ from losses.contrastive_loss import ContrastiveLoss
 from losses.rag_contrastive_loss import RagContrastiveLoss
 from losses.rag_infonce_loss import RagInfoNceLoss
 from losses.affinity_contrastive_loss import AffinityContrastive
+from elf.segmentation.features import compute_rag
 
 
 class AgentSacTrainer(object):
@@ -70,13 +72,13 @@ class AgentSacTrainer(object):
     def validation_round(self, dset, model, env, device):
         dloader = DataLoader(dset, batch_size=1, shuffle=True, pin_memory=True, num_workers=0)
         for iteration in range(10):
-            self.update_env_data(env, dloader, device)
+            self.update_env_data(env, dloader, device, with_gt_edges="sub_graph_dice" in self.cfg.sac.reward_function)
             env.reset()
             state = env.get_state()
             while not env.done:
                 distr, _, _, _, _, _ = self.agent_forward(env, model, state=state, grad=False, post_input=False, post_model=False)
                 action = torch.sigmoid(distr.loc)
-                next_state, reward = env.execute_action(action, None, post_images=True)
+                next_state, reward = env.execute_action(action, None, post_images=True, tau=0.0)
                 state = next_state
 
     def validate(self, model, env, device):
@@ -85,7 +87,7 @@ class AgentSacTrainer(object):
         model.eval()
         n_examples = 4
         taus = [0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8, 0.9]
-        dset = SpgDset(self.cfg.gen.data_dir, max(self.cfg.sac.s_subgraph), self.cfg.gen.patch_manager, self.cfg.gen.patch_stride, self.cfg.gen.patch_shape, self.cfg.gen.reorder_sp)
+        dset = SpgDset(self.cfg.gen.data_dir, self.cfg.gen.patch_manager, max(self.cfg.sac.s_subgraph))
         dloader = DataLoader(dset, batch_size=1, shuffle=True, pin_memory=True,
                              num_workers=0)
         clst_scores, clst_scores_sp, rl_scores, keys = [], [], [], None
@@ -95,7 +97,7 @@ class AgentSacTrainer(object):
             env.reset()
             state = env.get_state()
             _, _, _, action, embeddings, _, node_features = self.agent_forward(env, model, state=state, grad=False,
-                                                           post_input=False, post_model=False, return_node_features=True)
+                                                                               post_input=False, post_model=False, return_node_features=True)
             env.execute_action(action, None, post_stats=False)
 
             clst_labels = cluster_embeddings(embeddings.cpu().numpy().squeeze().transpose((1, 2, 0)), len(torch.unique(env.gt_seg)))
@@ -114,13 +116,13 @@ class AgentSacTrainer(object):
                 ex_rl.append(cm.prism(rl_labels / rl_labels.max()))
 
             _clst_scores = matching(env.gt_seg.cpu().numpy().squeeze(), clst_labels.squeeze(),
-                                        thresh=taus, criterion='iou', report_matches=False)
+                                    thresh=taus, criterion='iou', report_matches=False)
 
             _clst_scores_sp = matching(env.gt_seg.cpu().numpy().squeeze(), clst_labels_sp.squeeze(),
-                                        thresh=taus, criterion='iou', report_matches=False)
+                                       thresh=taus, criterion='iou', report_matches=False)
 
             _rl_scores = matching(env.gt_seg.cpu().numpy().squeeze(), rl_labels,
-                                        thresh=taus, criterion='iou', report_matches=False)
+                                  thresh=taus, criterion='iou', report_matches=False)
 
             if it == 0:
                 for tau_it in range(len(_clst_scores)):
@@ -215,9 +217,9 @@ class AgentSacTrainer(object):
 
     def pretrain_embeddings(self, model, device, writer=None):
         wu_cfg = self.cfg.fe.warmup
-        dset = SpgDset(self.cfg.gen.data_dir, max(self.cfg.sac.s_subgraph), wu_cfg.patch_manager, wu_cfg.patch_stride, wu_cfg.patch_shape, wu_cfg.reorder_sp)
+        dset = SpgDset(self.cfg.gen.data_dir, wu_cfg.patch_manager, max(self.cfg.sac.s_subgraph))
         dloader = DataLoader(dset, batch_size=wu_cfg.batch_size, shuffle=True, pin_memory=True, num_workers=0)
-        optimizer = torch.optim.Adam(model.parameters(), lr=wu_cfg.lr,  betas=wu_cfg.betas)
+        optimizer = torch.optim.Adam(model.parameters(), lr=wu_cfg.lr)
         sheduler = ReduceLROnPlateau(optimizer)
         if wu_cfg.method == 'superpixel_contrast':
             criterion = RagContrastiveLoss(delta_var=self.cfg.fe.contrastive_delta_var,
@@ -266,22 +268,79 @@ class AgentSacTrainer(object):
                 del embeddings
         return
 
+    def supervised_policy_pretraining(self, model, env, writer, device="cuda:0", fe_opt=False):
+        wu_cfg = self.cfg.sac.policy_warmup
+        dset = SpgDset(self.cfg.gen.data_dir, wu_cfg.patch_manager, max(self.cfg.sac.s_subgraph))
+        dloader = DataLoader(dset, batch_size=wu_cfg.batch_size, shuffle=True, pin_memory=True, num_workers=0)
+        if fe_opt:
+            actor_fe_opt = torch.optim.Adam(list(model.module.actor.parameters()) + list(env.embedding_net.parameters()), lr=wu_cfg.lr)
+        else:
+            actor_fe_opt = torch.optim.Adam(model.module.actor.parameters(), lr=wu_cfg.lr)
+
+        dummy_opt = torch.optim.Adam([model.module.log_alpha], lr=wu_cfg.lr)
+        sheduler = ReduceLROnPlateau(actor_fe_opt, threshold=0.001, min_lr=1e-6)
+        criterion = torch.nn.BCELoss()
+        acc_loss = 0
+        iteration = 0
+        best_score = -np.inf
+        # be careful with this, it assumes a one step episode environment
+        while iteration <= wu_cfg.n_iterations:
+            self.update_env_data(env, dloader, device, with_gt_edges=True, fe_grad=fe_opt)
+            state = env.get_state()
+            # Calculate policy and values
+            distr, q1, q2, _, _ = self.agent_forward(env, model, state, policy_opt=True)
+            action = distr.transforms[0](distr.loc)
+            loss = criterion(action.squeeze(1), env.gt_edge_weights)
+
+            dummy_loss = (model.module.alpha * 0).sum()  # not using all parameters in backprop gives error, so add dummy loss
+            for sq1, sq2 in zip(q1, q2):
+                loss = loss + (sq1.sum() * sq2.sum() * 0)
+
+            actor_fe_opt.zero_grad()
+            loss.backward(retain_graph=False)
+            actor_fe_opt.step()
+
+            dummy_opt.zero_grad()
+            dummy_loss.backward(retain_graph=False)
+            dummy_opt.step()
+            acc_loss += loss.item()
+
+            if iteration % 10 == 0:
+                _, reward = env.execute_action(action.detach(), None, post_images=True, tau=0.0)
+                sheduler.step(acc_loss / 10)
+                total_reward = 0
+                for _rew in reward:
+                    total_reward += _rew.mean().item()
+                total_reward /= len(reward)
+                writer.add_scalar("policy_warm_start/acc_loss", acc_loss, iteration)
+                writer.add_scalar("policy_warm_start/rewards", total_reward, iteration)
+                acc_loss = 0
+                if total_reward > best_score:
+                    best_model = copy.deepcopy(model.state_dict())
+                    best_score = total_reward
+            if writer is not None:
+                writer.add_scalar("policy_warm_start/loss", loss.item(), iteration)
+                writer.add_scalar("policy_warm_start/lr", actor_fe_opt.param_groups[0]['lr'], iteration)
+            iteration += 1
+        model.load_state_dict(best_model)
+        return
+
     def cleanup(self):
         dist.destroy_process_group()
 
-    def update_env_data(self, env, dloader, device):
+    def update_env_data(self, env, dloader, device, with_gt_edges=False, fe_grad=False):
         raw, gt, sp_seg, indices = next(iter(dloader))
+        rags = [compute_rag(sseg.numpy()) for sseg in sp_seg]
+        edges = [torch.from_numpy(rag.uvIds().astype(np.long)).T.to(device) for rag in rags]
+        if with_gt_edges:
+            gt_edges = [torch.from_numpy(calculate_gt_edge_costs(s_edges.T.cpu().numpy(), sseg.squeeze().numpy(), sgt.squeeze().numpy())).to(device).float() for s_edges, sseg, sgt in zip(edges, sp_seg, gt)]
+        else:
+            gt_edges = None
         raw, gt, sp_seg = raw.to(device), gt.to(device), sp_seg.to(device)
-        ret = dloader.dataset.get_graphs(indices, sp_seg, device)
-        while ret == None:
-            raw, gt, sp_seg, indices = next(iter(dloader))
-            raw, gt, sp_seg = raw.to(device), gt.to(device), sp_seg.to(device)
-            ret = dloader.dataset.get_graphs(indices, sp_seg, device)
-        edges, edge_feat, _, gt_edges  = ret
-        env.update_data(edge_ids=edges, gt_edges=gt_edges, edge_features=edge_feat, sp_seg=sp_seg, raw=raw, gt=gt)
+        env.update_data(edge_ids=edges, gt_edges=gt_edges, sp_seg=sp_seg, raw=raw, gt=gt, fe_grad=fe_grad, rags=rags)
 
     def agent_forward(self, env, model, state, actions=None, grad=True, post_input=False, post_model=False,
-                      policy_opt=False, embeddings_opt=False, return_node_features=False):
+                      policy_opt=False, return_node_features=False):
         with torch.set_grad_enabled(grad):
             state = self.state_to_cuda(state, env.device, env.State)
             if actions is not None:
@@ -290,7 +349,6 @@ class AgentSacTrainer(object):
                         actions,
                         post_input,
                         policy_opt and grad,
-                        embeddings_opt,
                         return_node_features)
 
             if post_model and grad:
@@ -330,9 +388,9 @@ class AgentSacTrainer(object):
 
         return critic_loss.item(), mean_reward / len(self.cfg.sac.s_subgraph)
 
-    def update_actor_and_alpha(self, obs, reward, env, model, optimizers, embeddings_opt=False):
+    def update_actor_and_alpha(self, obs, reward, env, model, optimizers):
         distribution, actor_Q1, actor_Q2, action, side_loss = \
-            self.agent_forward(env, model, state=obs, policy_opt=True, embeddings_opt=embeddings_opt)
+            self.agent_forward(env, model, state=obs, policy_opt=True)
 
         log_prob = distribution.log_prob(action)
         actor_loss = torch.tensor([0.0], device=actor_Q1[0].device)
@@ -369,35 +427,37 @@ class AgentSacTrainer(object):
         alpha_loss.backward()
         optimizers.temperature.step()
 
-        return actor_loss.item(), alpha_loss.item()
+        return actor_loss.item(), alpha_loss.item(), min_entropy
 
     def _step(self, replay_buffer, optimizers, mov_sum_loss, env, model, step, writer=None):
-
         (obs, action, reward, next_obs, done), sample_idx = replay_buffer.sample()
         not_done = int(not done)
-        embeddings_opt = step - self.cfg.fe.n_prep_steps > 0 and (step - self.cfg.fe.n_prep_steps) % self.cfg.fe.update_frequency == 0
 
-        critic_loss, mean_reward = self.update_critic(obs, action, reward, next_obs, not_done, env, model, optimizers)
-        replay_buffer.report_sample_loss(critic_loss + mean_reward, sample_idx)
+        if step % self.cfg.sac.critic_target_update_frequency == 0 or self.cfg.sac.actor_update_after < step:
+            critic_loss, mean_reward = self.update_critic(obs, action, reward, next_obs, not_done, env, model, optimizers)
+            replay_buffer.report_sample_loss(critic_loss + mean_reward, sample_idx)
+            writer.add_scalar("loss/critic", critic_loss, self.global_writer_loss_count.value())
+            mov_sum_loss.critic.apply(critic_loss)
 
-        actor_loss, alpha_loss = self.update_actor_and_alpha(obs, reward, env, model, optimizers, embeddings_opt)
+        if self.cfg.sac.actor_update_after < step:
+            actor_loss, alpha_loss, min_entropy = self.update_actor_and_alpha(obs, reward, env, model, optimizers)
+            mov_sum_loss.actor.apply(actor_loss)
+            mov_sum_loss.temperature.apply(alpha_loss)
+            writer.add_scalar("loss/actor", actor_loss, self.global_writer_loss_count.value())
+            writer.add_scalar("min_entropy", min_entropy, self.global_writer_loss_count.value())
+            writer.add_scalar("loss/temperature", alpha_loss, self.global_writer_loss_count.value())
 
-        mov_sum_loss.critic.apply(critic_loss)
-        mov_sum_loss.actor.apply(actor_loss)
-        mov_sum_loss.temperature.apply(alpha_loss)
 
         if self.global_writer_loss_count.value() > self.cfg.trainer.lr_sched.mov_avg_bandwidth \
                 and self.global_writer_loss_count.value() % self.cfg.trainer.lr_sched.step_frequency == 0:
             optimizers.critic_shed.step(mov_sum_loss.critic.avg)
-            optimizers.actor_shed.step(mov_sum_loss.actor.avg)
-            optimizers.temp_shed.step(mov_sum_loss.actor.avg)  # actor and temp should have the same lr for primal dual iteration
+            if self.cfg.sac.actor_update_after < step:
+                optimizers.actor_shed.step(mov_sum_loss.actor.avg)
+                optimizers.temp_shed.step(mov_sum_loss.actor.avg)  # actor and temp should have the same lr for primal dual iteration
             writer.add_scalar("mov_sum/critic", mov_sum_loss.critic.avg, self.global_writer_loss_count.value())
             writer.add_scalar("mov_sum/actor", mov_sum_loss.actor.avg, self.global_writer_loss_count.value())
             writer.add_scalar("mov_sum/temperature", mov_sum_loss.temperature.avg, self.global_writer_loss_count.value())
 
-        writer.add_scalar("loss/critic", critic_loss, self.global_writer_loss_count.value())
-        writer.add_scalar("loss/actor", actor_loss, self.global_writer_loss_count.value())
-        writer.add_scalar("loss/temperature", alpha_loss, self.global_writer_loss_count.value())
         writer.add_scalar("lr/critic", optimizers.critic_shed.optimizer.param_groups[0]['lr'], self.global_writer_loss_count.value())
         writer.add_scalar("lr/actor", optimizers.actor_shed.optimizer.param_groups[0]['lr'], self.global_writer_loss_count.value())
         writer.add_scalar("lr/temperature", optimizers.temp_shed.optimizer.param_groups[0]['lr'], self.global_writer_loss_count.value())
@@ -444,10 +504,12 @@ class AgentSacTrainer(object):
         torch.set_default_tensor_type(torch.FloatTensor)
         self.setup(rank, self.cfg.gen.n_processes_per_gpu * self.cfg.gen.n_gpu)
         # cosine distance (input should always be normalized)
-        self.distance = CosineDistance()
+        if self.cfg.fe.distance == 'cosine':
+            self.distance = CosineDistance()
+        else:
+            self.distance = LpDistance()
 
-        fe_ext = FeExtractor(self.cfg.fe.n_raw_channels, self.cfg.fe.n_embedding_features,
-                             self.distance, device, writer, self.cfg.fe.max_pixel_in_dist_mat)
+        fe_ext = FeExtractor(self.cfg.fe.backbone, self.distance, device, writer)
         fe_ext.cuda(device)
 
         if self.cfg.gen.env == "multicut_embedding":
@@ -462,101 +524,76 @@ class AgentSacTrainer(object):
         model.cuda(device)
         #Create shared network
         shared_model = DDP(model, device_ids=[device], find_unused_parameters=True)
-        if 'extra' in self.cfg.fe.optim:
-            # optimizers
-            MovSumLosses = namedtuple('mov_avg_losses', ('actor', 'embeddings', 'critic', 'temperature'))
-            OptimizerContainer = namedtuple('OptimizerContainer', ('actor', 'embeddings', 'critic', 'temperature',
-                                                                   'actor_shed', 'embed_shed', 'critic_shed',
-                                                                   'temp_shed'))
-        else:
-            MovSumLosses = namedtuple('mov_avg_losses', ('actor', 'critic', 'temperature'))
-            OptimizerContainer = namedtuple('OptimizerContainer', ('actor', 'critic', 'temperature',
+        MovSumLosses = namedtuple('mov_avg_losses', ('actor', 'critic', 'temperature'))
+        OptimizerContainer = namedtuple('OptimizerContainer', ('actor', 'critic', 'temperature',
                                                                    'actor_shed', 'critic_shed', 'temp_shed'))
-        if "rl_loss" == self.cfg.fe.optim:
-            actor_optimizer = torch.optim.Adam(list(shared_model.module.actor.parameters())
-                                               + list(fe_ext.parameters()),
-                                               lr=self.cfg.sac.actor_lr,
-                                               betas=self.cfg.sac.actor_betas)
-        else:
-            actor_optimizer = torch.optim.Adam(shared_model.module.actor.parameters(),
-                                               lr=self.cfg.sac.actor_lr,
-                                               betas=self.cfg.sac.actor_betas)
-        if "extra" in self.cfg.fe.optim:
-            embeddings_optimizer = torch.optim.Adam(fe_ext.parameters(),
-                                                    lr=self.cfg.fe.lr,
-                                                    betas=self.cfg.fe.betas)
+        actor_optimizer = torch.optim.Adam(shared_model.module.actor.parameters(),
+                                           lr=self.cfg.sac.actor_lr)
         critic_optimizer = torch.optim.Adam(shared_model.module.critic.parameters(),
-                                            lr=self.cfg.sac.critic_lr,
-                                            betas=self.cfg.sac.critic_betas)
+                                            lr=self.cfg.sac.critic_lr)
         temp_optimizer = torch.optim.Adam([shared_model.module.log_alpha],
-                                          lr=self.cfg.sac.alpha_lr,
-                                          betas=self.cfg.sac.alpha_betas)
+
+
+
+                                          lr=self.cfg.sac.alpha_lr)
 
         bw = self.cfg.trainer.lr_sched.mov_avg_bandwidth
         off = self.cfg.trainer.lr_sched.mov_avg_offset
         weights = np.linspace(self.cfg.trainer.lr_sched.weight_range[0], self.cfg.trainer.lr_sched.weight_range[1], bw)
         weights = weights / weights.sum()  # make them sum up to one
         shed = self.cfg.trainer.lr_sched.torch_sched
-        if "extra" in self.cfg.fe.optim:
-            mov_sum_losses = MovSumLosses(RunningAverage(weights, band_width=bw, offset=off),
-                                          RunningAverage(weights, band_width=bw, offset=off),
-                                          RunningAverage(weights, band_width=bw, offset=off),
-                                          RunningAverage(weights, band_width=bw, offset=off))
-            optimizers = OptimizerContainer(actor_optimizer, embeddings_optimizer, critic_optimizer, temp_optimizer,
-                                            *[ReduceLROnPlateau(opt, patience=shed.patience,
-                                                                threshold=shed.threshold, min_lr=shed.min_lr,
-                                                                factor=shed.factor) for opt in (
-                                                  actor_optimizer, embeddings_optimizer, critic_optimizer,
-                                                  temp_optimizer)])
-        else:
-            mov_sum_losses = MovSumLosses(RunningAverage(weights, band_width=bw, offset=off),
-                                          RunningAverage(weights, band_width=bw, offset=off),
-                                          RunningAverage(weights, band_width=bw, offset=off))
-            optimizers = OptimizerContainer(actor_optimizer, critic_optimizer, temp_optimizer,
-                                            *[ReduceLROnPlateau(opt, patience=shed.patience,
-                                                                threshold=shed.threshold, min_lr=shed.min_lr,
-                                                                factor=shed.factor) for opt in
-                                              (actor_optimizer, critic_optimizer, temp_optimizer)])
+
+        mov_sum_losses = MovSumLosses(RunningAverage(weights, band_width=bw, offset=off),
+                                      RunningAverage(weights, band_width=bw, offset=off),
+                                      RunningAverage(weights, band_width=bw, offset=off))
+        optimizers = OptimizerContainer(actor_optimizer, critic_optimizer, temp_optimizer,
+                                        *[ReduceLROnPlateau(opt, patience=shed.patience,
+                                                            threshold=shed.threshold, min_lr=shed.min_lr,
+                                                            factor=shed.factor) for opt in
+                                          (actor_optimizer, critic_optimizer, temp_optimizer)])
 
         dist.barrier()
 
         if self.cfg.gen.resume:
-            shared_model.module.load_state_dict(torch.load(os.path.join(self.save_dir, self.cfg.gen.model_name)))
+            shared_model.module.load_state_dict(torch.load(self.cfg.gen.model_name))
             if self.cfg.gen.validation is not None:
                 self.validate(model, env, device)
                 return
         elif self.cfg.fe.load_pretrained:
-            fe_ext.load_state_dict(torch.load(os.path.join(self.save_dir, self.cfg.fe.model_name)))
-        elif 'warmup' in self.cfg.fe and rank == 0:
-            print('pretrain fe extractor')
-            if self.cfg.fe.warmup.method == "unsupervised":
-                assert False  # not working yet
-                self.pretrain_embeddings_prot_nce(fe_ext, device, writer)
-            else:
-                self.pretrain_embeddings(fe_ext, device, writer)
-            torch.save(fe_ext.state_dict(),
-                       os.path.join(self.save_dir, self.cfg.fe.model_name))
-        dist.barrier()
-        if "none" == self.cfg.fe.optim:
-            for param in fe_ext.parameters():
-                param.requires_grad = False
+            fe_ext.embed_model.load_state_dict(torch.load(self.cfg.fe.model_name))
+        # elif 'warmup' in self.cfg.fe and rank == 0:
+        #     print('pretrain fe extractor')
+        #     if self.cfg.fe.warmup.method == "unsupervised":
+        #         assert False  # not working yet
+        #         self.pretrain_embeddings_prot_nce(fe_ext, device, writer)
+        #     else:
+        #         self.pretrain_embeddings(fe_ext, device, writer)
+        #         torch.save(shared_model.module.state_dict(), self.cfg.gen.model_name)
 
-        dset = SpgDset(self.cfg.gen.data_dir, max(self.cfg.sac.s_subgraph), self.cfg.gen.patch_manager, self.cfg.gen.patch_stride, self.cfg.gen.patch_shape, self.cfg.gen.reorder_sp)
-        val_dset = SpgDset(self.cfg.gen.val_data_dir, max(self.cfg.sac.s_subgraph), self.cfg.gen.patch_manager, self.cfg.gen.patch_stride, self.cfg.gen.patch_shape, self.cfg.gen.reorder_sp)
-        step = 0
+        if "policy_warmup" in self.cfg.sac and rank == 0 and not self.cfg.gen.resume:
+            self.supervised_policy_pretraining(shared_model, env, writer, device=device)
+            torch.save(shared_model.module.state_dict(), self.cfg.gen.model_name)
+
+        dist.barrier()
+        # finished with prepping
+        for param in fe_ext.parameters():
+            param.requires_grad = False
+
+        dset = SpgDset(self.cfg.gen.data_dir, self.cfg.gen.patch_manager, max(self.cfg.sac.s_subgraph))
+        val_dset = SpgDset(self.cfg.gen.val_data_dir, self.cfg.gen.patch_manager, max(self.cfg.sac.s_subgraph))
+        tau = 1
 
         while self.global_count.value() <= self.cfg.trainer.T_max:
             dloader = DataLoader(dset, batch_size=self.cfg.trainer.batch_size, shuffle=True, pin_memory=True,
                                  num_workers=0)
             for iteration in range(len(dset) * self.cfg.trainer.data_update_frequency):
                 if iteration % self.cfg.trainer.data_update_frequency == 0:
-                    self.update_env_data(env, dloader, device)
+                    self.update_env_data(env, dloader, device, with_gt_edges="sub_graph_dice" in self.cfg.sac.reward_function)
                 env.reset()
                 self.update_rt_vars(critic_optimizer, actor_optimizer)
                 if rank == 0 and self.cfg.rt_vars.safe_model:
                     if self.cfg.gen.model_name != "":
-                        torch.save(shared_model.module.state_dict(),
-                                   os.path.join(self.log_dir, self.cfg.gen.model_name))
+                        torch.save(shared_model.module.state_dict(), self.cfg.gen.model_name)
                     else:
                         torch.save(shared_model.module.state_dict(), os.path.join(self.log_dir, 'agent_model'))
 
@@ -588,13 +625,15 @@ class AgentSacTrainer(object):
                         if distr is not None:
                             logg_dict['mean_loc'] = distr.loc.mean().item()
                             logg_dict['mean_scale'] = distr.scale.mean().item()
+                            logg_dict['tau'] = tau
 
                     if self.memory.is_full():
                         for i in range(self.cfg.trainer.n_updates_per_step):
                             self._step(self.memory, optimizers, mov_sum_losses, env, shared_model,
-                                       step, writer=writer)
+                                       self.global_count.value(), writer=writer)
+                        tau -= 0.0001
 
-                    next_state, reward = env.execute_action(action, logg_dict, post_stats=post_stats)
+                    next_state, reward = env.execute_action(action, logg_dict, post_stats=post_stats, tau=max(0, tau))
 
                     self.memory.push(self.state_to_cpu(state, env.State), action, reward, self.state_to_cpu(next_state, env.State), env.done)
                     state = next_state
@@ -602,17 +641,16 @@ class AgentSacTrainer(object):
                 self.global_count.increment()
                 if self.global_count.value() % self.cfg.trainer.validatoin_freq == 0:
                     self.validation_round(val_dset, shared_model, env, device)
-                step += 1
                 if rank == 0:
                     self.global_writer_count.increment()
-                if step > self.cfg.trainer.T_max:
+                if self.global_count.value() > self.cfg.trainer.T_max:
                     break
 
         dist.barrier()
         if rank == 0:
             self.memory.clear()
             if self.cfg.gen.model_name != "":
-                torch.save(shared_model.state_dict(), os.path.join(self.log_dir, self.cfg.gen.model_name))
+                torch.save(shared_model.state_dict(), self.cfg.gen.model_name)
             else:
                 torch.save(shared_model.state_dict(), os.path.join(self.log_dir, 'agent_model'))
             print('saved')

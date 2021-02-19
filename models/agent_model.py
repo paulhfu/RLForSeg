@@ -38,7 +38,7 @@ class Agent(torch.nn.Module):
         self.log_alpha = torch.tensor(np.log(value)).to(self.device)
         self.log_alpha.requires_grad = True
 
-    def forward(self, state, actions, post_input, policy_opt, embeddings_opt, return_node_features):
+    def forward(self, state, actions, post_input, policy_opt, return_node_features):
         state = self.StateClass(*state)
         node_features = torch.cat((state.node_embeddings, state.sup_masses), 1)
         node_features = node_features / torch.norm(node_features, dim=1, keepdim=True)

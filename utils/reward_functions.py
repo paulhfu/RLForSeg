@@ -153,7 +153,7 @@ class SubGraphDiceReward(object):
             dice_score = 2 * (intersect / denominator.clamp(min=self.epsilon))
             dice_score = dice_score * self.class_weights.to(dice_score.device)
 
-            reward.append(dice_score.sum(0) - 0.9)
+            reward.append(dice_score.sum(0) * 1.5)
         return reward
 
     def get_global(self, inp, tgt):

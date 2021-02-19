@@ -1,20 +1,18 @@
 # @package _group_
 # specific confics for the sac algorithm
-reward_function: artificial_cells #Reward function: sub_graph_dice, fully_supervised, defining_rules, defining_rules_lg,defining_rules_edge_based
+reward_function: leptin_data+sub_graph_dice #leptin_data #Reward function: sub_graph_dice, fully_supervised, defining_rules, defining_rules_lg,defining_rules_edge_based
 s_subgraph: [8, 16, 32] # [8, 16, 32, 64] # subgraph sizes
 entropy_range: [0.05, 2.0]
 discount: 0.99  # discount factor (commonly referred to as \gamma in RL)
 init_temperature: 0.1  # initial temperature in Gibbs distribution
 temperature_regulation: optimized #constant/follow_quality/optimized
 # Adam optim conf
-alpha_lr: 1e-1
-alpha_betas: [0.9, 0.999]
+alpha_lr: 1e-3
 actor_lr: 1e-4
-actor_betas: [0.9, 0.999]
 actor_update_frequency: 1  # optim step every n-th step
+actor_update_after: 1  # update actor after critic has been warmed up
 n_actions: 1
 critic_lr: 1e-4
-critic_betas: [0.9, 0.999]
 critic_tau: 0.005
 critic_target_update_frequency: 5  # optim step every n-th step
 
@@ -26,4 +24,16 @@ diag_gaussian_actor:  # specification of multinomial gaussian, acting as policy
   sample_factor: 1.0  # samples before scaling and offset are in [0, 1]
   sample_offset: 0.0
 
-
+#policy_warmup:  # the policy might need pretraining to make training faster
+#  # Adam optim conf
+#  lr: 1e-4
+#  betas: [0.9, 0.999]
+#
+#  n_iterations: 10 # number of iterations of feature extrqactor warmup
+#  batch_size: 2  # batch size for feature extractor warmup
+#
+#  patch_manager:
+#    name: no_cross # rotated, no_cross, none
+#    patch_shape: [256, 256]
+#    patch_stride: [16, 16]
+#    reorder_sp: true

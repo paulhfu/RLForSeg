@@ -273,10 +273,10 @@ class NodeConv(EdgeMessagePassing):
 
     def message(self, x_i, x_j, edge_index, size):
         feat = torch.cat((x_i, x_j), -1)
-        if self.normalize_input:
-            feat = feat / (torch.norm(feat, dim=-1, keepdim=True) + 1e-6)
-        if self.distance is not None and self.distance.has_normed_similarity:
-            feat = feat * self.distance.similarity(x_i, x_j, dim=-1)
+        # if self.normalize_input:
+        #     feat = feat / (torch.norm(feat, dim=-1, keepdim=True) + 1e-6)
+        # if self.distance is not None and self.distance.has_normed_similarity:
+        #     feat = feat * self.distance.similarity(x_i, x_j, dim=-1)
         edge_conv = self.lin_inner(feat)
         return edge_conv
 
