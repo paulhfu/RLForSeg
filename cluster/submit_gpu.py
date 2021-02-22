@@ -11,6 +11,29 @@ from cluster.easybuild_replace import replace_torch
 # two days in minutes
 DAYS = 24 * 60
 
+def write_slurm_template_std(script, out_path, env_name,
+                         n_threads, gpu_type, n_gpus,
+                         mem_limit, time_limit, qos):
+    slurm_template = ("#!/bin/bash\n"
+                      "#SBATCH -A kreshuk\n"
+                      "#SBATCH -N 1\n"
+                      "#SBATCH -c %s\n"
+                      "#SBATCH --mem %s\n"
+                      "#SBATCH -t %i\n"
+                      "#SBATCH --qos=%s\n"
+                      "#SBATCH -p gpu\n"
+                      "#SBATCH -C gpu=%s\n"
+                      "#SBATCH --gres=gpu:%i\n"
+                      "\n"
+                      "module purge \n"
+                      "module load GCC \n"
+                      "source activate %s\n"
+                      "\n"
+                      "export TRAIN_ON_CLUSTER=1\n"  # we set this env variable, so that the script knows we're on slurm
+                      "python %s $@ \n") % (n_threads, mem_limit, time_limit,
+                                            qos, gpu_type, n_gpus, env_name, script)
+    with open(out_path, 'w') as f:
+        f.write(slurm_template)
 
 def write_slurm_template(script, out_path, env_name, lib_replacement_script, pythonexec,
                          n_threads, gpu_type, n_gpus,
@@ -41,8 +64,8 @@ def write_slurm_template(script, out_path, env_name, lib_replacement_script, pyt
 
 #V100 2080Ti 3090
 def submit_slurm(script, input_, n_threads=2, n_gpus=1,
-                 gpu_type='3090', mem_limit='64G',
-                 time_limit=5*DAYS, qos='normal',
+                 gpu_type='2080Ti', mem_limit='64G',
+                 time_limit=1*DAYS, qos='normal',
                  base_dir='/g/kreshuk/hilt/projects/RLForSeg'):
     """ Submit python script that needs gpus with given inputs on a slurm node.
     """
@@ -67,16 +90,28 @@ def submit_slurm(script, input_, n_threads=2, n_gpus=1,
     log = os.path.join(tmp_folder, '%s.log' % tmp_name)
     err = os.path.join(tmp_folder, '%s.err' % tmp_name)
 
-    env_name = "rl_for_seg_cud11"
-    print(env_name)
-    if env_name is None:
-        raise RuntimeError("Could not find conda")
+    if gpu_type == "3090":
+        env_name = "rl_for_seg_cud11"
+        print(env_name)
+        if env_name is None:
+            raise RuntimeError("Could not find conda")
 
-    print("Batch script saved at", batch_script)
-    print("Log will be written to %s, error log to %s" % (log, err))
-    write_slurm_template(script, batch_script, env_name, lib_replacement_script, pythonexec,
-                         int(n_threads), gpu_type, int(n_gpus),
-                         mem_limit, int(time_limit), qos)
+        print("Batch script saved at", batch_script)
+        print("Log will be written to %s, error log to %s" % (log, err))
+        write_slurm_template(script, batch_script, env_name, lib_replacement_script, pythonexec,
+                             int(n_threads), gpu_type, int(n_gpus),
+                             mem_limit, int(time_limit), qos)
+    else:
+        env_name = "rl_for_seg"
+        print(env_name)
+        if env_name is None:
+            raise RuntimeError("Could not find conda")
+
+        print("Batch script saved at", batch_script)
+        print("Log will be written to %s, error log to %s" % (log, err))
+        write_slurm_template_std(script, batch_script, env_name,
+                             int(n_threads), gpu_type, int(n_gpus),
+                             mem_limit, int(time_limit), qos)
 
     cmd = ['sbatch', '-o', log, '-e', err, '-J', script_name, batch_script]
     cmd.extend(input_)

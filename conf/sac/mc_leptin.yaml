@@ -1,7 +1,7 @@
 # @package _group_
 # specific confics for the sac algorithm
-reward_function: leptin_data+sub_graph_dice #Reward function: sub_graph_dice, fully_supervised, defining_rules, defining_rules_lg,defining_rules_edge_based
-s_subgraph: [4, 8, 16] # [8, 16, 32, 64] # subgraph sizes
+reward_function: leptin_data_EllipticFit #Reward function: sub_graph_dice, leptin_data_EllipticFit, leptin_data, leptin_data+sub_graph_dice
+s_subgraph: [2, 4, 8] # [8, 16, 32, 64] # subgraph sizes
 entropy_range: [0.05, 1.8]
 discount: 0.99  # discount factor (commonly referred to as \gamma in RL)
 init_temperature: 0.1  # initial temperature in Gibbs distribution
@@ -10,7 +10,7 @@ temperature_regulation: optimized #constant/follow_quality/optimized
 alpha_lr: 1e-4
 actor_lr: 1e-4
 actor_update_frequency: 1  # optim step every n-th step
-actor_update_after: 1000  # update actor after critic has been warmed up
+actor_update_after: 150  # update actor after critic has been warmed up
 n_actions: 1
 critic_lr: 1e-4
 critic_tau: 0.005

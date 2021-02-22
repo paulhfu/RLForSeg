@@ -5,16 +5,16 @@ import collections
 import matplotlib.pyplot as plt
 from utils.reward_functions import UnSupervisedReward, SubGraphDiceReward
 from rewards.artificial_cells_reward import ArtificialCellsReward
-from rewards.leptin_data_reward_2d import LeptinDataReward2DTurning
+from rewards.leptin_data_reward_2d import LeptinDataReward2DTurning, LeptinDataReward2DEllipticFit
 from utils.graphs import collate_edges, get_edge_indices, get_angles_smass_in_rag
 from utils.general import get_angles, pca_project
 from rag_utils import find_dense_subgraphs
 import elf
 from elf.segmentation.multicut import multicut_kernighan_lin
-from elf.segmentation.features import compute_rag, project_node_labels_to_pixels
-from affogato.segmentation import compute_mws_segmentation
+from elf.segmentation.features import project_node_labels_to_pixels
 import h5py
 from glob import glob
+import os
 
 class MulticutEmbeddingsEnv():
 
@@ -30,15 +30,13 @@ class MulticutEmbeddingsEnv():
         self.writer_counter = writer_counter
         self.last_final_reward = torch.tensor([0.0])
         self.max_p = torch.nn.MaxPool2d(3, padding=1, stride=1)
-        self.aff_offsets = [[0, -1], [-1, 0], [-1, -1], [-8, 0], [0, -8]]
-        self.sep_chnl = 3
 
         if self.cfg.sac.reward_function == 'sub_graph_dice':
             self.reward_function = SubGraphDiceReward()
         elif self.cfg.sac.reward_function == 'artificial_cells':
-            fnames_pix = sorted(glob('/g/kreshuk/kaziakhm/circles_s025_gs0035_ps04_alln/pix_data/*.h5'))
+            fnames_pix = sorted(glob(os.path.join(self.cfg.gen.data_dir, 'pix_data/*.h5')))
             gts = [torch.from_numpy(h5py.File(fnames_pix[7], 'r')['gt'][:]).to(device)]
-            gts.append(torch.from_numpy(h5py.File(fnames_pix[3], 'r')['gt'][:]).to(device))
+            # gts.append(torch.from_numpy(h5py.File(fnames_pix[3], 'r')['gt'][:]).to(device))
             sample_shapes = []
             for gt in gts:
                 # set gt to consecutive integer labels
@@ -51,7 +49,10 @@ class MulticutEmbeddingsEnv():
 
             self.reward_function = ArtificialCellsReward(torch.cat(sample_shapes))
         elif 'leptin_data' in self.cfg.sac.reward_function:
-            self.reward_function = LeptinDataReward2DTurning()
+            if 'EllipticFit' in self.cfg.sac.reward_function:
+                self.reward_function = LeptinDataReward2DEllipticFit()
+            else:
+                self.reward_function = LeptinDataReward2DTurning()
         else:
             self.reward_function = UnSupervisedReward(env=self)
         if "+sub_graph_dice" in self.cfg.sac.reward_function:
@@ -219,18 +220,6 @@ class MulticutEmbeddingsEnv():
                 nums = torch.bincount(((sp_seg == node_it).long() * (gt.long() + 1)).view(-1))
                 b_node_seg[node_it + self.n_offs[i]] = nums[1:].argmax() - 1
         return b_node_seg
-
-    def get_mws(self, affinities):
-        affinities[self.sep_chnl:] *= -1
-        affinities[self.sep_chnl:] += +1
-        affinities[self.sep_chnl:] *= 1.
-        affinities[:self.sep_chnl] /= 1.
-        affinities = np.clip(affinities, 0, 1)
-        #
-        node_labeling = compute_mws_segmentation(affinities, self.aff_offsets, self.sep_chnl)
-        rag = elf.segmentation.features.compute_rag(np.expand_dims(node_labeling, axis=0))
-        edges = rag.uvIds().squeeze().astype(np.int)
-        return node_labeling, edges
 
     def reset(self):
         self.done = False

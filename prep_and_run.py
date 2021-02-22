@@ -20,11 +20,10 @@ import os
 
 if __name__ == '__main__':
     import matplotlib
-
     matplotlib.use('Agg')
-    import torch
-    from run import main
-    a = torch.tensor([1,2,3,4,5]).bool() | torch.tensor([1,2,3,4,5]).bool()
-    print(a)
+    import torch.multiprocessing as mp
+    from run import main, no_mp_main
+    import os
+    # os.nice(15)
     # mp.set_start_method('spawn', force=True)
-    main()
+    no_mp_main()

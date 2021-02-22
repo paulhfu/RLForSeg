@@ -231,12 +231,47 @@ class LeptinDataReward2DEllipticFit(RewardFunctionAbc):
         Both will be used for the reward of the background superpixels.
         :param shape_samples:
         """
-        source_file_wtsd = "/g/kreshuk/data/leptin/sourabh_data_v1/Segmentation_results_fused_tp_1_ch_0_Masked_WatershedBoundariesMergeTreeFilter_Out1.tif"
+        # source_file_wtsd = "/g/kreshuk/data/leptin/sourabh_data_v1/Segmentation_results_fused_tp_1_ch_0_Masked_WatershedBoundariesMergeTreeFilter_Out1.tif"
         source_file_wtsd = "/g/kreshuk/hilt/projects/data/leptin_fused_tp1_ch_0/Masked_WatershedBoundariesMergeTreeFilter_Out1.h5"
-        label_1 = [1359, 886, 1240]
-        label_2 = [1172, 748, 807]
-        label_3 = [364, 1148, 1447]
-
+        # wtsd = torch.from_numpy(np.array(imread(source_file_wtsd).astype(np.long))).to(device)
+        wtsd = torch.from_numpy(h5py.File(source_file_wtsd, "r")["data"][:].astype(np.long)).to(device)
+        slices = [0, 157, 316]
+        slices_labels = [[1359, 1172, 364, 145, 282, 1172, 1359, 189, 809, 737],
+                        [886, 748, 1148, 1422, 696, 684, 817, 854, 158, 774],
+                        [1240, 807, 1447, 69, 1358, 1240, 129, 252, 62, 807]]
+        m1, m2 = [], []
+        # widths, heights = [], []
+        self.outer_cntr_ds, self.inner_cntr_ds = [], []
+        for slc, labels in zip(slices, slices_labels):
+            bg = wtsd[:, slc, :] == 1
+            bg_cnt = find_contours(bg.cpu().numpy(), level=0)
+            cnt1 = bg_cnt[0] if bg_cnt[0].shape[0] > bg_cnt[1].shape[0] else bg_cnt[1]
+            cnt2 = bg_cnt[1] if bg_cnt[0].shape[0] > bg_cnt[1].shape[0] else bg_cnt[0]
+            for m, cnt in zip([m1, m2], [cnt1, cnt2]):
+                mask = torch.zeros_like(wtsd[:, slc, :]).cpu()
+                mask[np.round(cnt[:, 0]), np.round(cnt[:, 1])] = 1
+                m.append(torch.from_numpy(binary_fill_holes(mask.long().cpu().numpy())).to(device).sum().item())
+            self.outer_cntr_ds.append(Polygon2d(torch.from_numpy(approximate_polygon(cnt1, tolerance=1.2)).to(device)))
+            self.inner_cntr_ds.append(Polygon2d(torch.from_numpy(approximate_polygon(cnt2, tolerance=1.2)).to(device)))
+        #
+        #     for l in labels:
+        #         mask = wtsd[:, slc, :] == l
+        #         cnt = find_contours(mask.cpu().numpy(), level=0)[0]
+        #
+        #         # img = torch.zeros_like(wtsd[:, slc, :]).cpu()
+        #         # img[cnt[:, 0], cnt[:, 1]] = 1
+        #         # plt.imshow(img);plt.show()
+        #
+        #         ellipseT = fitEllipse(cnt.astype(np.int))
+        #         widths.append(ellipseT[1][1])
+        #         heights.append(ellipseT[1][0])
+        #
+        #
+        #
+        # self.masses = [np.array(m1).mean(), np.array(m2).mean()]
+        # self.expected_ratio = np.array(widths).mean() / np.array(heights).mean()
+        self.expected_ratio = 5.573091
+        self.masses = [290229.3, 97252.3]
 
 
     def __call__(self, prediction_segmentation, superpixel_segmentation, res, dir_edges, *args, **kwargs):
@@ -297,20 +332,40 @@ class LeptinDataReward2DEllipticFit(RewardFunctionAbc):
                 if poly_chain.shape[0] <= 3:
                     scores[sp_ids] -= 0.1
                     continue
+                score = 0
 
-                ellipseT = fitEllipse(contour.astype(np.int))
-                ellipse = ((ellipseT[0][1], ellipseT[0][0]), (ellipseT[1][1], ellipseT[1][0]), 360-ellipseT[2])
-                # Maps rotation to (-90 to 90). Makes it easier to tell direction of slant
+                try:
+                    ellipseT = fitEllipse(contour.astype(np.int))
+                    ratio = ellipseT[1][1] / (ellipseT[1][0] + 1e-10)
+                    ratio_diff = abs(self.expected_ratio - ratio)
 
-                print(f"height:  {ellipse[1][0]}")
-                print(f"width:  {ellipse[1][1]}")
-                print("")
+                    v = np.zeros((2,), dtype=np.float)
+                    v[1] = ((object.shape[0] / 2) - ellipseT[0][0])
+                    v[0] = (ellipseT[0][1] - (object.shape[1] / 2))
+                    v = v / np.clip(np.linalg.norm(v), a_min=1e-6, a_max=np.inf)
+                    slant = np.deg2rad(360 - ellipseT[2])
+                    u = np.array([np.cos(slant), np.sin(slant)])
+                    score += abs(np.dot(u, v)) / 4
 
+                    if ratio_diff > self.expected_ratio / 2:
+                        score += 0.1
+                    elif ratio_diff > self.expected_ratio / 3:
+                        score += 0.2
+                    elif ratio_diff > self.expected_ratio / 4:
+                        score += 0.3
+                    elif ratio_diff > self.expected_ratio / 6:
+                        score += 0.4
+                    else:
+                        score += 0.5
+                except Exception as e:
+                    print(e)
+                    score -= 0.1
+
+
+                # ellipse = ((ellipseT[0][1], ellipseT[0][0]), (ellipseT[1][1], ellipseT[1][0]), 360-ellipseT[2])
                 # plt.imshow(object.cpu()[..., None] * 200 + cv2.ellipse(np.zeros(shape=[749, 692, 3], dtype=np.uint8), ellipse, (23, 184, 80), 3))
                 # plt.show()
 
-                score = 0
-                # score = torch.exp((1 - dist_scores.min()) * 4) / torch.exp(torch.tensor([4.0], device=dev))
                 scores[sp_ids] += score  # do exponential scaling
 
             # penalize size variation

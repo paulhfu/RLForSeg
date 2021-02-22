@@ -64,5 +64,6 @@ def replace_torchvision():
 
 if __name__=="__main__":
     local_replace('nifty', '/g/kreshuk/pape/Work/software/bld/py38/nifty/python/nifty')
+    # local_replace('torch_scatter', '/g/kreshuk/hilt/projects/pytorch_scatter/python38cud11install/torch_scatter')
     # local_replace('rag_utils', '/g/kreshuk/hilt/projects/graph_utils/rag_utils/python/rag_utils')
     easybuild_replace('torch', 'PyTorch')

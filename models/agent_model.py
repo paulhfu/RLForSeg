@@ -41,7 +41,6 @@ class Agent(torch.nn.Module):
     def forward(self, state, actions, post_input, policy_opt, return_node_features):
         state = self.StateClass(*state)
         node_features = torch.cat((state.node_embeddings, state.sup_masses), 1)
-        node_features = node_features / torch.norm(node_features, dim=1, keepdim=True)
         edge_index = torch.cat([state.edge_ids, torch.stack([state.edge_ids[1], state.edge_ids[0]], dim=0)], dim=1)  # gcnn expects two directed edges for one undirected edge
         if actions is None:
             with torch.set_grad_enabled(policy_opt):

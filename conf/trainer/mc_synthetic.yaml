@@ -1,14 +1,14 @@
 # @package _group_
 # main training
-T_max: 1000000  # Number of training steps
+T_max: 100000  # Number of training steps
 t_max: 100  # Mem size in replay memory buffer
 data_update_frequency: 10  # update env data after n steps
 post_stats_frequency: 10  # post logs after n steps
-post_model_frequency: 100  # post model param distributions after n steps
+post_model_frequency: 100000  # post model param distributions after n steps
+validatoin_freq: 500
 n_updates_per_step: 10  # perform n optim steps per env step
 max_episode_length: 1  # Maximum episode length (if env is multicut_embedding this should be 1)
-batch_size: 1  # num of images to segment
-validatoin_freq: 500
+batch_size: 20  # num of images to segment
 # conf for lr scheduling
 lr_sched:
   mov_avg_bandwidth: 40
@@ -17,6 +17,6 @@ lr_sched:
   mov_avg_offset: 10
   torch_sched:  # conf for torch reduceOnPlateau scheduler
     patience: 1000
-    min_lr: 1e-6
-    factor: 0.5
+    min_lr: 1e-4
+    factor: 0.05
     threshold: 1e-2

@@ -71,7 +71,7 @@ class AgentSacTrainer(object):
 
     def validation_round(self, dset, model, env, device):
         dloader = DataLoader(dset, batch_size=1, shuffle=True, pin_memory=True, num_workers=0)
-        for iteration in range(10):
+        for iteration in range(len(dset)):
             self.update_env_data(env, dloader, device, with_gt_edges="sub_graph_dice" in self.cfg.sac.reward_function)
             env.reset()
             state = env.get_state()
@@ -332,6 +332,9 @@ class AgentSacTrainer(object):
         raw, gt, sp_seg, indices = next(iter(dloader))
         rags = [compute_rag(sseg.numpy()) for sseg in sp_seg]
         edges = [torch.from_numpy(rag.uvIds().astype(np.long)).T.to(device) for rag in rags]
+        if not all([e.shape[-1] > self.cfg.sac.s_subgraph[-1] for e in edges]):
+            print("ERROR not enough edges, subgraph generation will fail")
+            assert False
         if with_gt_edges:
             gt_edges = [torch.from_numpy(calculate_gt_edge_costs(s_edges.T.cpu().numpy(), sseg.squeeze().numpy(), sgt.squeeze().numpy())).to(device).float() for s_edges, sseg, sgt in zip(edges, sp_seg, gt)]
         else:
@@ -430,6 +433,8 @@ class AgentSacTrainer(object):
         return actor_loss.item(), alpha_loss.item(), min_entropy
 
     def _step(self, replay_buffer, optimizers, mov_sum_loss, env, model, step, writer=None):
+        critic_loss, actor_loss, alpha_loss = "nl", "nl", "nl"
+
         (obs, action, reward, next_obs, done), sample_idx = replay_buffer.sample()
         not_done = int(not done)
 
@@ -439,7 +444,7 @@ class AgentSacTrainer(object):
             writer.add_scalar("loss/critic", critic_loss, self.global_writer_loss_count.value())
             mov_sum_loss.critic.apply(critic_loss)
 
-        if self.cfg.sac.actor_update_after < step:
+        if self.cfg.sac.actor_update_after < step and step % self.cfg.sac.actor_update_frequency == 0:
             actor_loss, alpha_loss, min_entropy = self.update_actor_and_alpha(obs, reward, env, model, optimizers)
             mov_sum_loss.actor.apply(actor_loss)
             mov_sum_loss.temperature.apply(alpha_loss)
@@ -468,6 +473,7 @@ class AgentSacTrainer(object):
 
 
         self.global_writer_loss_count.increment()
+        return critic_loss, actor_loss, alpha_loss
 
     # Acts and trains model
     def train(self, rank, return_dict, rn):
@@ -619,18 +625,24 @@ class AgentSacTrainer(object):
                                                                        post_input=post_stats, post_model=post_model)
 
                     logg_dict = {}
+                    loc_mean = distr.loc.mean().item() if distr is not None else "nl"
                     if post_stats:
                         for i in range(len(self.cfg.sac.s_subgraph)):
                             logg_dict['alpha_' + str(i)] = shared_model.module.alpha[i].item()
                         if distr is not None:
-                            logg_dict['mean_loc'] = distr.loc.mean().item()
+                            logg_dict['mean_loc'] = loc_mean
                             logg_dict['mean_scale'] = distr.scale.mean().item()
-                            logg_dict['tau'] = tau
+                            logg_dict['tau'] = max(0, tau)
 
+                    if self.cfg.gen.verbose:
+                        print(f"\nstep: {self.global_count.value()}; mean_loc: {loc_mean}; tau: {max(0, tau)}", end='')
                     if self.memory.is_full():
                         for i in range(self.cfg.trainer.n_updates_per_step):
-                            self._step(self.memory, optimizers, mov_sum_losses, env, shared_model,
-                                       self.global_count.value(), writer=writer)
+                            critic_loss, actor_loss, alpha_loss = self._step(self.memory, optimizers, mov_sum_losses,
+                                                                             env, shared_model,
+                                                                             self.global_count.value(), writer=writer)
+                        if self.cfg.gen.verbose:
+                            print(f"; cl: {critic_loss}; acl: {actor_loss}; al: {alpha_loss}", end='')
                         tau -= 0.0001
 
                     next_state, reward = env.execute_action(action, logg_dict, post_stats=post_stats, tau=max(0, tau))

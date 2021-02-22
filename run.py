@@ -84,6 +84,54 @@ def main(cfg):
         print('Score is: ', return_dict['test_score'])
         return return_dict['test_score']
 
+
+@hydra.main(config_path="conf")
+def no_mp_main(cfg):
+    # Creating directories.
+    save_dir = os.path.join(cfg.gen.base_dir, 'results/sac', cfg.gen.target_dir)
+    if not os.path.exists(save_dir):
+        os.makedirs(save_dir)
+    log_dir = os.path.join(save_dir, 'logs')
+    if not os.path.exists(log_dir):
+        os.makedirs(log_dir)
+    if os.path.exists(os.path.join(save_dir, 'runtime_cfg.yaml')):
+        os.remove(os.path.join(save_dir, 'runtime_cfg.yaml'))
+
+    print(OmegaConf.to_yaml(cfg))
+
+    with open(os.path.join(save_dir, 'conf.txt'), "w") as info:
+        info.write(OmegaConf.to_yaml(cfg))
+
+    rt_cfg_dict = dict(cfg.rt_vars)
+    cfg_dict = dict(cfg.gen)
+    cfg_dict.update(dict(cfg.fe))
+    cfg_dict.update(dict(cfg.sac))
+    cfg_dict.update(dict(cfg.trainer))
+    for key in rt_cfg_dict:
+        if key in cfg_dict and rt_cfg_dict[key] is None:
+            rt_cfg_dict[key] = cfg_dict[key]
+            cfg.rt_vars[key] = cfg_dict[key]
+    with open(os.path.join(save_dir, 'runtime_cfg.yaml'), "w") as info:
+        yaml.dump(rt_cfg_dict, info)
+
+    global_count = Counter()  # Global shared counter
+    global_writer_count = Counter()
+    global_writer_loss_count = Counter()  # Global shared counter
+    global_writer_quality_count = Counter()  # Global shared counter
+    action_stats_count = Counter()
+
+    trainer = AgentSacTrainer(cfg,
+                              global_count,
+                              global_writer_loss_count,
+                              global_writer_quality_count,
+                              action_stats_count=action_stats_count,
+                              global_writer_count=global_writer_count,
+                              save_dir=save_dir)
+
+    return_dict = dict()
+    rn = torch.randint(0, 2 ** 32, torch.Size([1])).item()
+    trainer.train(0, return_dict, rn)
+
 if __name__ == '__main__':
-    mp.set_start_method('spawn', force=True)
-    main()
+    # mp.set_start_method('spawn', force=True)
+    no_mp_main()

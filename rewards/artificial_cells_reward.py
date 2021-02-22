@@ -85,7 +85,8 @@ class ArtificialCellsReward(RewardFunctionAbc):
                 polygon = Polygon2d(poly_chain)
                 dist_scores = torch.tensor([des.distance(polygon, res) for des in self.gt_descriptors], device=dev)
                 #project distances for objects to similarities for superpixels
-                scores[sp_ids] += torch.exp((1 - dist_scores.min()) * 8) / torch.exp(torch.tensor([8.0], device=dev))  # do exponential scaling
+                scores[sp_ids] += 1 - dist_scores.min()
+                # scores[sp_ids] += torch.exp((1 - dist_scores.min()) * 8) / torch.exp(torch.tensor([8.0], device=dev))  # do exponential scaling
                 if torch.isnan(scores).any() or torch.isinf(scores).any():
                     a=1
 
