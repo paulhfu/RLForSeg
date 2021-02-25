@@ -138,7 +138,7 @@ class MulticutEmbeddingsEnv():
             writer_counter.increment()
 
         self.acc_reward.append(total_reward)
-        return self.get_state(), reward
+        return reward
 
     def get_state(self):
         return self.State(self.current_node_embeddings, self.edge_ids, self.edge_angles, self.sup_masses, self.subgraph_indices, self.sep_subgraphs, self.counter, self.gt_edge_weights)

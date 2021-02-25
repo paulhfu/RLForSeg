@@ -1,7 +1,7 @@
 # specific confics for the sac algorithm
 reward_function: sub_graph_dice #Reward function: sub_graph_dice, artificial_cells, artificial_cells_EllipticFit
 gt_edge_overlap_thresh: 0.5
-s_subgraph: [2, 4, 8] # [8, 16, 32, 64] # subgraph sizes
+s_subgraph: [6, 8, 12] # [8, 16, 32, 64] # subgraph sizes
 entropy_range: [0.05, 1.8]
 discount: 0.99  # discount factor (commonly referred to as \gamma in RL)
 init_temperature: 0.1  # initial temperature in Gibbs distribution
@@ -10,10 +10,10 @@ temperature_regulation: optimized #constant/follow_quality/optimized
 alpha_lr: 0.0001
 actor_lr: 0.0001
 actor_update_frequency: 1  # optim step every n-th step
-actor_update_after: 100  # update actor after critic has been warmed up
+actor_update_after: 200  # update actor after critic has been warmed up
 n_actions: 1
 critic_lr: 0.0001
-critic_tau: 0.005
+critic_tau: 0.1
 critic_target_update_frequency: 1  # optim step every n-th step
 
 use_closed_form_entropy: false  # uses closed form entropy in critic update (currently for normal distributions only)
@@ -21,8 +21,6 @@ sl_beta: 10  # weight for side loss
 diag_gaussian_actor:  # specification of multinomial gaussian, acting as policy
   std_bounds: [0.01, 5.0]
   mu_bounds: [-5, 5]
-  sample_factor: 1.0  # samples before scaling and offset are in [0, 1]
-  sample_offset: 0.0
 
 #policy_warmup:  # the policy might need pretraining to make training faster
 #  # Adam optim conf

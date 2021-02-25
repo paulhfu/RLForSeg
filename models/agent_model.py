@@ -11,8 +11,6 @@ class Agent(torch.nn.Module):
         self.cfg = cfg
         self.std_bounds = self.cfg.sac.diag_gaussian_actor.std_bounds
         self.mu_bounds = self.cfg.sac.diag_gaussian_actor.mu_bounds
-        self.sample_offset = self.cfg.sac.diag_gaussian_actor.sample_offset
-        self.sample_factor = self.cfg.sac.diag_gaussian_actor.sample_factor
         self.device = device
         self.writer_counter = 0
         self.StateClass = StateClass
@@ -56,7 +54,7 @@ class Agent(torch.nn.Module):
                 std = self.std_bounds[0] + 0.5 * (self.std_bounds[1] - self.std_bounds[0]) * (torch.tanh(std) + 1)
                 mu = self.mu_bounds[0] + 0.5 * (self.mu_bounds[1] - self.mu_bounds[0]) * (torch.tanh(mu) + 1)
 
-                dist = SigmNorm(mu, std, sample_offset=self.sample_offset, sample_factor=self.sample_factor)
+                dist = SigmNorm(mu, std)
                 actions = dist.rsample()
 
             q1, q2, sl = self.critic_tgt(node_features, actions, edge_index, state.edge_angles, state.subgraph_indices,
