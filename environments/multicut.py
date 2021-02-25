@@ -4,7 +4,7 @@ import torch
 import collections
 import matplotlib.pyplot as plt
 from utils.reward_functions import UnSupervisedReward, SubGraphDiceReward
-from rewards.artificial_cells_reward import ArtificialCellsReward
+from rewards.artificial_cells_reward import ArtificialCellsReward, ArtificialCellsReward2DEllipticFit
 from rewards.leptin_data_reward_2d import LeptinDataReward2DTurning, LeptinDataReward2DEllipticFit
 from utils.graphs import collate_edges, get_edge_indices, get_angles_smass_in_rag
 from utils.general import get_angles, pca_project
@@ -19,7 +19,7 @@ import os
 class MulticutEmbeddingsEnv():
 
     State = collections.namedtuple("State", ["node_embeddings", "edge_ids", "edge_angles", "sup_masses", "subgraph_indices", "sep_subgraphs", "round_n", "gt_edge_weights"])
-    def __init__(self, embedding_net, cfg, device, writer=None, writer_counter=None):
+    def __init__(self, embedding_net, cfg, device, writer=None, writer_counter_val=None, writer_counter_train=None):
         super(MulticutEmbeddingsEnv, self).__init__()
 
         self.embedding_net = embedding_net
@@ -27,13 +27,14 @@ class MulticutEmbeddingsEnv():
         self.cfg = cfg
         self.device = device
         self.writer = writer
-        self.writer_counter = writer_counter
+        self.writer_counter_val = writer_counter_val
+        self.writer_counter_train = writer_counter_train
         self.last_final_reward = torch.tensor([0.0])
         self.max_p = torch.nn.MaxPool2d(3, padding=1, stride=1)
 
         if self.cfg.sac.reward_function == 'sub_graph_dice':
             self.reward_function = SubGraphDiceReward()
-        elif self.cfg.sac.reward_function == 'artificial_cells':
+        elif 'artificial_cells' in self.cfg.sac.reward_function:
             fnames_pix = sorted(glob(os.path.join(self.cfg.gen.data_dir, 'pix_data/*.h5')))
             gts = [torch.from_numpy(h5py.File(fnames_pix[7], 'r')['gt'][:]).to(device)]
             # gts.append(torch.from_numpy(h5py.File(fnames_pix[3], 'r')['gt'][:]).to(device))
@@ -47,7 +48,10 @@ class MulticutEmbeddingsEnv():
                 sample_shapes.append(torch.zeros((int(gt.max()) + 1,) + gt.size(), device=device).scatter_(0, gt[None], 1)[
                                 1:])  # 0 should be background
 
-            self.reward_function = ArtificialCellsReward(torch.cat(sample_shapes))
+            if 'EllipticFit' in self.cfg.sac.reward_function:
+                self.reward_function = ArtificialCellsReward2DEllipticFit(torch.cat(sample_shapes))
+            else:
+                self.reward_function = ArtificialCellsReward(torch.cat(sample_shapes))
         elif 'leptin_data' in self.cfg.sac.reward_function:
             if 'EllipticFit' in self.cfg.sac.reward_function:
                 self.reward_function = LeptinDataReward2DEllipticFit()
@@ -59,12 +63,12 @@ class MulticutEmbeddingsEnv():
             self.reward_function_sgd = SubGraphDiceReward()
 
 
-    def execute_action(self, actions, logg_vals=None, post_stats=False, post_images=False, tau=None):
+    def execute_action(self, actions, logg_vals=None, post_stats=False, post_images=False, tau=None, train=True):
         self.current_edge_weights = actions.squeeze()
 
         self.current_soln = self.get_current_soln(self.current_edge_weights)
 
-        if self.cfg.sac.reward_function == 'artificial_cells' or 'leptin_data' in self.cfg.sac.reward_function:
+        if 'artificial_cells' in self.cfg.sac.reward_function or 'leptin_data' in self.cfg.sac.reward_function:
             reward = []
             sp_reward = self.reward_function(self.current_soln.long(), self.init_sp_seg.long(), dir_edges=self.edge_ids,
                                              res=100)
@@ -107,10 +111,12 @@ class MulticutEmbeddingsEnv():
         total_reward /= len(self.cfg.sac.s_subgraph)
 
         if self.writer is not None:
-            self.writer.add_scalar("step/avg_return", total_reward, self.writer_counter.value())
+            tag = "train/" if train else "val/"
+            writer_counter = self.writer_counter_train if train else self.writer_counter_val
+            self.writer.add_scalar(tag + "step/avg_return", total_reward, writer_counter.value())
             if post_images:
                 mc_soln = cm.prism(self.gt_soln[0].cpu()/self.gt_soln[0].max().item()) if self.gt_edge_weights is not None else torch.zeros(self.raw.shape[-2:])
-                self.writer.add_histogram("step/pred_mean", self.current_edge_weights.view(-1).cpu().numpy(), self.writer_counter.value() // 10)
+                self.writer.add_histogram(tag + "step/pred_mean", self.current_edge_weights.view(-1).cpu().numpy(), writer_counter.value() // 10)
                 fig, axes = plt.subplots(2, 3, sharex='col', sharey='row', gridspec_kw={'hspace': 0, 'wspace': 0})
                 axes[0, 0].imshow(self.gt_seg[0].cpu().squeeze())
                 axes[0, 0].set_title('gt')
@@ -125,11 +131,11 @@ class MulticutEmbeddingsEnv():
                 axes[1, 1].set_title('embed')
                 axes[1, 2].imshow(cm.prism(self.current_soln[0].cpu()/self.current_soln[0].max().item()))
                 axes[1, 2].set_title('prediction')
-                self.writer.add_figure("image/state", fig, self.writer_counter.value() // 10)
+                self.writer.add_figure(tag + "image/state", fig, writer_counter.value() // 10)
             if logg_vals is not None and post_stats:
                 for key, val in logg_vals.items():
-                    self.writer.add_scalar("step/" + key, val, self.writer_counter.value())
-            self.writer_counter.increment()
+                    self.writer.add_scalar(tag + "step/" + key, val, writer_counter.value())
+            writer_counter.increment()
 
         self.acc_reward.append(total_reward)
         return self.get_state(), reward
@@ -175,7 +181,6 @@ class MulticutEmbeddingsEnv():
         # get embedding agglomeration over each superpixel
         self.current_node_embeddings = torch.cat([self.embedding_net.get_mean_sp_embedding_chunked(embed, sp, chunks=2)
                                                   for embed, sp in zip(self.embeddings, self.init_sp_seg)], dim=0)
-
         return
 
     def get_batched_actions_from_global_graph(self, actions):
@@ -200,7 +205,6 @@ class MulticutEmbeddingsEnv():
             costs = (torch.log((1. - costs) / costs)).detach().cpu().numpy()
             # graph = nifty.graph.undirectedGraph(self.n_nodes[i-1])
             # graph.insertEdges(edges.T.cpu().numpy())
-
             node_labels = elf.segmentation.multicut.multicut_decomposition(self.rags[i-1], costs, internal_solver='greedy-additive', n_threads=4)
 
             # mc_seg = torch.zeros_like(self.init_sp_seg[i-1])

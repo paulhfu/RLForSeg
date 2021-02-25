@@ -1,18 +1,19 @@
 # @package _group_
 # specific confics for the sac algorithm
-reward_function: artificial_cells #Reward function: sub_graph_dice, artificial_cells
+reward_function: artificial_cells_EllipticFit #Reward function: sub_graph_dice, artificial_cells, artificial_cells_EllipticFit
+gt_edge_overlap_thresh: 0.25
 s_subgraph: [2, 4, 8] # [8, 16, 32, 64] # subgraph sizes
 entropy_range: [0.05, 1.8]
 discount: 0.99  # discount factor (commonly referred to as \gamma in RL)
 init_temperature: 0.1  # initial temperature in Gibbs distribution
 temperature_regulation: optimized #constant/follow_quality/optimized
 # Adam optim conf
-alpha_lr: 1e-4
-actor_lr: 1e-4
+alpha_lr: 0.0001
+actor_lr: 0.0001
 actor_update_frequency: 1  # optim step every n-th step
-actor_update_after: 150  # update actor after critic has been warmed up
+actor_update_after: 100  # update actor after critic has been warmed up
 n_actions: 1
-critic_lr: 1e-4
+critic_lr: 0.0001
 critic_tau: 0.005
 critic_target_update_frequency: 1  # optim step every n-th step
 

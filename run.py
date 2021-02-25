@@ -3,14 +3,12 @@ import os
 import torch
 from utils.general import Counter
 from torch import multiprocessing as mp
-import hydra
-from omegaconf import OmegaConf
 import yaml
 import numpy as np
 from agents.sac import AgentSacTrainer
+from utils.yaml_conv_parser import YamlConf
 
 
-@hydra.main(config_path="conf")
 def main(cfg):
     # Creating directories.
     save_dir = os.path.join(cfg.gen.base_dir, 'results/sac', cfg.gen.target_dir)
@@ -22,10 +20,9 @@ def main(cfg):
     if os.path.exists(os.path.join(save_dir, 'runtime_cfg.yaml')):
         os.remove(os.path.join(save_dir, 'runtime_cfg.yaml'))
 
-    print(OmegaConf.to_yaml(cfg))
-
+    print(yaml.dump(cfg, sort_keys=False, default_flow_style=False))
     with open(os.path.join(save_dir, 'conf.txt'), "w") as info:
-        info.write(OmegaConf.to_yaml(cfg))
+        info.write(yaml.dump(cfg, sort_keys=False, default_flow_style=False))
 
     rt_cfg_dict = dict(cfg.rt_vars)
     cfg_dict = dict(cfg.gen)
@@ -85,8 +82,8 @@ def main(cfg):
         return return_dict['test_score']
 
 
-@hydra.main(config_path="conf")
 def no_mp_main(cfg):
+    print("dbg2")
     # Creating directories.
     save_dir = os.path.join(cfg.gen.base_dir, 'results/sac', cfg.gen.target_dir)
     if not os.path.exists(save_dir):
@@ -97,10 +94,9 @@ def no_mp_main(cfg):
     if os.path.exists(os.path.join(save_dir, 'runtime_cfg.yaml')):
         os.remove(os.path.join(save_dir, 'runtime_cfg.yaml'))
 
-    print(OmegaConf.to_yaml(cfg))
-
+    print(yaml.dump(cfg, sort_keys=False, default_flow_style=False))
     with open(os.path.join(save_dir, 'conf.txt'), "w") as info:
-        info.write(OmegaConf.to_yaml(cfg))
+        info.write(yaml.dump(cfg, sort_keys=False, default_flow_style=False))
 
     rt_cfg_dict = dict(cfg.rt_vars)
     cfg_dict = dict(cfg.gen)
@@ -117,13 +113,15 @@ def no_mp_main(cfg):
     global_count = Counter()  # Global shared counter
     global_writer_count = Counter()
     global_writer_loss_count = Counter()  # Global shared counter
-    global_writer_quality_count = Counter()  # Global shared counter
+    env_count_val = Counter()
+    env_count_train = Counter()
     action_stats_count = Counter()
 
     trainer = AgentSacTrainer(cfg,
                               global_count,
                               global_writer_loss_count,
-                              global_writer_quality_count,
+                              env_count_val,
+                              env_count_train,
                               action_stats_count=action_stats_count,
                               global_writer_count=global_writer_count,
                               save_dir=save_dir)
@@ -134,4 +132,4 @@ def no_mp_main(cfg):
 
 if __name__ == '__main__':
     # mp.set_start_method('spawn', force=True)
-    no_mp_main()
+    no_mp_main(YamlConf("conf").cfg)

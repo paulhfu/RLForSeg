@@ -1,11 +1,11 @@
 # @package _group_
 algorithm: sac #Algorithm used for training
-master_port: !!str "12351" #port num on localhost for icp
+master_port: !!str "12350" #port num on localhost for icp
 verbose: true
 no_save: false #dont save models
 n_processes_per_gpu: 1 #Number of training async agents
 n_gpu: 1 #Number of gpus per process
-target_dir: multicut # dir name in base-dir. Logs are in here
+target_dir: multicut_synthetic # dir name in base-dir. Logs are in here
 base_dir: /g/kreshuk/hilt/projects/RLForSeg # base-dir
 data_dir: /g/kreshuk/hilt/projects/data/toy_lines_ovals/train #/g/kreshuk/hilt/projects/data/leptin_fused_tp1_ch_0/train # circles sqrs_crclspn
 val_data_dir: /g/kreshuk/hilt/projects/data/toy_lines_ovals/val #/g/kreshuk/hilt/projects/data/leptin_fused_tp1_ch_0/val # circles sqrs_crclspn

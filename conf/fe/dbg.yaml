@@ -1,4 +1,3 @@
-# @package _group_
 # feature extractor
 model_name: /g/kreshuk/hilt/storage/synthetic_nuclei/fe_l2_ls.pth
 load_pretrained: true

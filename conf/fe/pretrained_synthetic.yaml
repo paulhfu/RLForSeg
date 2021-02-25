@@ -4,7 +4,6 @@ model_name: /g/kreshuk/hilt/storage/synthetic_nuclei/fe_l2_ls.pth
 load_pretrained: true
 optim: "none"  # none/rl_loss  # optimize feature extractor with ril loss, fe extractor optimization works only when fe is part of the agent (MC). In the embedding space environment fe is part of the env
 
-update_frequency: 10 # optim step every n-th step
 n_embedding_features: 16  # number of embedding feature channels
 contrastive_delta_dist: 0.5
 contrastive_delta_var: 1.5

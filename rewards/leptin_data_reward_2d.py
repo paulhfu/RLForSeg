@@ -4,6 +4,7 @@ from rewards.reward_abc import RewardFunctionAbc
 from skimage.measure import approximate_polygon,  find_contours
 from skimage.draw import polygon_perimeter
 from utils.polygon_2d import Polygon2d
+from utils.general import random_label_cmap
 import torch
 from elf.segmentation.features import compute_rag
 import h5py
@@ -230,6 +231,8 @@ class LeptinDataReward2DEllipticFit(RewardFunctionAbc):
         For this data we use 4 kinds of shape descriptors. Outer contour of the whole cell constellation as well as its inner contour.
         Both will be used for the reward of the background superpixels.
         :param shape_samples:
+        plt.imshow(torch.from_numpy(h5py.File("/g/kreshuk/hilt/projects/data/leptin_fused_tp1_ch_0/raw.h5", "r")["data"][:].astype(np.long))[:, 144, :], cmap=plt.get_cmap('inferno'), interpolation='none');plt.style.use('dark_background');plt.axis('off');plt.savefig("/g/kreshuk/hilt/projects/data/leptin_rawex.png", bbox_inches='tight')
+        plt.imshow((wtsd[:, 144, :] * (((wtsd[:, 144, :]==0) + (wtsd[:, 144, :]==1))==0)).cpu(), cmap=random_label_cmap(), interpolation='none');plt.style.use('dark_background');plt.axis('off');plt.savefig("/g/kreshuk/hilt/projects/data/leptin_segex.png", bbox_inches='tight')
         """
         # source_file_wtsd = "/g/kreshuk/data/leptin/sourabh_data_v1/Segmentation_results_fused_tp_1_ch_0_Masked_WatershedBoundariesMergeTreeFilter_Out1.tif"
         source_file_wtsd = "/g/kreshuk/hilt/projects/data/leptin_fused_tp1_ch_0/Masked_WatershedBoundariesMergeTreeFilter_Out1.h5"

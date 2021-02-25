@@ -75,11 +75,11 @@ class FeExtractor(nn.Module):
         means = masked_embeddings.flatten(2).sum(-1) / masses[None]
         if isinstance(self.distance, CosineDistance):
             means = means / torch.norm(means, dim=0, keepdim=True)  # normalize since we use cosine distance
-            # probs = -self.distance(masked_embeddings, means[..., None, None], dim=0, kd=False)
-            # probs = probs * mask
-            # probs = probs / probs.flatten(1).sum(-1)[..., None, None]  # get the probabilities for the embeddings distribution
-            # sp_embeddings = (masked_embeddings * probs[None]).flatten(2).sum(-1)
-            # return (sp_embeddings / (torch.norm(sp_embeddings, dim=0, keepdim=True) + 1e-10)).T
+            probs = -self.distance(masked_embeddings, means[..., None, None], dim=0, kd=False)
+            probs = probs * mask
+            probs = probs / probs.flatten(1).sum(-1)[..., None, None]  # get the probabilities for the embeddings distribution
+            sp_embeddings = (masked_embeddings * probs[None]).flatten(2).sum(-1)
+            return (sp_embeddings / (torch.norm(sp_embeddings, dim=0, keepdim=True) + 1e-10)).T
         return means.T
 
 
