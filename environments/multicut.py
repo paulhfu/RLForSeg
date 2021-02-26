@@ -151,6 +151,10 @@ class MulticutEmbeddingsEnv():
         self.raw = raw
         with torch.set_grad_enabled(fe_grad):
             self.embeddings = self.embedding_net(raw)
+        # get embedding agglomeration over each superpixel
+        self.current_node_embeddings = torch.cat([self.embedding_net.get_mean_sp_embedding_chunked(embed, sp, chunks=2)
+                                                  for embed, sp in zip(self.embeddings, self.init_sp_seg)], dim=0)
+
         subgraphs, self.sep_subgraphs = [], []
         edge_angles, sup_masses, sup_com = zip(*[get_angles_smass_in_rag(edge_ids[i], self.init_sp_seg[i]) for i in range(bs)])
         self.edge_angles, self.sup_masses, self.sup_com = torch.cat(edge_angles).unsqueeze(-1), torch.cat(sup_masses).unsqueeze(-1), torch.cat(sup_com)
@@ -178,9 +182,6 @@ class MulticutEmbeddingsEnv():
 
         self.current_edge_weights = torch.ones(self.edge_ids.shape[1], device=self.edge_ids.device) / 2
 
-        # get embedding agglomeration over each superpixel
-        self.current_node_embeddings = torch.cat([self.embedding_net.get_mean_sp_embedding_chunked(embed, sp, chunks=2)
-                                                  for embed, sp in zip(self.embeddings, self.init_sp_seg)], dim=0)
         return
 
     def get_batched_actions_from_global_graph(self, actions):

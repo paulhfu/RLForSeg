@@ -217,7 +217,6 @@ class AgentSacTrainer(object):
         critic_optimizer = torch.optim.Adam(shared_model.module.critic.parameters(),
                                             lr=self.cfg.sac.critic_lr)
         temp_optimizer = torch.optim.Adam([shared_model.module.log_alpha],
-
                                           lr=self.cfg.sac.alpha_lr)
 
         bw = self.cfg.trainer.lr_sched.mov_avg_bandwidth
