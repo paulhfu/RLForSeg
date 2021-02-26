@@ -20,7 +20,7 @@ from models.feature_extractor import FeExtractor
 from utils.exploration_functions import RunningAverage
 from utils.general import adjust_learning_rate, soft_update_params, set_seed_everywhere
 from utils.replay_memory import TransitionData_ts
-from utils.graphs import get_joint_sg_logprobs_edges, get_joint_sg_logprobs_nodes
+from utils.graphs import get_joint_sg_logprobs_edges
 from utils.distances import CosineDistance, L2Distance
 from utils.training_helpers import update_env_data, pretrain_embeddings, supervised_policy_pretraining, validate, \
     agent_forward, cleanup, state_to_cpu, update_rt_vars
@@ -41,10 +41,6 @@ class AgentSacTrainer(object):
         self.global_writer_count = global_writer_count
         self.memory = TransitionData_ts(capacity=self.cfg.trainer.t_max)
         self.save_dir = save_dir
-        if 'nodes' in cfg.gen.env:
-            self.get_joint_sg_logprobs = get_joint_sg_logprobs_nodes
-        else:
-            self.get_joint_sg_logprobs = get_joint_sg_logprobs_edges
 
     def setup(self, rank, world_size):
         # BLAS setup
@@ -101,7 +97,7 @@ class AgentSacTrainer(object):
         _log_prob, sg_entropy = [], []
         for i, sz in enumerate(self.cfg.sac.s_subgraph):
             actor_Q = torch.min(actor_Q1[i], actor_Q2[i])
-            ret = self.get_joint_sg_logprobs(log_prob, distribution.scale, obs, i, sz)
+            ret = get_joint_sg_logprobs_edges(log_prob, distribution.scale, obs, i, sz)
             _log_prob.append(ret[0])
             sg_entropy.append(ret[1])
 
@@ -117,9 +113,9 @@ class AgentSacTrainer(object):
                       + self.cfg.sac.entropy_range[0]
 
         for i, sz in enumerate(self.cfg.sac.s_subgraph):
-            min_entropy = min_entropy.to(model.module.alpha[i].device).squeeze()
+            # min_entropy = min_entropy.to(model.module.alpha[i].device).squeeze()
             entropy = sg_entropy[i].detach() if self.cfg.sac.use_closed_form_entropy else -_log_prob[i].detach()
-            alpha_loss = alpha_loss + (model.module.alpha[i] * (entropy - (self.cfg.sac.s_subgraph[i] * min_entropy))).mean()
+            alpha_loss = alpha_loss + (model.module.alpha[i] * (entropy - (self.cfg.sac.s_subgraph[i]))).mean()
 
         alpha_loss = alpha_loss / len(self.cfg.sac.s_subgraph)
         optimizers.temperature.zero_grad()
@@ -136,35 +132,26 @@ class AgentSacTrainer(object):
         if step % self.cfg.sac.critic_target_update_frequency == 0 or self.cfg.sac.actor_update_after < step:
             critic_loss, mean_reward = self.update_critic(obs, action, reward, env, model, optimizers)
             replay_buffer.report_sample_loss(critic_loss + mean_reward, sample_idx)
-            writer.add_scalar("loss/critic", critic_loss, self.global_writer_loss_count.value())
             mov_sum_loss.critic.apply(critic_loss)
 
         if self.cfg.sac.actor_update_after < step and step % self.cfg.sac.actor_update_frequency == 0:
             actor_loss, alpha_loss, min_entropy = self.update_actor_and_alpha(obs, reward, env, model, optimizers)
             mov_sum_loss.actor.apply(actor_loss)
             mov_sum_loss.temperature.apply(alpha_loss)
-            writer.add_scalar("loss/actor", actor_loss, self.global_writer_loss_count.value())
             writer.add_scalar("min_entropy", min_entropy, self.global_writer_loss_count.value())
-            writer.add_scalar("loss/temperature", alpha_loss, self.global_writer_loss_count.value())
 
         if self.global_writer_loss_count.value() > self.cfg.trainer.lr_sched.mov_avg_bandwidth \
                 and self.global_writer_loss_count.value() % self.cfg.trainer.lr_sched.step_frequency == 0:
             optimizers.critic_shed.step(mov_sum_loss.critic.avg)
             if self.cfg.sac.actor_update_after < step:
                 optimizers.actor_shed.step(mov_sum_loss.actor.avg)
-                optimizers.temp_shed.step(
-                    mov_sum_loss.actor.avg)  # actor and temp should have the same lr for primal dual iteration
+                optimizers.temp_shed.step(mov_sum_loss.actor.avg)
             writer.add_scalar("mov_sum/critic", mov_sum_loss.critic.avg, self.global_writer_loss_count.value())
             writer.add_scalar("mov_sum/actor", mov_sum_loss.actor.avg, self.global_writer_loss_count.value())
-            writer.add_scalar("mov_sum/temperature", mov_sum_loss.temperature.avg,
-                              self.global_writer_loss_count.value())
-
-        writer.add_scalar("lr/critic", optimizers.critic_shed.optimizer.param_groups[0]['lr'],
-                          self.global_writer_loss_count.value())
-        writer.add_scalar("lr/actor", optimizers.actor_shed.optimizer.param_groups[0]['lr'],
-                          self.global_writer_loss_count.value())
-        writer.add_scalar("lr/temperature", optimizers.temp_shed.optimizer.param_groups[0]['lr'],
-                          self.global_writer_loss_count.value())
+            writer.add_scalar("mov_sum/temperature", mov_sum_loss.temperature.avg, self.global_writer_loss_count.value())
+            writer.add_scalar("lr/critic", optimizers.critic_shed.optimizer.param_groups[0]['lr'], self.global_writer_loss_count.value())
+            writer.add_scalar("lr/actor", optimizers.actor_shed.optimizer.param_groups[0]['lr'], self.global_writer_loss_count.value())
+            writer.add_scalar("lr/temperature", optimizers.temp_shed.optimizer.param_groups[0]['lr'], self.global_writer_loss_count.value())
 
         if step % self.cfg.sac.critic_target_update_frequency == 0:
             soft_update_params(model.module.critic, model.module.critic_tgt, self.cfg.sac.critic_tau)
