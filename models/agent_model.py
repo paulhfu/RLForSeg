@@ -1,8 +1,9 @@
 import torch
 import torch.nn as nn
-from models.gnn import EdgeGnn, NodeGnn, QGnn, GlobalEdgeGnn
-from utils.sigmoid_normal import SigmNorm
 import numpy as np
+from models.gnn import EdgeGnn, NodeGnn, QGnn, GlobalEdgeGnn
+from utils.distances import CosineDistance
+from utils.sigmoid_normal import SigmNorm
 
 class Agent(torch.nn.Module):
     def __init__(self, cfg, StateClass, distance, device, writer=None):
@@ -14,6 +15,7 @@ class Agent(torch.nn.Module):
         self.device = device
         self.writer_counter = 0
         self.StateClass = StateClass
+        self.distance = distance
 
         self.actor = PolicyNet(self.cfg.fe.n_embedding_features + 1, self.cfg.sac.n_actions * 2, cfg.model.n_hidden,
                                cfg.model.hl_factor, distance, device, writer, "nodes" in self.cfg.gen.env)
@@ -39,6 +41,10 @@ class Agent(torch.nn.Module):
     def forward(self, state, actions, post_input, policy_opt, return_node_features):
         state = self.StateClass(*state)
         node_features = torch.cat((state.node_embeddings, state.sup_masses), 1)
+
+        if isinstance(self.distance, CosineDistance):
+            node_features = node_features / torch.clamp(torch.norm(node_features, dim=1, keepdim=True), min=1e-10)
+
         edge_index = torch.cat([state.edge_ids, torch.stack([state.edge_ids[1], state.edge_ids[0]], dim=0)], dim=1)  # gcnn expects two directed edges for one undirected edge
         if actions is None:
             with torch.set_grad_enabled(policy_opt):

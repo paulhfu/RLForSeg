@@ -21,7 +21,7 @@ class FeExtractor(nn.Module):
         if self.writer is not None and post_input:
             self.post_pca(ret[0])
         if isinstance(self.distance, CosineDistance):
-            return ret / (torch.norm(ret, dim=1, keepdim=True) + 1e-10)
+            return ret / torch.clamp(torch.norm(ret, dim=1, keepdim=True), min=1e-10)
         return ret
 
     # def get_node_features(self, features, sp_indices):
@@ -74,14 +74,13 @@ class FeExtractor(nn.Module):
         masked_embeddings = embeddings[:, None] * mask[None]
         means = masked_embeddings.flatten(2).sum(-1) / masses[None]
         if isinstance(self.distance, CosineDistance):
-            means = means / torch.norm(means, dim=0, keepdim=True)  # normalize since we use cosine distance
-            probs = -self.distance(masked_embeddings, means[..., None, None], dim=0, kd=False)
+            means = means / torch.clamp(torch.norm(means, dim=0, keepdim=True), min=1e-10)  # normalize since we use cosine distance
+            probs = self.distance.similarity(masked_embeddings, means[..., None, None], dim=0, kd=False)
             probs = probs * mask
             probs = probs / probs.flatten(1).sum(-1)[..., None, None]  # get the probabilities for the embeddings distribution
             sp_embeddings = (masked_embeddings * probs[None]).flatten(2).sum(-1)
-            return (sp_embeddings / (torch.norm(sp_embeddings, dim=0, keepdim=True) + 1e-10)).T
+            return (sp_embeddings / torch.clamp(torch.norm(sp_embeddings, dim=0, keepdim=True), min=1e-10)).T
         return means.T
-
 
     def post_pca(self, features, tag="image/embedding_proj", writer=True):
         plt.clf()

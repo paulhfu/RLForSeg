@@ -7,7 +7,7 @@ import numpy as np
 
 class AffinityContrastive(nn.Module):
 
-    def __init__(self, delta_var, delta_dist, alpha=1.0, beta=1.0):
+    def __init__(self, delta_var, delta_dist, distance, alpha=1.0, beta=1.0):
         super(AffinityContrastive, self).__init__()
         self.delta_var = delta_var
         self.delta_dist = delta_dist
@@ -17,7 +17,7 @@ class AffinityContrastive(nn.Module):
         self.sigma = 1.2
         self.overseg_factor = 1.
         self.offs = [[0, -1], [-1, 0], [-1, -1], [0, -3], [-3, 0], [-3, -3]]
-        self.distance = lambda x, y, dim, kd=True: 1.0 - (x * y).sum(dim=dim, keepdim=kd)
+        self.distance = distance
 
     def get_naive_affinities(self, raw, offsets):
         """get naive pixel affinities based on differences in pixel intensities."""

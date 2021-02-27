@@ -174,7 +174,7 @@ def validate(model, env, cfg, device):
         plt.show()
 
 
-def pretrain_embeddings(model, cfg, device, distance, writer=None):
+def pretrain_embeddings(model, cfg, device, writer=None):
     wu_cfg = cfg.fe.warmup
     dset = SpgDset(cfg.gen.data_dir, wu_cfg.patch_manager, max(cfg.sac.s_subgraph))
     dloader = DataLoader(dset, batch_size=wu_cfg.batch_size, shuffle=True, pin_memory=True, num_workers=0)
@@ -183,9 +183,9 @@ def pretrain_embeddings(model, cfg, device, distance, writer=None):
     if wu_cfg.method == 'superpixel_contrast':
         criterion = RagContrastiveLoss(delta_var=cfg.fe.contrastive_delta_var,
                                        delta_dist=cfg.fe.contrastive_delta_dist,
-                                       distance=distance)
+                                       distance=model.distance)
     elif wu_cfg.method == 'affinity_contrast':
-        criterion = AffinityContrastive(delta_var=0.1, delta_dist=0.3)
+        criterion = AffinityContrastive(delta_var=0.1, delta_dist=0.3, distance=model.distance)
     acc_loss = 0
     iteration = 0
 
@@ -202,7 +202,6 @@ def pretrain_embeddings(model, cfg, device, distance, writer=None):
             edges = torch.cat(edges, 1)
             embeddings = model(raw).unsqueeze(2)
             # put embeddings on unit sphere so we can use cosine distance
-            embeddings = embeddings / torch.norm(embeddings, dim=1, keepdim=True)
 
             loss = criterion(embeddings=embeddings, gt=gt, sp_seg=sp_seg.unsqueeze(2), edges=edges, raw=raw)
 

@@ -235,7 +235,8 @@ class AgentSacTrainer(object):
                                           (actor_optimizer, critic_optimizer, temp_optimizer)])
 
         dist.barrier()
-
+        # pretrain_embeddings(fe_ext, self.cfg, device, writer)
+        # torch.save(fe_ext.state_dict(), "/g/kreshuk/hilt/storage/synthetic_noisy_nuclei/fe_l2_cosine_usaff.pth")
         if self.cfg.gen.resume:
             shared_model.module.load_state_dict(torch.load(self.cfg.gen.model_name))
             if self.cfg.gen.validation is not None:
