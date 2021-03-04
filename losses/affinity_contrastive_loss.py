@@ -32,7 +32,7 @@ class AffinityContrastive(nn.Module):
         embeddings = embeddings.squeeze(2)
         cum_loss = []
         for s_embeddings, s_raw in zip(embeddings, raw):
-            affs = self.get_naive_affinities(torch.from_numpy(gaussian(s_raw.permute(1, 2, 0).cpu(), self.sigma)).to(s_raw.device).permute(2, 0, 1), self.offs)
+            affs = self.get_naive_affinities(torch.from_numpy(gaussian(s_raw.permute(1, 2, 0).cpu(), self.sigma, multichannel=True)).to(s_raw.device).permute(2, 0, 1), self.offs)
 
             affs *= -1
             affs += +1

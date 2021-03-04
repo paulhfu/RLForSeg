@@ -1,11 +1,8 @@
 import os
 import yaml
-import portalocker
 import torch
 import numpy as np
-import torch.distributed as dist
 from shutil import copyfile
-from torch.nn.parallel import DistributedDataParallel as DDP
 from torch.nn import functional as F
 from torch.optim.lr_scheduler import ReduceLROnPlateau
 from torch.utils.data import DataLoader
@@ -23,7 +20,7 @@ from utils.replay_memory import TransitionData_ts
 from utils.graphs import get_joint_sg_logprobs_edges
 from utils.distances import CosineDistance, L2Distance
 from utils.training_helpers import update_env_data, pretrain_embeddings, supervised_policy_pretraining, validate, \
-    agent_forward, cleanup, state_to_cpu, update_rt_vars
+    agent_forward, state_to_cpu, update_rt_vars
 
 
 class AgentSacTrainer(object):
@@ -41,20 +38,6 @@ class AgentSacTrainer(object):
         self.global_writer_count = global_writer_count
         self.memory = TransitionData_ts(capacity=self.cfg.trainer.t_max)
         self.save_dir = save_dir
-
-    def setup(self, rank, world_size):
-        # BLAS setup
-        os.environ['OMP_NUM_THREADS'] = '10'
-        os.environ['MKL_NUM_THREADS'] = '10'
-
-        # assert torch.cuda.device_count() == 1
-        torch.set_default_tensor_type('torch.FloatTensor')
-
-        os.environ['MASTER_ADDR'] = 'localhost'
-        os.environ['MASTER_PORT'] = self.cfg.gen.master_port
-
-        # initialize the process group
-        dist.init_process_group("gloo", rank=rank, world_size=world_size)
 
     def validation_round(self, dset, model, env, device):
         dloader = DataLoader(dset, batch_size=1, shuffle=True, pin_memory=True, num_workers=0)
@@ -81,7 +64,7 @@ class AgentSacTrainer(object):
 
             critic_loss = critic_loss + (F.mse_loss(current_Q1[i], target_Q) + F.mse_loss(current_Q2[i], target_Q))
             mean_reward += reward[i].mean()
-        critic_loss = critic_loss / len(self.cfg.sac.s_subgraph) + side_loss
+        critic_loss = critic_loss / len(self.cfg.sac.s_subgraph)# + side_loss
         optimizers.critic.zero_grad()
         critic_loss.backward()
         optimizers.critic.step()
@@ -101,10 +84,10 @@ class AgentSacTrainer(object):
             _log_prob.append(ret[0])
             sg_entropy.append(ret[1])
 
-            loss = (model.module.alpha[i].detach() * _log_prob[i] - actor_Q).mean()
+            loss = (model.alpha[i].detach() * _log_prob[i] - actor_Q).mean()
             actor_loss = actor_loss + loss
 
-        actor_loss = actor_loss / len(self.cfg.sac.s_subgraph) + side_loss
+        actor_loss = actor_loss / len(self.cfg.sac.s_subgraph)# + side_loss
         optimizers.actor.zero_grad()
         actor_loss.backward()
         optimizers.actor.step()
@@ -113,9 +96,9 @@ class AgentSacTrainer(object):
                       + self.cfg.sac.entropy_range[0]
 
         for i, sz in enumerate(self.cfg.sac.s_subgraph):
-            # min_entropy = min_entropy.to(model.module.alpha[i].device).squeeze()
+            min_entropy = min_entropy.to(model.alpha[i].device).squeeze()
             entropy = sg_entropy[i].detach() if self.cfg.sac.use_closed_form_entropy else -_log_prob[i].detach()
-            alpha_loss = alpha_loss + (model.module.alpha[i] * (entropy - (self.cfg.sac.s_subgraph[i]))).mean()
+            alpha_loss = alpha_loss + (model.alpha[i] * (entropy - (self.cfg.sac.s_subgraph[i] * min_entropy))).mean()
 
         alpha_loss = alpha_loss / len(self.cfg.sac.s_subgraph)
         optimizers.temperature.zero_grad()
@@ -125,14 +108,13 @@ class AgentSacTrainer(object):
         return actor_loss.item(), alpha_loss.item(), min_entropy
 
     def _step(self, replay_buffer, optimizers, mov_sum_loss, env, model, step, writer=None):
-        critic_loss, actor_loss, alpha_loss = "nl", "nl", "nl"
+        actor_loss, alpha_loss = "nl", "nl"
 
         (obs, action, reward), sample_idx = replay_buffer.sample()
 
-        if step % self.cfg.sac.critic_target_update_frequency == 0 or self.cfg.sac.actor_update_after < step:
-            critic_loss, mean_reward = self.update_critic(obs, action, reward, env, model, optimizers)
-            replay_buffer.report_sample_loss(critic_loss + mean_reward, sample_idx)
-            mov_sum_loss.critic.apply(critic_loss)
+        critic_loss, mean_reward = self.update_critic(obs, action, reward, env, model, optimizers)
+        replay_buffer.report_sample_loss(critic_loss + mean_reward, sample_idx)
+        mov_sum_loss.critic.apply(critic_loss)
 
         if self.cfg.sac.actor_update_after < step and step % self.cfg.sac.actor_update_frequency == 0:
             actor_loss, alpha_loss, min_entropy = self.update_actor_and_alpha(obs, reward, env, model, optimizers)
@@ -154,7 +136,7 @@ class AgentSacTrainer(object):
             writer.add_scalar("lr/temperature", optimizers.temp_shed.optimizer.param_groups[0]['lr'], self.global_writer_loss_count.value())
 
         if step % self.cfg.sac.critic_target_update_frequency == 0:
-            soft_update_params(model.module.critic, model.module.critic_tgt, self.cfg.sac.critic_tau)
+            soft_update_params(model.critic, model.critic_tgt, self.cfg.sac.critic_tau)
 
         self.global_writer_loss_count.increment()
         return critic_loss, actor_loss, alpha_loss
@@ -188,11 +170,11 @@ class AgentSacTrainer(object):
         return
 
     def train_step(self, rank, writer):
-        device = torch.device("cuda:" + str(rank // self.cfg.gen.n_processes_per_gpu))
+        assert torch.cuda.device_count() == 1
+        device = torch.device("cuda:0")
         print('Running on device: ', device)
         torch.cuda.set_device(device)
         torch.set_default_tensor_type(torch.FloatTensor)
-        self.setup(rank, self.cfg.gen.n_processes_per_gpu * self.cfg.gen.n_gpu)
         # cosine distance (input should always be normalized)
         if self.cfg.fe.distance == 'cosine':
             self.distance = CosineDistance()
@@ -201,22 +183,22 @@ class AgentSacTrainer(object):
 
         fe_ext = FeExtractor(self.cfg.fe.backbone, self.distance, device, writer)
         fe_ext.cuda(device)
+
         env = MulticutEmbeddingsEnv(fe_ext, self.cfg, device, writer=writer,
                                     writer_counter_val=self.global_writer_env_count_val,
                                     writer_counter_train=self.global_writer_env_count_train)
 
         model = Agent(self.cfg, env.State, self.distance, device, writer=writer)
         model.cuda(device)
-        # Create shared network
-        shared_model = DDP(model, device_ids=[device], find_unused_parameters=True)
+
         MovSumLosses = namedtuple('mov_avg_losses', ('actor', 'critic', 'temperature'))
         OptimizerContainer = namedtuple('OptimizerContainer', ('actor', 'critic', 'temperature',
                                                                'actor_shed', 'critic_shed', 'temp_shed'))
-        actor_optimizer = torch.optim.Adam(shared_model.module.actor.parameters(),
+        actor_optimizer = torch.optim.Adam(model.actor.parameters(),
                                            lr=self.cfg.sac.actor_lr)
-        critic_optimizer = torch.optim.Adam(shared_model.module.critic.parameters(),
+        critic_optimizer = torch.optim.Adam(model.critic.parameters(),
                                             lr=self.cfg.sac.critic_lr)
-        temp_optimizer = torch.optim.Adam([shared_model.module.log_alpha],
+        temp_optimizer = torch.optim.Adam([model.log_alpha],
                                           lr=self.cfg.sac.alpha_lr)
 
         bw = self.cfg.trainer.lr_sched.mov_avg_bandwidth
@@ -234,21 +216,20 @@ class AgentSacTrainer(object):
                                                             factor=shed.factor) for opt in
                                           (actor_optimizer, critic_optimizer, temp_optimizer)])
 
-        dist.barrier()
-        # pretrain_embeddings(fe_ext, self.cfg, device, writer)
-        # torch.save(fe_ext.state_dict(), "/g/kreshuk/hilt/storage/synthetic_noisy_nuclei/fe_l2_cosine_usaff.pth")
         if self.cfg.gen.resume:
-            shared_model.module.load_state_dict(torch.load(self.cfg.gen.model_name))
+            model.load_state_dict(torch.load(self.cfg.gen.model_name))
             if self.cfg.gen.validation is not None:
                 validate(model, env, self.cfg, device)
                 return
         elif self.cfg.fe.load_pretrained:
-            fe_ext.embed_model.load_state_dict(torch.load(self.cfg.fe.model_name))
+            fe_ext.load_state_dict(torch.load(self.cfg.fe.model_name))
+        elif "warmup" in self.cfg.fe:
+            pretrain_embeddings(fe_ext, self.cfg, device, writer)
+            torch.save(fe_ext.state_dict(), self.cfg.fe.model_name)
         if "policy_warmup" in self.cfg.sac and rank == 0 and not self.cfg.gen.resume:
-            supervised_policy_pretraining(shared_model, env, self.cfg, writer, device=device)
-            torch.save(shared_model.module.state_dict(), self.cfg.gen.model_name)
+            supervised_policy_pretraining(model, env, self.cfg, writer, device=device)
+            torch.save(model.state_dict(), self.cfg.gen.model_name)
 
-        dist.barrier()
         # finished with prepping
         for param in fe_ext.parameters():
             param.requires_grad = False
@@ -261,15 +242,14 @@ class AgentSacTrainer(object):
             dloader = DataLoader(dset, batch_size=self.cfg.trainer.batch_size, shuffle=True, pin_memory=True, num_workers=0)
             for iteration in range(len(dset) * self.cfg.trainer.data_update_frequency):
                 if iteration % self.cfg.trainer.data_update_frequency == 0:
-                    update_env_data(env, dloader, self.cfg, device,
-                                    with_gt_edges="sub_graph_dice" in self.cfg.sac.reward_function)
+                    update_env_data(env, dloader, self.cfg, device, with_gt_edges="sub_graph_dice" in self.cfg.sac.reward_function)
                 env.reset()
                 update_rt_vars(critic_optimizer, actor_optimizer, self.log_dir, self.cfg)
                 if rank == 0 and self.cfg.rt_vars.safe_model:
                     if self.cfg.gen.model_name != "":
-                        torch.save(shared_model.module.state_dict(), self.cfg.gen.model_name)
+                        torch.save(model.state_dict(), self.cfg.gen.model_name)
                     else:
-                        torch.save(shared_model.module.state_dict(), os.path.join(self.log_dir, 'agent_model'))
+                        torch.save(model.state_dict(), os.path.join(self.log_dir, 'agent_model'))
 
                 state = env.get_state()
                 post_stats = True if (self.global_writer_count.value()) % self.cfg.trainer.post_stats_frequency == 0 else False
@@ -281,7 +261,7 @@ class AgentSacTrainer(object):
                 if not self.memory.is_full():
                     action = torch.rand((env.edge_ids.shape[-1], self.cfg.sac.n_actions), device=device)
                 else:
-                    distr, _, _, action, _, _ = agent_forward(env, shared_model, state, self.global_count,
+                    distr, _, _, action, _, _ = agent_forward(env, model, state, self.global_count,
                                                               grad=False, post_input=post_stats,
                                                               post_model=post_model)
 
@@ -289,7 +269,7 @@ class AgentSacTrainer(object):
                 loc_mean = distr.loc.mean().item() if distr is not None else "nl"
                 if post_stats:
                     for i in range(len(self.cfg.sac.s_subgraph)):
-                        logg_dict['alpha_' + str(i)] = shared_model.module.alpha[i].item()
+                        logg_dict['alpha_' + str(i)] = model.alpha[i].item()
                     if distr is not None:
                         logg_dict['mean_loc'] = loc_mean
                         logg_dict['mean_scale'] = distr.scale.mean().item()
@@ -300,7 +280,7 @@ class AgentSacTrainer(object):
                 if self.memory.is_full():
                     for i in range(self.cfg.trainer.n_updates_per_step):
                         critic_loss, actor_loss, alpha_loss = self._step(self.memory, optimizers, mov_sum_losses,
-                                                                         env, shared_model,
+                                                                         env, model,
                                                                          self.global_count.value(), writer=writer)
                     if self.cfg.gen.verbose:
                         print(f"; cl: {critic_loss}; acl: {actor_loss}; al: {alpha_loss}", end='')
@@ -312,20 +292,18 @@ class AgentSacTrainer(object):
 
                 self.global_count.increment()
                 if self.global_count.value() % self.cfg.trainer.validatoin_freq == 0:
-                    self.validation_round(val_dset, shared_model, env, device)
+                    self.validation_round(val_dset, model, env, device)
                 if rank == 0:
                     self.global_writer_count.increment()
                 if self.global_count.value() > self.cfg.trainer.T_max:
                     break
 
-        dist.barrier()
         if rank == 0:
             self.memory.clear()
             if self.cfg.gen.model_name != "":
-                torch.save(shared_model.state_dict(), self.cfg.gen.model_name)
+                torch.save(model.state_dict(), self.cfg.gen.model_name)
             else:
-                torch.save(shared_model.state_dict(), os.path.join(self.log_dir, 'agent_model'))
+                torch.save(model.state_dict(), os.path.join(self.log_dir, 'agent_model'))
             print('saved')
 
-        cleanup()
         return sum(env.acc_reward) / len(env.acc_reward)

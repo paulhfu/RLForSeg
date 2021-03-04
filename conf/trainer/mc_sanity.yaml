@@ -1,5 +1,5 @@
 # main training
-T_max: 100000  # Number of training steps
+T_max: 10000  # Number of training steps
 t_max: 100  # Mem size in replay memory buffer
 data_update_frequency: 10  # update env data after n steps
 post_stats_frequency: 10  # post logs after n steps
@@ -7,7 +7,7 @@ post_model_frequency: 500  # post model param distributions after n steps
 validatoin_freq: 100
 n_updates_per_step: 10  # perform n optim steps per env step
 max_episode_length: 1  # Maximum episode length (if env is multicut_embedding this should be 1)
-batch_size: 10  # num of images to segment
+batch_size: 8  # num of images to segment
 # conf for lr scheduling
 lr_sched:
   mov_avg_bandwidth: 40

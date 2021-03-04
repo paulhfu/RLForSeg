@@ -7,7 +7,6 @@ import portalocker
 import numpy as np
 import matplotlib.pyplot as plt
 import matplotlib.cm as cm
-import torch.distributed as dist
 from elf.segmentation.features import compute_rag
 from data.spg_dset import SpgDset
 from torch.utils.data import DataLoader
@@ -233,12 +232,12 @@ def supervised_policy_pretraining(model, env, cfg, writer, device="cuda:0", fe_o
     dset = SpgDset(cfg.gen.data_dir, wu_cfg.patch_manager, max(cfg.sac.s_subgraph))
     dloader = DataLoader(dset, batch_size=wu_cfg.batch_size, shuffle=True, pin_memory=True, num_workers=0)
     if fe_opt:
-        actor_fe_opt = torch.optim.Adam(list(model.module.actor.parameters()) + list(env.embedding_net.parameters()),
+        actor_fe_opt = torch.optim.Adam(list(model.actor.parameters()) + list(env.embedding_net.parameters()),
                                         lr=wu_cfg.lr)
     else:
-        actor_fe_opt = torch.optim.Adam(model.module.actor.parameters(), lr=wu_cfg.lr)
+        actor_fe_opt = torch.optim.Adam(model.actor.parameters(), lr=wu_cfg.lr)
 
-    dummy_opt = torch.optim.Adam([model.module.log_alpha], lr=wu_cfg.lr)
+    dummy_opt = torch.optim.Adam([model.log_alpha], lr=wu_cfg.lr)
     sheduler = ReduceLROnPlateau(actor_fe_opt, threshold=0.001, min_lr=1e-6)
     criterion = torch.nn.BCELoss()
     acc_loss = 0
@@ -254,7 +253,7 @@ def supervised_policy_pretraining(model, env, cfg, writer, device="cuda:0", fe_o
         loss = criterion(action.squeeze(1), env.gt_edge_weights)
 
         dummy_loss = (
-                    model.module.alpha * 0).sum()  # not using all parameters in backprop gives error, so add dummy loss
+                    model.alpha * 0).sum()  # not using all parameters in backprop gives error, so add dummy loss
         for sq1, sq2 in zip(q1, q2):
             loss = loss + (sq1.sum() * sq2.sum() * 0)
 
@@ -336,16 +335,12 @@ def update_rt_vars(critic_optimizer, actor_optimizer, log_dir, cfg):
         os.fsync(fh.fileno())
 
 
-def cleanup():
-    dist.destroy_process_group()
-
-
 def agent_forward(env, model, state, counter, actions=None, grad=True, post_input=False, post_model=False,
                   policy_opt=False, return_node_features=False):
     with torch.set_grad_enabled(grad):
         state = state_to_cuda(state, env.device, env.State)
         if actions is not None:
-            actions = actions.to(model.module.device)
+            actions = actions.to(model.device)
         ret = model(state,
                     actions,
                     post_input,
@@ -353,10 +348,10 @@ def agent_forward(env, model, state, counter, actions=None, grad=True, post_inpu
                     return_node_features)
 
         if post_model and grad:
-            for name, value in model.module.actor.named_parameters():
+            for name, value in model.actor.named_parameters():
                 model.writer.add_histogram(name, value.data.cpu().numpy(), counter.value())
                 model.writer.add_histogram(name + '/grad', value.grad.data.cpu().numpy(), counter.value())
-            for name, value in model.module.critic_tgt.named_parameters():
+            for name, value in model.critic_tgt.named_parameters():
                 model.writer.add_histogram(name, value.data.cpu().numpy(), counter.value())
                 model.writer.add_histogram(name + '/grad', value.grad.data.cpu().numpy(), counter.value())
 

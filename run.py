@@ -1,5 +1,6 @@
 import os
-# os.environ["OMP_NUM_THREADS"] = "1"
+os.environ['OMP_NUM_THREADS'] = '10'
+os.environ['MKL_NUM_THREADS'] = '10'
 import torch
 from utils.general import Counter
 from torch import multiprocessing as mp
@@ -39,13 +40,15 @@ def main(cfg):
     global_count = Counter()  # Global shared counter
     global_writer_count = Counter()
     global_writer_loss_count = Counter()  # Global shared counter
-    global_writer_quality_count = Counter()  # Global shared counter
+    env_count_val = Counter()
+    env_count_train = Counter()
     action_stats_count = Counter()
 
     trainer = AgentSacTrainer(cfg,
                               global_count,
                               global_writer_loss_count,
-                              global_writer_quality_count,
+                              env_count_val,
+                              env_count_train,
                               action_stats_count=action_stats_count,
                               global_writer_count=global_writer_count,
                               save_dir=save_dir)
@@ -58,7 +61,7 @@ def main(cfg):
     for i, rn in enumerate(rns):
         # Start validation agent
         processes = []
-        for rank in range(cfg.gen.n_processes_per_gpu * cfg.gen.n_gpu):
+        for rank in range(1):
             p = mp.Process(target=trainer.train, args=(rank, return_dict, rn.item()))
             p.start()
             processes.append(p)
@@ -131,5 +134,5 @@ def no_mp_main(cfg):
     trainer.train(0, return_dict, rn)
 
 if __name__ == '__main__':
-    # mp.set_start_method('spawn', force=True)
-    no_mp_main(YamlConf("conf").cfg)
+    mp.set_start_method('spawn', force=True)
+    main(YamlConf("conf").cfg)
