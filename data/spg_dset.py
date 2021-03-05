@@ -31,7 +31,6 @@ class SpgDset(torch_data.Dataset):
         else:
             self.pm = NoPatches2D()
         self.length = len(self.graph_file_names) * np.prod(self.pm.n_patch_per_dim)
-        print('found ', self.length, " data patches")
 
     def __len__(self):
         return self.length

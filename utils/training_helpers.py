@@ -1,9 +1,8 @@
 import os
-import yaml
 import torch
 import elf
 import copy
-import portalocker
+import wandb
 import numpy as np
 import matplotlib.pyplot as plt
 import matplotlib.cm as cm
@@ -12,22 +11,21 @@ from data.spg_dset import SpgDset
 from torch.utils.data import DataLoader
 from utils.general import get_angles, adjust_learning_rate, cluster_embeddings, pca_project, calculate_gt_edge_costs
 from utils.matching import matching
+from utils.yaml_conv_parser import AttrDict, add_dict
 from torch.optim.lr_scheduler import ReduceLROnPlateau
-from losses.rag_contrastive_loss import RagContrastiveLoss
-from losses.affinity_contrastive_loss import AffinityContrastive
 
 
 def update_env_data(env, dloader, cfg, device, with_gt_edges=False, fe_grad=False):
     raw, gt, sp_seg, indices = next(iter(dloader))
     rags = [compute_rag(sseg.numpy()) for sseg in sp_seg]
     edges = [torch.from_numpy(rag.uvIds().astype(np.long)).T.to(device) for rag in rags]
-    if not all([e.shape[-1] > cfg.sac.s_subgraph[-1] for e in edges]):
+    if not all([e.shape[-1] > cfg.s_subgraph[-1] for e in edges]):
         print("ERROR not enough edges, subgraph generation will fail")
         assert False
     if with_gt_edges:
         gt_edges = [torch.from_numpy(
             calculate_gt_edge_costs(s_edges.T.cpu().numpy(), sseg.squeeze().numpy(), sgt.squeeze().numpy(),
-                                    cfg.sac.gt_edge_overlap_thresh)).to(device).float() for s_edges, sseg, sgt in
+                                    cfg.gt_edge_overlap_thresh)).to(device).float() for s_edges, sseg, sgt in
                     zip(edges, sp_seg, gt)]
     else:
         gt_edges = None
@@ -41,12 +39,12 @@ def validate(model, env, cfg, device):
     model.eval()
     n_examples = 4
     taus = [0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8, 0.9]
-    dset = SpgDset(cfg.gen.data_dir, cfg.gen.patch_manager, max(cfg.sac.s_subgraph))
+    dset = SpgDset(cfg.data_dir, cfg.patch_manager, max(cfg.s_subgraph))
     dloader = DataLoader(dset, batch_size=1, shuffle=True, pin_memory=True,
                          num_workers=0)
     clst_scores, clst_scores_sp, rl_scores, keys = [], [], [], None
     ex_raws, ex_sps, ex_gts, ex_embeds, ex_clst, ex_clst_sp, ex_rl = [], [], [], [], [], [], []
-    for it in range(cfg.gen.validation.n_data_points):
+    for it in range(10):
         update_env_data(env, dloader, device)
         env.reset()
         state = env.get_state()
@@ -96,7 +94,7 @@ def validate(model, env, cfg, device):
     div = np.ones_like(clst_scores[0])
     for i, key in enumerate(keys):
         if key not in ('fp', 'tp', 'fn'):
-            div[i] = cfg.gen.validation.n_data_points
+            div[i] = 10
 
     for tau_it in range(len(clst_scores)):
         clst_scores[tau_it] = dict(zip(keys, clst_scores[tau_it] / div))
@@ -172,64 +170,10 @@ def validate(model, env, cfg, device):
         axs[1, 3].set_title('pred RL', y=-0.3)
         plt.show()
 
-
-def pretrain_embeddings(model, cfg, device, writer=None):
-    wu_cfg = cfg.fe.warmup
-    dset = SpgDset(cfg.gen.data_dir, wu_cfg.patch_manager, max(cfg.sac.s_subgraph))
-    dloader = DataLoader(dset, batch_size=wu_cfg.batch_size, shuffle=True, pin_memory=True, num_workers=0)
-    optimizer = torch.optim.Adam(model.parameters(), lr=wu_cfg.lr)
-    sheduler = ReduceLROnPlateau(optimizer)
-    if wu_cfg.method == 'superpixel_contrast':
-        criterion = RagContrastiveLoss(delta_var=cfg.fe.contrastive_delta_var,
-                                       delta_dist=cfg.fe.contrastive_delta_dist,
-                                       distance=model.distance)
-    elif wu_cfg.method == 'affinity_contrast':
-        criterion = AffinityContrastive(delta_var=0.1, delta_dist=0.3, distance=model.distance)
-    acc_loss = 0
-    iteration = 0
-
-    while iteration <= wu_cfg.n_iterations:
-        for it, (raw, gt, sp_seg, indices) in enumerate(dloader):
-            raw, gt, sp_seg = raw.to(device), gt.to(device), sp_seg.to(device)
-            edges = dloader.dataset.get_graphs(indices, sp_seg, device)[0]
-
-            off = 0
-            for i in range(len(edges)):
-                sp_seg[i] += off
-                edges[i] += off
-                off = int(sp_seg[i].max()) + 1
-            edges = torch.cat(edges, 1)
-            embeddings = model(raw).unsqueeze(2)
-            # put embeddings on unit sphere so we can use cosine distance
-
-            loss = criterion(embeddings=embeddings, gt=gt, sp_seg=sp_seg.unsqueeze(2), edges=edges, raw=raw)
-
-            optimizer.zero_grad()
-            loss.backward(retain_graph=False)
-            optimizer.step()
-            acc_loss += loss.item()
-
-            if writer is not None:
-                writer.add_scalar("fe_warm_start/loss", loss.item(), iteration)
-                writer.add_scalar("fe_warm_start/lr", optimizer.param_groups[0]['lr'], iteration)
-            if it % 10 == 0:
-                sheduler.step(acc_loss / 10)
-                acc_loss = 0
-            iteration += 1
-            if iteration % 100 == 0:
-                model.post_pca(get_angles(embeddings.squeeze(2).detach())[0].cpu(), tag="image/pix_embedding_proj",
-                               writer=False)
-            if iteration > cfg.fe.warmup.n_iterations:
-                break
-
-            del loss
-            del embeddings
-    return
-
-
-def supervised_policy_pretraining(model, env, cfg, writer, device="cuda:0", fe_opt=False):
-    wu_cfg = cfg.sac.policy_warmup
-    dset = SpgDset(cfg.gen.data_dir, wu_cfg.patch_manager, max(cfg.sac.s_subgraph))
+def supervised_policy_pretraining(model, env, cfg, device="cuda:0", fe_opt=False):
+    wu_cfg = AttrDict()
+    add_dict(cfg.policy_warmup, wu_cfg)
+    dset = SpgDset(cfg.data_dir, wu_cfg.patch_manager, max(cfg.trn.s_subgraph))
     dloader = DataLoader(dset, batch_size=wu_cfg.batch_size, shuffle=True, pin_memory=True, num_workers=0)
     if fe_opt:
         actor_fe_opt = torch.optim.Adam(list(model.actor.parameters()) + list(env.embedding_net.parameters()),
@@ -253,7 +197,7 @@ def supervised_policy_pretraining(model, env, cfg, writer, device="cuda:0", fe_o
         loss = criterion(action.squeeze(1), env.gt_edge_weights)
 
         dummy_loss = (
-                    model.alpha * 0).sum()  # not using all parameters in backprop gives error, so add dummy loss
+                model.alpha * 0).sum()  # not using all parameters in backprop gives error, so add dummy loss
         for sq1, sq2 in zip(q1, q2):
             loss = loss + (sq1.sum() * sq2.sum() * 0)
 
@@ -273,15 +217,14 @@ def supervised_policy_pretraining(model, env, cfg, writer, device="cuda:0", fe_o
             for _rew in reward:
                 total_reward += _rew.mean().item()
             total_reward /= len(reward)
-            writer.add_scalar("policy_warm_start/acc_loss", acc_loss, iteration)
-            writer.add_scalar("policy_warm_start/rewards", total_reward, iteration)
+            wandb.log({"policy_warm_start/acc_loss": acc_loss})
+            wandb.log({"policy_warm_start/rewards": total_reward})
             acc_loss = 0
             if total_reward > best_score:
                 best_model = copy.deepcopy(model.state_dict())
                 best_score = total_reward
-        if writer is not None:
-            writer.add_scalar("policy_warm_start/loss", loss.item(), iteration)
-            writer.add_scalar("policy_warm_start/lr", actor_fe_opt.param_groups[0]['lr'], iteration)
+        wandb.log({"policy_warm_start/loss": loss.item()})
+        wandb.log({"policy_warm_start/lr": actor_fe_opt.param_groups[0]['lr']})
         iteration += 1
     model.load_state_dict(best_model)
     return
@@ -311,48 +254,15 @@ def state_to_cuda(state, device, state_class):
     return state
 
 
-def update_rt_vars(critic_optimizer, actor_optimizer, log_dir, cfg):
-    with portalocker.Lock(os.path.join(log_dir, 'runtime_cfg.yaml'), 'rb+', timeout=60) as fh:
-        with open(os.path.join(log_dir, 'runtime_cfg.yaml')) as info:
-            args_dict = yaml.full_load(info)
-            if args_dict is not None:
-                if 'safe_model' in args_dict:
-                    cfg.rt_vars.safe_model = args_dict['safe_model']
-                    args_dict['safe_model'] = False
-                if 'add_noise' in args_dict:
-                    cfg.rt_vars.add_noise = args_dict['add_noise']
-                if 'critic_lr' in args_dict and args_dict['critic_lr'] != cfg.sac.critic_lr:
-                    cfg.sac.critic_lr = args_dict['critic_lr']
-                    adjust_learning_rate(critic_optimizer, cfg.sac.critic_lr)
-                if 'actor_lr' in args_dict and args_dict['actor_lr'] != cfg.sac.actor_lr:
-                    cfg.sac.actor_lr = args_dict['actor_lr']
-                    adjust_learning_rate(actor_optimizer, cfg.sac.actor_lr)
-        with open(os.path.join(log_dir, 'runtime_cfg.yaml'), "w") as info:
-            yaml.dump(args_dict, info)
-
-        # flush and sync to filesystem
-        fh.flush()
-        os.fsync(fh.fileno())
-
-
-def agent_forward(env, model, state, counter, actions=None, grad=True, post_input=False, post_model=False,
-                  policy_opt=False, return_node_features=False):
+def agent_forward(env, model, state, actions=None, grad=True, post_data=False, policy_opt=False,
+                  return_node_features=False):
     with torch.set_grad_enabled(grad):
         state = state_to_cuda(state, env.device, env.State)
         if actions is not None:
             actions = actions.to(model.device)
         ret = model(state,
                     actions,
-                    post_input,
+                    post_data,
                     policy_opt and grad,
                     return_node_features)
-
-        if post_model and grad:
-            for name, value in model.actor.named_parameters():
-                model.writer.add_histogram(name, value.data.cpu().numpy(), counter.value())
-                model.writer.add_histogram(name + '/grad', value.grad.data.cpu().numpy(), counter.value())
-            for name, value in model.critic_tgt.named_parameters():
-                model.writer.add_histogram(name, value.data.cpu().numpy(), counter.value())
-                model.writer.add_histogram(name + '/grad', value.grad.data.cpu().numpy(), counter.value())
-
     return ret
