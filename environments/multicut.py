@@ -21,16 +21,13 @@ from utils.general import get_angles, pca_project
 class MulticutEmbeddingsEnv():
 
     State = collections.namedtuple("State", ["node_embeddings", "edge_ids", "edge_angles", "sup_masses", "subgraph_indices", "sep_subgraphs", "round_n", "gt_edge_weights"])
-    def __init__(self, embedding_net, cfg, device, writer=None, writer_counter_val=None, writer_counter_train=None):
+    def __init__(self, embedding_net, cfg, device):
         super(MulticutEmbeddingsEnv, self).__init__()
 
         self.embedding_net = embedding_net
         self.reset()
         self.cfg = cfg
         self.device = device
-        self.writer = writer
-        self.writer_counter_val = writer_counter_val
-        self.writer_counter_train = writer_counter_train
         self.last_final_reward = torch.tensor([0.0])
         self.max_p = torch.nn.MaxPool2d(3, padding=1, stride=1)
 
@@ -91,9 +88,7 @@ class MulticutEmbeddingsEnv():
                 reward = _reward
 
             self.counter += 1
-            if self.counter >= self.cfg.max_episode_length:
-                self.done = True
-                self.last_final_reward = sp_reward.mean()
+            self.last_final_reward = sp_reward.mean()
         else:
             self.sg_current_edge_weights = []
             for i, sz in enumerate(self.cfg.s_subgraph):
@@ -103,7 +98,6 @@ class MulticutEmbeddingsEnv():
             reward.append(self.last_final_reward)
 
             self.counter += 1
-            self.done = True
             self.last_final_reward = self.reward_function.get_global(self.current_edge_weights, self.gt_edge_weights)
 
         total_reward = 0
@@ -213,7 +207,6 @@ class MulticutEmbeddingsEnv():
         return b_node_seg
 
     def reset(self):
-        self.done = False
         self.acc_reward = []
         self.counter = 0
 

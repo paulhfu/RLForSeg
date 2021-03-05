@@ -62,19 +62,19 @@ t_max:
   value: 10
 data_update_frequency:
   desc: update env data after n steps
-  value: 10
+  value: 5
 post_stats_frequency:
   desc: post logs after n steps
-  value: 1
+  value: 2
 validatoin_freq:
   desc: validate after n steps
   value: 10
 n_updates_per_step:
   desc: perform n optim steps per env step
-  value: 10
+  value: 2
 batch_size:
   desc: num samples in minibatch
-  value: 8
+  value: 2
 
 # conf for lr scheduling
 lr_sched:
@@ -100,7 +100,7 @@ patch_manager:
 # specific configs for the sac algorithm
 reward_function:
   desc: one of sub_graph_dice, artificial_cells, artificial_cells_EllipticFit
-  value: sub_graph_dice
+  value: artificial_cells
 gt_edge_overlap_thresh:
   desc: if using gt edges this is the overlap thresh of the underlying gt for a gt edge to be 1
   value: 0.5
