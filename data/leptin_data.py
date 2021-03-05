@@ -125,7 +125,7 @@ def preprocess_data():
         graph_dir = os.path.join(dir, 'graph_data')
         for i, fname in enumerate(fnames[:5]):
             raw = h5py.File(fname, 'r')['raw'][:]
-            gt = h5py.File(fname, 'r')['wtsd'][:]
+            gt = h5py.File(fname, 'r')['gt'][:]
             head, tail = os.path.split(fname)
             affs = torch.from_numpy(h5py.File(os.path.join(dir, 'affinities_1', tail[:-3] + '_predictions' + '.h5'), 'r')['predictions'][:]).squeeze(1)
             affs = torch.sigmoid(affs).numpy()

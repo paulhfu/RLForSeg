@@ -1,24 +1,25 @@
-import torch.nn as nn
 import numpy as np
 import torch
+import wandb
+import torch.nn as nn
 import matplotlib.pyplot as plt
+
 from utils.general import pca_project_1d, plt_bar_plot
 from models.message_passing import NodeConv, EdgeConv, EdgeConvNoNodes
 
 
 class EdgeGnn(nn.Module):
-    def __init__(self, n_in_channels, n_out_channels, n_hidden_layer, hl_factor, distance, device, name, writer=None, start_bn_nl=False):
+    def __init__(self, n_in_channels, n_out_channels, n_hidden_layer, hl_factor, distance, device, name,
+                 start_bn_nl=False):
         super(EdgeGnn, self).__init__()
         self.name = name
         self.device = device
 
-        self.writer = writer
-        self.writer_counter = 0
         self.n_in_channels = n_in_channels
         self.node_conv1 = NodeConv(n_in_channels, n_in_channels, distance=distance, normalize_input=False,
                                    n_hidden_layer=n_hidden_layer, hl_factor=hl_factor, start_bn_nl=start_bn_nl)
         self.edge_conv1 = EdgeConv(n_in_channels, n_in_channels, use_init_edge_feats=True, n_init_edge_channels=1,
-                                    n_hidden_layer=n_hidden_layer, hl_factor=hl_factor)
+                                   n_hidden_layer=n_hidden_layer, hl_factor=hl_factor)
         self.node_conv2 = NodeConv(n_in_channels, n_in_channels, distance=distance, normalize_input=True,
                                    n_hidden_layer=n_hidden_layer, hl_factor=hl_factor)
         self.edge_conv2 = EdgeConv(n_in_channels, n_in_channels, use_init_edge_feats=True,
@@ -30,8 +31,7 @@ class EdgeGnn(nn.Module):
                                    n_init_edge_channels=n_in_channels, n_hidden_layer=n_hidden_layer,
                                    hl_factor=hl_factor)
 
-    def forward(self, node_features, edge_index, angles, gt_edges, post_input=False):
-
+    def forward(self, node_features, edge_index, angles, gt_edges, post_data=False):
         node_features = self.node_conv1(node_features, edge_index)
         edge_features, side_loss_1 = self.edge_conv1(node_features, edge_index, angles)
 
@@ -44,29 +44,27 @@ class EdgeGnn(nn.Module):
 
         side_loss = (side_loss_1 + side_loss_2 + side_loss_3) / 3
 
-        if self.writer is not None and post_input and edge_features.shape[1] > 3:
+        if post_data and edge_features.shape[1] > 3 and gt_edges is not None:
             plt.clf()
             pca_proj_edge_fe = pca_project_1d(edge_features.detach().squeeze().cpu().numpy())
             pca_proj_edge_fe -= pca_proj_edge_fe.min()
             pca_proj_edge_fe /= pca_proj_edge_fe.max()
-            selected_edges = torch.multinomial(gt_edges+0.3, 20).cpu().numpy()
-            values = np.concatenate([gt_edges[selected_edges].unsqueeze(0).cpu().numpy(), pca_proj_edge_fe[:, selected_edges]], axis=0)
+            selected_edges = torch.multinomial(gt_edges + 0.3, 20).cpu().numpy()
+            values = np.concatenate(
+                [gt_edges[selected_edges].unsqueeze(0).cpu().numpy(), pca_proj_edge_fe[:, selected_edges]], axis=0)
             fig = plt_bar_plot(values, labels=['GT', 'PC1', 'PC2', 'PC3'])
-            self.writer.add_figure("bar/embed_edge_features/" + self.name, fig, self.writer_counter)
-            self.writer_counter += 1
+            wandb.log({"bar": [wandb.Image(fig, caption="embed_edge_features" + self.name)]})
 
         return edge_features, side_loss
 
 
 class NodeGnn(nn.Module):
-    def __init__(self, n_in_channels, n_out_channels, n_hidden_layer, hl_factor, distance, device, name, writer=None,
+    def __init__(self, n_in_channels, n_out_channels, n_hidden_layer, hl_factor, distance, device, name,
                  start_bn_nl=False):
         super(NodeGnn, self).__init__()
         self.name = name
         self.device = device
 
-        self.writer = writer
-        self.writer_counter = 0
         self.n_in_channels = n_in_channels
         self.node_conv1 = NodeConv(n_in_channels, n_in_channels, distance=distance, normalize_input=False,
                                    n_hidden_layer=n_hidden_layer, hl_factor=hl_factor, start_bn_nl=start_bn_nl)
@@ -78,7 +76,6 @@ class NodeGnn(nn.Module):
                                    n_hidden_layer=n_hidden_layer, hl_factor=hl_factor)
 
     def forward(self, node_features, edge_index, angles, gt_edges, post_input=False):
-
         node_features = self.node_conv1(node_features, edge_index)
         node_features = node_features + self.node_conv2(node_features, edge_index)
         node_features = node_features + self.node_conv3(node_features, edge_index)
@@ -86,26 +83,24 @@ class NodeGnn(nn.Module):
 
 
 class QGnn(nn.Module):
-    def __init__(self, n_node_in_features, n_edge_in_features, n_out_features, n_hidden_layer, hl_factor, distance, device, name,
-                 writer=None, start_bn_nl=False):
+    def __init__(self, n_node_in_features, n_edge_in_features, n_out_features, n_hidden_layer, hl_factor, distance,
+                 device, name, start_bn_nl=False):
         super(QGnn, self).__init__()
         self.name = name
         self.device = device
 
-        self.writer = writer
-        self.writer_counter = 0
         self.node_conv1 = NodeConv(n_node_in_features, n_node_in_features, distance=distance, normalize_input=False,
                                    n_hidden_layer=n_hidden_layer, hl_factor=hl_factor, start_bn_nl=start_bn_nl)
         self.edge_conv1 = EdgeConv(n_node_in_features, n_node_in_features * 2, use_init_edge_feats=True,
-                                    n_init_edge_channels=n_edge_in_features, n_hidden_layer=n_hidden_layer, hl_factor=hl_factor)
+                                   n_init_edge_channels=n_edge_in_features, n_hidden_layer=n_hidden_layer,
+                                   hl_factor=hl_factor)
         self.node_conv2 = NodeConv(n_node_in_features, n_node_in_features, distance=distance, normalize_input=True,
                                    n_hidden_layer=n_hidden_layer, hl_factor=hl_factor)
         self.edge_conv2 = EdgeConv(n_node_in_features, n_out_features, use_init_edge_feats=True,
-                                    n_init_edge_channels=n_node_in_features * 2, n_hidden_layer=n_hidden_layer,
+                                   n_init_edge_channels=n_node_in_features * 2, n_hidden_layer=n_hidden_layer,
                                    hl_factor=hl_factor)
 
-    def forward(self, node_features, edge_features, edge_index, gt_edges, post_input=False):
-
+    def forward(self, node_features, edge_features, edge_index, gt_edges, post_data=False):
         node_features = self.node_conv1(node_features, edge_index)
         edge_features, side_loss_1 = self.edge_conv1(node_features, edge_index, edge_features)
 
@@ -114,15 +109,15 @@ class QGnn(nn.Module):
 
         side_loss = (side_loss_1 + side_loss_2) / 2
 
-        if self.writer is not None and post_input and edge_features.shape[1] > 3:
+        if post_data and edge_features.shape[1] > 3 and gt_edges is not None:
             pca_proj_edge_fe = pca_project_1d(edge_features.detach().squeeze().cpu().numpy())
             pca_proj_edge_fe -= pca_proj_edge_fe.min()
             pca_proj_edge_fe /= pca_proj_edge_fe.max()
-            selected_edges = torch.multinomial(gt_edges+0.3, 20).cpu().numpy()
-            values = np.concatenate([gt_edges[selected_edges].unsqueeze(0).cpu().numpy(), pca_proj_edge_fe[:, selected_edges]], axis=0)
+            selected_edges = torch.multinomial(gt_edges + 0.3, 20).cpu().numpy()
+            values = np.concatenate(
+                [gt_edges[selected_edges].unsqueeze(0).cpu().numpy(), pca_proj_edge_fe[:, selected_edges]], axis=0)
             fig = plt_bar_plot(values, labels=['GT', 'PC1', 'PC2', 'PC3'])
-            self.writer.add_figure("bar/embed_edge_features/" + self.name, fig, self.writer_counter)
-            self.writer_counter += 1
+            wandb.log({"bar": [wandb.Image(fig, caption="embed_edge_features" + self.name)]})
 
         return edge_features, side_loss
 
@@ -149,4 +144,3 @@ class GlobalEdgeGnn(nn.Module):
         edge_features, side_loss = self.edge_conv(node_features, edge_index)
 
         return edge_features, side_loss
-

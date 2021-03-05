@@ -85,7 +85,7 @@ def adjust_learning_rate(optimizer, lr):
     for param_group in optimizer.param_groups:
         param_group['lr'] = lr
 
-def calculate_gt_edge_costs(neighbors, new_seg, gt_seg):
+def calculate_gt_edge_costs(neighbors, new_seg, gt_seg, thresh):
     rewards = np.zeros(len(neighbors))
     new_seg += 1
     neighbors += 1
@@ -112,7 +112,7 @@ def calculate_gt_edge_costs(neighbors, new_seg, gt_seg):
                               np.sum(mask_gt * mask_n2) / np.sum(mask_n2)
             # rewards[idx] = np.sum(overlaps.max(axis=1))/len(n_obj_gt)
             # rewards[idx] = overlaps.max(axis=0)
-            if np.sum(overlaps.max(axis=1) > 0.5) >= 2:
+            if np.sum(overlaps.max(axis=1) > thresh) >= 2:
                 rewards[idx] = 1
             else:
                 rewards[idx] = 0
@@ -273,6 +273,16 @@ def plt_bar_plot(values, labels, colors=['#cd025c', '#032f3e', '#b635aa', '#e677
     ax.legend()
 
     return fig
+
+def random_label_cmap(n=2**16, h = (0,1), l = (.4,1), s =(.2,.8)):
+    import matplotlib
+    import colorsys
+    # cols = np.random.rand(n,3)
+    # cols = np.random.uniform(0.1,1.0,(n,3))
+    h, l, s = np.random.uniform(*h, n), np.random.uniform(*l, n), np.random.uniform(*s, n)
+    cols = np.stack([colorsys.hls_to_rgb(_h, _l, _s) for _h, _l, _s in zip(h, l, s)], axis=0)
+    cols[0] = 0
+    return matplotlib.colors.ListedColormap(cols)
 
 def set_seed_everywhere(seed):
     torch.manual_seed(seed)

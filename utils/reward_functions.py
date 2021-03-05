@@ -145,7 +145,7 @@ class SubGraphDiceReward(object):
         reward = []
         for i in range(len(inp)):
             input = torch.stack([1-inp[i], inp[i]], 0)
-            target = torch.stack([tgt[i] == 0, tgt[i] == 1], 0).float()
+            target = torch.stack([1-tgt[i], tgt[i]], 0).float()
             intersect = (input * target).sum(-1)
 
             # here we can use standard dice (input + target).sum(-1) or extension (see V-Net) (input^2 + target^2).sum(-1)
@@ -153,7 +153,7 @@ class SubGraphDiceReward(object):
             dice_score = 2 * (intersect / denominator.clamp(min=self.epsilon))
             dice_score = dice_score * self.class_weights.to(dice_score.device)
 
-            reward.append(dice_score.sum(0) - 0.9)
+            reward.append(dice_score.sum(0) * 0.75)
         return reward
 
     def get_global(self, inp, tgt):

@@ -99,9 +99,10 @@ def get_joint_sg_logprobs_nodes(logprobs, scale, obs, sg_ind, sz):
                     1 + (2 * np.pi * scale[un] ** 2).log())).sum()
     return joint_logprobs, sg_entropy
 
-def run_watershed(hmap, min_size=None, nhood=4):
+def run_watershed(hmap_, min_size=None, nhood=4):
+    hmap = hmap_.astype(np.float32)
     compute_maxima = vigra.analysis.localMaxima if hmap.ndim == 2 else vigra.analysis.localMaxima3D
-    seeds = compute_maxima(hmap, marker=np.nan, allowAtBorder=True, allowPlateaus=True, neighborhood=nhood)
+    seeds = compute_maxima(hmap.astype(np.float32), marker=np.nan, allowAtBorder=True, allowPlateaus=True, neighborhood=nhood)
     seeds = vigra.analysis.labelMultiArrayWithBackground(np.isnan(seeds).view('uint8'))
 
     ws, _ = watershed(hmap, seeds)

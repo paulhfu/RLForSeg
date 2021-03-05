@@ -1,8 +1,12 @@
 import matplotlib
 matplotlib.use('Agg')
-from torch import multiprocessing as mp
+import torch.multiprocessing as mp
 from run import main
+from utils.yaml_conv_parser import YamlConf
+import os
+import wandb
+
 
 if __name__ == '__main__':
-    mp.set_start_method('spawn', force=True)
-    main()
+    # os.nice(15)
+    main(wandb.config)

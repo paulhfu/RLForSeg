@@ -25,24 +25,14 @@ class ShiftedSigmoidTransform(SigmoidTransform):
 
 class SigmNorm(TransformedDistribution):
 
-    def __init__(self, loc, scale, sample_offset=0, sample_factor=1):
+    def __init__(self, loc, scale):
         self.loc = loc
         self.scale = scale
 
         self.base_dist = Normal(loc, scale)
-        transforms = [ShiftedSigmoidTransform(sample_offset, sample_factor)]
+        transforms = [SigmoidTransform()]
         self._mean = None
         super().__init__(self.base_dist, transforms)
-
-    # @property
-    # def mean(self):
-    #     if self._mean is None:
-    #         self._mean = torch.sigmoid(self.loc / (torch.sqrt(1 + math.pi * self.scale ** 2 / 8)))
-    #     return self._mean
-
-    def rsample(self, sample_shape=torch.Size()):
-        sample = super(SigmNorm, self).rsample(sample_shape)
-        return sample
 
 
 if __name__ == "__main__":

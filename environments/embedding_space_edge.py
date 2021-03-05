@@ -29,10 +29,10 @@ class EmbeddingSpaceEnvEdgeBased():
         self.writer_counter = writer_counter
         self.last_final_reward = torch.tensor([0.0])
         self.max_p = torch.nn.MaxPool2d(3, padding=1, stride=1)
-        self.step_encoder = TemporalSineEncoding(max_step=cfg.trainer.max_episode_length,
+        self.step_encoder = TemporalSineEncoding(max_step=cfg.trn.max_episode_length,
                                                  size=cfg.fe.n_embedding_features)
 
-        if self.cfg.sac.reward_function == 'sub_graph_dice':
+        if self.cfg.trn.reward_function == 'sub_graph_dice':
             self.reward_function = SubGraphDiceReward()
         else:
             self.reward_function = UnSupervisedReward(env=self)
@@ -61,7 +61,7 @@ class EmbeddingSpaceEnvEdgeBased():
         self.current_soln, node_labeling = self.get_soln_graph_clustering(self.current_node_embeddings)
 
         sg_edge_weights = []
-        for i, sz in enumerate(self.cfg.sac.s_subgraph):
+        for i, sz in enumerate(self.cfg.trn.s_subgraph):
             sg_ne = node_labeling[self.subgraphs[i].view(2, -1, sz)]
             sg_edge_weights.append((sg_ne[0] == sg_ne[1]).float())
 
@@ -69,7 +69,7 @@ class EmbeddingSpaceEnvEdgeBased():
         reward.append(self.last_final_reward)
 
         self.counter += 1
-        if self.counter >= self.cfg.trainer.max_episode_length:
+        if self.counter >= self.cfg.trn.max_episode_length:
             self.done = True
             ne = node_labeling[self.edge_ids]
             edge_weights = ((ne[0] == ne[1]).float())
@@ -78,7 +78,7 @@ class EmbeddingSpaceEnvEdgeBased():
         total_reward = 0
         for _rew in reward:
             total_reward += _rew.mean().item()
-        total_reward /= len(self.cfg.sac.s_subgraph)
+        total_reward /= len(self.cfg.trn.s_subgraph)
 
         if self.writer is not None and post_stats:
             self.writer.add_scalar("step/avg_return", total_reward, self.writer_counter.value())
@@ -126,14 +126,14 @@ class EmbeddingSpaceEnvEdgeBased():
         self.edge_angles, self.sup_masses, self.sup_com = torch.cat(edge_angles).unsqueeze(-1), torch.cat(sup_masses).unsqueeze(-1), torch.cat(sup_com)
         self.init_sp_seg_edge = torch.cat([(-self.max_p(-sp_seg) != sp_seg).float(), (self.max_p(sp_seg) != sp_seg).float()], 1)
 
-        _subgraphs, _sep_subgraphs = find_dense_subgraphs([eids.transpose(0, 1).cpu().numpy() for eids in edge_ids], self.cfg.sac.s_subgraph)
+        _subgraphs, _sep_subgraphs = find_dense_subgraphs([eids.transpose(0, 1).cpu().numpy() for eids in edge_ids], self.cfg.trn.s_subgraph)
         _subgraphs = [torch.from_numpy(sg.astype(np.int64)).to(dev).permute(2, 0, 1) for sg in _subgraphs]
         _sep_subgraphs = [torch.from_numpy(sg.astype(np.int64)).to(dev).permute(2, 0, 1) for sg in _sep_subgraphs]
 
         self.n_nodes = [eids.max() + 1 for eids in edge_ids]
         self.edge_ids, (self.n_offs, self.e_offs) = collate_edges(edge_ids)
         self.dir_edge_ids = torch.cat([self.edge_ids, torch.stack([self.edge_ids[1], self.edge_ids[0]], dim=0)], dim=1)
-        for i in range(len(self.cfg.sac.s_subgraph)):
+        for i in range(len(self.cfg.trn.s_subgraph)):
             subgraphs.append(torch.cat([sg + self.n_offs[i] for i, sg in enumerate(_subgraphs[i*bs:(i+1)*bs])], -2).flatten(-2, -1))
             self.sep_subgraphs.append(torch.cat(_sep_subgraphs[i*bs:(i+1)*bs], -2).flatten(-2, -1))
 
@@ -143,7 +143,7 @@ class EmbeddingSpaceEnvEdgeBased():
         self.gt_edge_weights = torch.cat(gt_edges)
         self.gt_soln = self.get_mc_soln(self.gt_edge_weights)
         self.sg_gt_edges = [self.gt_edge_weights[sg].view(-1, sz) for sz, sg in
-                            zip(self.cfg.sac.s_subgraph, self.subgraph_indices)]
+                            zip(self.cfg.trn.s_subgraph, self.subgraph_indices)]
 
         stacked_superpixels = [torch.zeros((int(sp.max()+1), ) + sp.shape, device=self.device).scatter_(0, sp[None].long(), 1) for sp in self.init_sp_seg]
         self.sp_indices = [[torch.nonzero(sp, as_tuple=False) for sp in stacked_superpixel] for stacked_superpixel in stacked_superpixels]
