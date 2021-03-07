@@ -2,18 +2,15 @@
 verbose:
   desc: prints intermediate results to sdt.out
   value: true
-target_dir:
+run_id:
   desc: dir name in base-dir. Logs are in here
   value: mixed_prec
-base_dir:
-  desc: base-dir
-  value: /g/kreshuk/hilt/projects/RLForSeg
 data_dir:
   desc: train data dir
-  value: /g/kreshuk/hilt/projects/data/artificial_cells/train
+  value: /g/kreshuk/hilt/projects/data/leptin_fused_tp1_ch_0/train
 val_data_dir:
   desc: validation data dir
-  value: /g/kreshuk/hilt/projects/data/artificial_cells/val
+  value: /g/kreshuk/hilt/projects/data/leptin_fused_tp1_ch_0/val
 agent_model_name:
   desc: if not empty, agent will be initialized with the state dict at this location
   value: '' # agent_model_svpfe.pth
@@ -21,7 +18,7 @@ agent_model_name:
 # embedding network config
 fe_model_name:
   desc: path to state dict of trained model
-  value: /g/kreshuk/hilt/storage/synthetic_noisy_nuclei/fe_l2_cosine_usaff.pth
+  value: /g/kreshuk/hilt/storage/leptin_data_nets/fe_cosine_ls.pth
 dim_embeddings:
   desc: number of embedding feature channels
   value: 16
@@ -32,13 +29,13 @@ backbone:
   desc: config for the embedding network
   value:
     name: UNet2D
-    in_channels: 3
+    in_channels: 1
     out_channels: 16
     # use Groupnorm instead of Batchnorm for DSB; Batchnorm introduces artifacts around nuclei due to the difference
     # in intensity distribution between images with large and small cells
-    layer_order: bcr
-  #  num_groups: 8
-    f_maps: [32, 64, 128]
+    layer_order: gcr
+    num_groups: 8
+    f_maps: [32, 64, 128, 256]
     #conv_padding: 0
     final_sigmoid: false
     is_segmentation: false
@@ -53,25 +50,25 @@ gnn_hl_factor:
 # training config
 T_max:
   desc: Number of training steps
-  value: 11
+  value: 2000
 t_max:
   desc: Mem size in replay memory buffer
-  value: 3
+  value: 150
 data_update_frequency:
   desc: update env data after n steps
-  value: 5
+  value: 50
 post_stats_frequency:
   desc: post logs after n steps
-  value: 2
+  value: 10
 validatoin_freq:
   desc: validate after n steps
-  value: 5
+  value: 50
 n_updates_per_step:
   desc: perform n optim steps per env step
-  value: 2
+  value: 10
 batch_size:
   desc: num samples in minibatch
-  value: 2
+  value: 10
 
 # conf for lr scheduling
 lr_sched:
@@ -91,13 +88,13 @@ patch_manager:
   desc: if training should happen on patches, this is the config for the patch manager
   value:
     name: none # rotated, no_cross, none
-    reorder_sp: true
+    reorder_sp: false
 
 
 # specific configs for the sac algorithm
 reward_function:
   desc: one of sub_graph_dice, artificial_cells, artificial_cells_EllipticFit
-  value: artificial_cells
+  value: sub_graph_dice
 gt_edge_overlap_thresh:
   desc: if using gt edges this is the overlap thresh of the underlying gt for a gt edge to be 1
   value: 0.5

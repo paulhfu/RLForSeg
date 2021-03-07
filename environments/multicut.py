@@ -16,7 +16,7 @@ from rewards.artificial_cells_reward import ArtificialCellsReward, ArtificialCel
 from rewards.leptin_data_reward_2d import LeptinDataReward2DTurning, LeptinDataReward2DEllipticFit
 from utils.reward_functions import UnSupervisedReward, SubGraphDiceReward
 from utils.graphs import collate_edges, get_edge_indices, get_angles_smass_in_rag
-from utils.general import get_angles, pca_project
+from utils.general import get_angles, pca_project, random_label_cmap
 
 class MulticutEmbeddingsEnv():
 
@@ -105,26 +105,27 @@ class MulticutEmbeddingsEnv():
             total_reward += _rew.mean().item()
         total_reward /= len(self.cfg.s_subgraph)
 
-        tag = "train/" if train else "val/"
-        wandb.log({tag + "step/avg_return": total_reward})
+        tag = "train/" if train else "validation/"
+        wandb.log({tag + "avg_return": total_reward})
         if post_images:
-            mc_soln = cm.prism(self.gt_soln[0].cpu()/self.gt_soln[0].max().item()) if self.gt_edge_weights is not None else torch.zeros(self.raw.shape[-2:])
+            mc_soln = self.gt_soln[-1].cpu() if self.gt_edge_weights is not None else torch.zeros(self.raw.shape[-2:])
             wandb.log({tag + "pred_mean": wandb.Histogram(self.current_edge_weights.view(-1).cpu().numpy())})
             fig, axes = plt.subplots(2, 3, sharex='col', sharey='row', gridspec_kw={'hspace': 0, 'wspace': 0})
-            axes[0, 0].imshow(self.gt_seg[0].cpu().squeeze())
+            axes[0, 0].imshow(self.gt_seg[-1].cpu().squeeze(), cmap=random_label_cmap(), interpolation="none")
             axes[0, 0].set_title('gt')
-            axes[0, 1].imshow(self.raw[0].cpu().permute(1, 2, 0).squeeze())
+            axes[0, 1].imshow(self.raw[-1].cpu().permute(1, 2, 0).squeeze())
             axes[0, 1].set_title('raw image')
-            axes[0, 2].imshow(cm.prism(self.init_sp_seg[0].cpu() / self.init_sp_seg[0].max().item()))
+            axes[0, 2].imshow(self.init_sp_seg[-1].cpu(), cmap=random_label_cmap(), interpolation="none")
             axes[0, 2].set_title('superpixels')
-            axes[1, 0].imshow(mc_soln)
+            axes[1, 0].imshow(mc_soln, cmap=random_label_cmap(), interpolation="none")
             axes[1, 0].set_title('mc_gt')
             # axes[1, 1].imshow(pca_project(get_angles(self.embeddings)[0].detach().cpu().numpy()))
             axes[1, 1].imshow(pca_project(self.embeddings[0].detach().cpu()))
             axes[1, 1].set_title('embed')
-            axes[1, 2].imshow(cm.prism(self.current_soln[0].cpu()/self.current_soln[0].max().item()))
+            axes[1, 2].imshow(self.current_soln[-1].cpu(), cmap=random_label_cmap(), interpolation="none")
             axes[1, 2].set_title('prediction')
             wandb.log({tag: [wandb.Image(fig, caption="state")]})
+            plt.close('all')
         if logg_vals is not None and post_stats:
             for key, val in logg_vals.items():
                 wandb.log({tag + key: val})
@@ -144,7 +145,7 @@ class MulticutEmbeddingsEnv():
         with torch.set_grad_enabled(fe_grad):
             self.embeddings = self.embedding_net(raw)
         # get embedding agglomeration over each superpixel
-        self.current_node_embeddings = torch.cat([self.embedding_net.get_mean_sp_embedding_chunked(embed, sp, chunks=2)
+        self.current_node_embeddings = torch.cat([self.embedding_net.get_mean_sp_embedding_chunked(embed, sp, chunks=4)
                                                   for embed, sp in zip(self.embeddings, self.init_sp_seg)], dim=0)
 
         subgraphs, self.sep_subgraphs = [], []

@@ -17,9 +17,6 @@ val_data_dir:
 agent_model_name:
   desc: if not empty, agent will be initialized with the state dict at this location
   value: '' # agent_model_svpfe.pth
-validation:
-  desc: with this, agent_model_name must exist. No training happens, method is compared against other methods
-  value: false
 
 # embedding network config
 fe_model_name:
@@ -56,7 +53,7 @@ gnn_hl_factor:
 # training config
 T_max:
   desc: Number of training steps
-  value: 2000
+  value: 1000
 t_max:
   desc: Mem size in replay memory buffer
   value: 100

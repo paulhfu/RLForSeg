@@ -86,7 +86,8 @@ def adjust_learning_rate(optimizer, lr):
         param_group['lr'] = lr
 
 def calculate_gt_edge_costs(neighbors, new_seg, gt_seg, thresh):
-    rewards = np.zeros(len(neighbors))
+    dev = gt_seg.device
+    rewards = torch.zeros(len(neighbors), device=dev)
     new_seg += 1
     neighbors += 1
     gt_seg += 1
@@ -94,25 +95,22 @@ def calculate_gt_edge_costs(neighbors, new_seg, gt_seg, thresh):
     for idx, neighbor in enumerate(neighbors):
         mask_n1, mask_n2 = new_seg == neighbor[0], new_seg == neighbor[1]
         mask = mask_n1 + mask_n2
-        obj_area = np.sum(mask)
         mskd_gt_seg = mask * gt_seg
         mskd_new_seg = mask * new_seg
-        n_obj_gt = np.unique(mskd_gt_seg)
-        n_obj_new = np.unique(mskd_new_seg)
+        n_obj_gt = torch.unique(mskd_gt_seg)
+        n_obj_new = torch.unique(mskd_new_seg)
         n_obj_gt = n_obj_gt[1:] if n_obj_gt[0] == 0 else n_obj_gt
         if len(n_obj_gt) == 1:
             rewards[idx] = 0
         else:
             n_obj_new = n_obj_new[1:] if n_obj_new[0] == 0 else n_obj_new
             assert len(n_obj_new) == 2
-            overlaps = np.zeros([len(n_obj_gt)] + [2])
+            overlaps = torch.zeros((len(n_obj_gt), 2), device=dev)
             for j, obj in enumerate(n_obj_gt):
                 mask_gt = mskd_gt_seg == obj
-                overlaps[j] = np.sum(mask_gt * mask_n1) / np.sum(mask_n1), \
-                              np.sum(mask_gt * mask_n2) / np.sum(mask_n2)
-            # rewards[idx] = np.sum(overlaps.max(axis=1))/len(n_obj_gt)
-            # rewards[idx] = overlaps.max(axis=0)
-            if np.sum(overlaps.max(axis=1) > thresh) >= 2:
+                overlaps[j, 0] = torch.sum(mask_gt * mask_n1) / torch.sum(mask_n1)
+                overlaps[j, 1] = torch.sum(mask_gt * mask_n2) / torch.sum(mask_n2)
+            if torch.sum(overlaps.max(dim=1).values > thresh) >= 2:
                 rewards[idx] = 1
             else:
                 rewards[idx] = 0

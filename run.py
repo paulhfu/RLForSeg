@@ -6,8 +6,6 @@ import wandb
 import yaml
 from utils.general import Counter
 from agents.sac import AgentSacTrainer
-# wandb.init(project="RL for Segmentation", entity="aule", config="conf/default_configs.yaml")
-wandb.init(project="RL for Segmentation Debuggin Session", entity="aule", config="conf/dbg_configs.yaml")
 
 def main(cfg):
     if cfg.verbose:
@@ -19,4 +17,5 @@ def main(cfg):
     trainer.train(0, return_dict, rn)
 
 if __name__ == '__main__':
+    wandb.init(project="dbg", entity="aule", config="conf/leptin_configs.yaml")
     main(wandb.config)

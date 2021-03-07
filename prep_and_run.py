@@ -8,4 +8,6 @@ import wandb
 
 if __name__ == '__main__':
     # os.nice(15)
+    # project name: "RL for Segmentation"
+    wandb.init(project="RL for Segmentation", entity="aule", config="conf/leptin_configs.yaml")
     main(wandb.config)

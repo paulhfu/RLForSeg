@@ -11,7 +11,7 @@ import nifty
 
 from affogato.segmentation import compute_mws_segmentation
 from utils.affinities import get_naive_affinities, get_edge_features_1d, get_max_hessian_eval, get_hessian_det
-from utils.general import calculate_gt_edge_costs
+from utils.general import calculate_gt_edge_costs, random_label_cmap
 from utils.graphs import run_watershed
 import matplotlib.pyplot as plt
 from matplotlib import cm
@@ -75,8 +75,8 @@ def get_data(img, gt, affs, sigma, strides=[4, 4], overseg_factor=1.2, random_st
 def preprocess_data_1():
     for dir in [tgtdir_train, tgtdir_val]:
         fnames = sorted(glob(os.path.join(dir, 'raw_wtsd/*.h5')))
-        pix_dir = os.path.join(tgtdir_train, 'pix_data')
-        graph_dir = os.path.join(tgtdir_train, 'graph_data')
+        pix_dir = os.path.join(dir, 'pix_data')
+        graph_dir = os.path.join(dir, 'graph_data')
         for i, fname in enumerate(fnames):
             raw = h5py.File(fname, 'r')['raw'][:]
             gt = h5py.File(fname, 'r')['wtsd'][:]
@@ -87,34 +87,34 @@ def preprocess_data_1():
             # affs = torch.sigmoid(affs)
 
             node_labeling = run_watershed(gaussian_filter(hmap, sigma=.2), min_size=4)
-            # edge_feat, edges = get_edge_features_1d(node_labeling, offs, affs)
-            # gt_edge_weights = calculate_gt_edge_costs(edges, node_labeling.squeeze(), gt.squeeze())
-            #
-            # edges = edges.astype(np.long)
-            #
-            # affs = affs.astype(np.float32)
-            # edge_feat = edge_feat.astype(np.float32)
-            # node_labeling = node_labeling.astype(np.float32)
-            # gt_edge_weights = gt_edge_weights.astype(np.float32)
-            # diff_to_gt = np.abs((edge_feat[:, 0] - gt_edge_weights)).sum()
-            # edges = np.sort(edges, axis=-1)
-            # edges = edges.T
-            #
-            # graph_file = h5py.File(os.path.join(graph_dir, "graph_" + str(i) + ".h5"), 'w')
-            # pix_file = h5py.File(os.path.join(pix_dir, "pix_" + str(i) + ".h5"), 'w')
-            #
-            # pix_file.create_dataset("raw", data=raw, chunks=True)
-            # pix_file.create_dataset("gt", data=gt, chunks=True)
-            #
-            # graph_file.create_dataset("edges", data=edges, chunks=True)
-            # graph_file.create_dataset("edge_feat", data=edge_feat, chunks=True)
-            # graph_file.create_dataset("diff_to_gt", data=diff_to_gt)
-            # graph_file.create_dataset("gt_edge_weights", data=gt_edge_weights, chunks=True)
-            # graph_file.create_dataset("node_labeling", data=node_labeling, chunks=True)
-            # graph_file.create_dataset("affinities", data=affs, chunks=True)
-            #
-            # graph_file.close()
-            # pix_file.close()
+            edge_feat, edges = get_edge_features_1d(node_labeling, offs, affs)
+            gt_edge_weights = calculate_gt_edge_costs(edges, node_labeling.squeeze(), gt.squeeze())
+
+            edges = edges.astype(np.long)
+
+            affs = affs.astype(np.float32)
+            edge_feat = edge_feat.astype(np.float32)
+            node_labeling = node_labeling.astype(np.float32)
+            gt_edge_weights = gt_edge_weights.astype(np.float32)
+            diff_to_gt = np.abs((edge_feat[:, 0] - gt_edge_weights)).sum()
+            edges = np.sort(edges, axis=-1)
+            edges = edges.T
+
+            graph_file = h5py.File(os.path.join(graph_dir, "graph_" + str(i) + ".h5"), 'w')
+            pix_file = h5py.File(os.path.join(pix_dir, "pix_" + str(i) + ".h5"), 'w')
+
+            pix_file.create_dataset("raw", data=raw, chunks=True)
+            pix_file.create_dataset("gt", data=gt, chunks=True)
+
+            graph_file.create_dataset("edges", data=edges, chunks=True)
+            graph_file.create_dataset("edge_feat", data=edge_feat, chunks=True)
+            graph_file.create_dataset("diff_to_gt", data=diff_to_gt)
+            graph_file.create_dataset("gt_edge_weights", data=gt_edge_weights, chunks=True)
+            graph_file.create_dataset("node_labeling", data=node_labeling, chunks=True)
+            graph_file.create_dataset("affinities", data=affs, chunks=True)
+
+            graph_file.close()
+            pix_file.close()
 
     pass
 
@@ -123,9 +123,9 @@ def preprocess_data():
         fnames = sorted(glob(os.path.join(dir, 'raw_wtsd/*.h5')))
         pix_dir = os.path.join(dir, 'pix_data')
         graph_dir = os.path.join(dir, 'graph_data')
-        for i, fname in enumerate(fnames[:5]):
+        for i, fname in enumerate(fnames):
             raw = h5py.File(fname, 'r')['raw'][:]
-            gt = h5py.File(fname, 'r')['gt'][:]
+            gt = h5py.File(fname, 'r')['wtsd'][:]
             head, tail = os.path.split(fname)
             affs = torch.from_numpy(h5py.File(os.path.join(dir, 'affinities_1', tail[:-3] + '_predictions' + '.h5'), 'r')['predictions'][:]).squeeze(1)
             affs = torch.sigmoid(affs).numpy()
@@ -133,9 +133,23 @@ def preprocess_data():
             # affs = torch.sigmoid(affs)
 
             node_labeling = run_watershed(gaussian_filter(affs[0] + affs[1] + affs[2] + affs[3], sigma=.2), min_size=4)
-            edge_feat, edges = get_edge_features_1d(node_labeling, offs, affs)
-            gt_edge_weights = calculate_gt_edge_costs(edges, node_labeling.squeeze(), gt.squeeze())
 
+            # relabel to consecutive ints starting at 0
+            node_labeling = torch.from_numpy(node_labeling.astype(np.long))
+            gt = torch.from_numpy(gt.astype(np.long))
+            mask = node_labeling[None] == torch.unique(node_labeling)[:, None, None]
+            node_labeling = (mask * (torch.arange(len(torch.unique(node_labeling)), device=node_labeling.device)[:, None, None] + 1)).sum(
+                0) - 1
+
+            mask = gt[None] == torch.unique(gt)[:, None, None]
+            gt = (mask * (torch.arange(len(torch.unique(gt)), device=gt.device)[:, None, None] + 1)).sum(0) - 1
+
+            edge_feat, edges = get_edge_features_1d(node_labeling.numpy(), offs, affs)
+            gt_edge_weights = calculate_gt_edge_costs(torch.from_numpy(edges.astype(np.long)), node_labeling.squeeze(), gt.squeeze(), 0.5)
+
+            gt_edge_weights = gt_edge_weights.numpy()
+            gt = gt.numpy()
+            node_labeling = node_labeling.numpy()
             edges = edges.astype(np.long)
 
             affs = affs.astype(np.float32)

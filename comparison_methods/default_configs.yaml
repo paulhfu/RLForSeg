@@ -2,16 +2,7 @@
 verbose:
   desc: prints intermediate results to sdt.out
   value: true
-target_dir:
-  desc: dir name in base-dir. Logs are in here
-  value: mixed_prec
-base_dir:
-  desc: base-dir
-  value: /g/kreshuk/hilt/projects/RLForSeg
 data_dir:
-  desc: train data dir
-  value: /g/kreshuk/hilt/projects/data/artificial_cells/train
-val_data_dir:
   desc: validation data dir
   value: /g/kreshuk/hilt/projects/data/artificial_cells/val
 agent_model_name:
@@ -25,9 +16,6 @@ fe_model_name:
 dim_embeddings:
   desc: number of embedding feature channels
   value: 16
-distance:
-  desc: used distance in embedding space, can be l2 or cosine
-  value: cosine
 backbone:
   desc: config for the embedding network
   value:
@@ -50,43 +38,6 @@ gnn_hl_factor:
   desc: factor by which feature size of hidden featuremaps in gnn increases/decreases
   value: 32
 
-# training config
-T_max:
-  desc: Number of training steps
-  value: 11
-t_max:
-  desc: Mem size in replay memory buffer
-  value: 3
-data_update_frequency:
-  desc: update env data after n steps
-  value: 5
-post_stats_frequency:
-  desc: post logs after n steps
-  value: 2
-validatoin_freq:
-  desc: validate after n steps
-  value: 5
-n_updates_per_step:
-  desc: perform n optim steps per env step
-  value: 2
-batch_size:
-  desc: num samples in minibatch
-  value: 2
-
-# conf for lr scheduling
-lr_sched:
-  desc: config for moving averages and learning rate sheduling
-  value:
-    mov_avg_bandwidth: 40
-    weight_range: [0.1, 1.0]
-    step_frequency: 10
-    mov_avg_offset: 10
-    torch_sched:  # conf for torch reduceOnPlateau scheduler
-      patience: 1000
-      min_lr: 0.0001
-      factor: 0.05
-      threshold: 0.01
-
 patch_manager:
   desc: if training should happen on patches, this is the config for the patch manager
   value:
@@ -97,48 +48,10 @@ patch_manager:
 # specific configs for the sac algorithm
 reward_function:
   desc: one of sub_graph_dice, artificial_cells, artificial_cells_EllipticFit
-  value: artificial_cells
+  value: sub_graph_dice
 gt_edge_overlap_thresh:
   desc: if using gt edges this is the overlap thresh of the underlying gt for a gt edge to be 1
   value: 0.5
-s_subgraph:
-  desc: subgraph sizes
-  value: [4, 8, 16] # [8, 16, 32, 64]
-entropy_range:
-  desc: range of the min entropy constraint
-  value: [0.05, 2.0]
-init_temperature:
-  desc: initial temperature in Gibbs distribution
-  value: 0.1
-alpha_lr:
-  desc: learning rate for alpha opt
-  value: 0.1
-actor_lr:
-  desc: learning rate for actor opt
-  value: 0.0001
-actor_update_frequency:
-  desc: optim every n-th step
-  value: 1
-actor_update_after:
-  desc: update actor after critic has been warmed up
-  value: 1
-critic_lr:
-  desc: learning rate for critic opr
-  value: 0.0001
-critic_tau:
-  desc: update weight for target update
-  value: 0.005
-critic_target_update_frequency:
-  desc: update critic target every nth step
-  value: 5
-
-use_closed_form_entropy:
-  desc: since we have normal distributions we can use a closed for entropy
-  value: true
-side_loss_weight:
-  desc: loss weight for the edge-gnn side loss
-  value: 0
-# specification of multinomial gaussian, acting as policy
 std_bounds:
   desc: norm bounds of predicted std dev
   value: [0.01, 5.0]

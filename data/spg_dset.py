@@ -78,7 +78,7 @@ class SpgDset(torch_data.Dataset):
         gt = patch[-2]
 
         if not self.reorder_sp:
-            return patch[:-2], gt.long(), sp_seg.long(), torch.tensor([img_idx])
+            return patch[:-2].float(), gt.long(), sp_seg.long(), torch.tensor([img_idx])
 
         # relabel to consecutive ints starting at 0
         mask = sp_seg[None] == torch.unique(sp_seg)[:, None, None]
