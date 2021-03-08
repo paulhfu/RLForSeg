@@ -225,6 +225,7 @@ class AgentSacTrainer(object):
         replay_buffer.report_sample_loss(critic_loss + mean_reward, sample_idx)
         mov_sum_loss.critic.apply(critic_loss)
         optimizers.critic_shed.step(mov_sum_loss.critic.avg)
+        wandb.log({"loss/critic": critic_loss})
 
         if self.cfg.actor_update_after < step and step % self.cfg.actor_update_frequency == 0:
             actor_loss, alpha_loss, min_entropy = self.update_actor_and_alpha(obs, reward, env, model, scalers.actor,
@@ -233,6 +234,8 @@ class AgentSacTrainer(object):
             mov_sum_loss.temperature.apply(alpha_loss)
             optimizers.actor_shed.step(mov_sum_loss.actor.avg)
             optimizers.temp_shed.step(mov_sum_loss.actor.avg)
+            wandb.log({"loss/actor": actor_loss})
+            wandb.log({"loss/alpha": alpha_loss})
 
         if step % self.cfg.post_stats_frequency == 0:
             if min_entropy != "nl":

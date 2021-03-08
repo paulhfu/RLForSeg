@@ -41,13 +41,12 @@ def get_naive_affinities(raw, offsets):
         affinities.append(dist / dist.max())
     return np.stack(affinities)
 
-def get_affinities_from_embeddings_2d(embeddings, offsets, delta, p=2):
+def get_affinities_from_embeddings_2d(embeddings, offsets, delta, distance):
     """implementing eq. 6 in https://arxiv.org/pdf/1909.09872.pdf"""
-    affs = torch.empty(((len(offsets), embeddings.shape[0]) + embeddings.shape[2:]), device=embeddings.device)
+    affs = torch.empty(((embeddings.shape[0], len(offsets)) + embeddings.shape[2:]), device=embeddings.device)
     for i, off in enumerate(offsets):
         rolled = torch.roll(embeddings, tuple(-np.array(off)), dims=(-2, -1))
-        affs[i] = torch.maximum((delta - torch.norm(embeddings - rolled, p=p, dim=1)) / 2 * delta, torch.tensor([0], device=embeddings.device)) ** 2
-
+        affs[:, i] = torch.maximum((2*delta - distance(embeddings, rolled, dim=1, kd=False)) / (2 * delta), torch.tensor([0], device=embeddings.device)) ** 2
     return affs
 
 def get_edge_features_1d(sp_seg, offsets, affinities):

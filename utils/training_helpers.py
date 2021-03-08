@@ -24,13 +24,13 @@ def update_env_data(env, dloader, cfg, device, with_gt_edges=False, fe_grad=Fals
         print("ERROR not enough edges, subgraph generation will fail")
         assert False
     if with_gt_edges:
-        _edges, _, diff_to_gt, gt_edges = dloader.dataset.get_graphs(indices, sp_seg, device)
+        _edges, edge_feat, _, gt_edges = dloader.dataset.get_graphs(indices, sp_seg, device)
         for e1, e2 in zip(edges, _edges):
             assert not (e1 != e2).any()
         # gt_edges = [calculate_gt_edge_costs(s_edges.T, sseg.squeeze(), sgt.squeeze(), cfg.gt_edge_overlap_thresh).to(device).float() for s_edges, sseg, sgt in zip(edges, sp_seg, gt)]
     else:
         gt_edges = None
-    env.update_data(edge_ids=edges, gt_edges=gt_edges, sp_seg=sp_seg, raw=raw, gt=gt, fe_grad=fe_grad, rags=rags)
+    env.update_data(edge_ids=edges, gt_edges=gt_edges, sp_seg=sp_seg, raw=raw, gt=gt, fe_grad=fe_grad, rags=rags, edge_features=edge_feat)
 
 
 def supervised_policy_pretraining(model, env, cfg, device="cuda:0", fe_opt=False):

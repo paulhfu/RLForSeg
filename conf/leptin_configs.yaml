@@ -42,15 +42,27 @@ backbone:
 
 gnn_n_hidden:
   desc: number of hidden layers in graph conv blocks
-  value: 4
+  value: 2
 gnn_hl_factor:
   desc: factor by which feature size of hidden featuremaps in gnn increases/decreases
-  value: 32
+  value: 64
+gnn_act_depth:
+  desc: num of graph convs (1, 2, 3)
+  value: 2
+gnn_act_norm_inp:
+  desc: put hidden features on unit sphere and scale by sim
+  value: false
+gnn_crit_depth:
+  desc: num of graph convs (1, 2)
+  value: 2
+gnn_crit_norm_inp:
+  desc: put hidden features on unit sphere and scale by sim
+  value: false
 
 # training config
 T_max:
   desc: Number of training steps
-  value: 2000
+  value: 1800
 t_max:
   desc: Mem size in replay memory buffer
   value: 150
@@ -68,7 +80,7 @@ n_updates_per_step:
   value: 10
 batch_size:
   desc: num samples in minibatch
-  value: 10
+  value: 2
 
 # conf for lr scheduling
 lr_sched:
@@ -77,7 +89,7 @@ lr_sched:
     mov_avg_bandwidth: 40
     weight_range: [0.1, 1.0]
     step_frequency: 10
-    mov_avg_offset: 10
+    mov_avg_offset: 0.0
     torch_sched:  # conf for torch reduceOnPlateau scheduler
       patience: 1000
       min_lr: 0.0001

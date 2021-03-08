@@ -93,11 +93,34 @@ def write_slurm_template_sweep(script, out_path, env_name, lib_replacement_scrip
     with open(out_path, 'w') as f:
         f.write(slurm_template)
 
+def write_slurm_template_sweep_std(script, out_path, env_name,
+                         n_threads, gpu_type, n_gpus,
+                         mem_limit, time_limit, qos):
+    slurm_template = ("#!/bin/bash\n"
+                      "#SBATCH -A kreshuk\n"
+                      "#SBATCH -N 1\n"
+                      "#SBATCH -c %s\n"
+                      "#SBATCH --mem %s\n"
+                      "#SBATCH -t %i\n"
+                      "#SBATCH --qos=%s\n"
+                      "#SBATCH -p gpu\n"
+                      "#SBATCH -C gpu=%s\n"
+                      "#SBATCH --gres=gpu:%i\n"
+                      "\n"
+                      "module purge \n"
+                      "module load GCC \n"
+                      "source activate %s\n"
+                      "\n"
+                      "export TRAIN_ON_CLUSTER=1\n"  # we set this env variable, so that the script knows we're on slurm
+                      "wandb agent %s \n") % (n_threads, mem_limit, time_limit,
+                                            qos, gpu_type, n_gpus, env_name, script)
+    with open(out_path, 'w') as f:
+        f.write(slurm_template)
 
 #V100 2080Ti 3090
 def submit_slurm(script, input_, n_threads=2, n_gpus=1,
                  gpu_type='3090', mem_limit='64G',
-                 time_limit=1*DAYS, qos='normal',
+                 time_limit=2*DAYS, qos='normal',
                  base_dir='/g/kreshuk/hilt/projects/RLForSeg',
                  is_sweep=True):
     """ Submit python script that needs gpus with given inputs on a slurm node.
@@ -129,7 +152,8 @@ def submit_slurm(script, input_, n_threads=2, n_gpus=1,
     print(env_name)
     print("Batch script saved at", batch_script)
     print("Log will be written to %s, error log to %s" % (log, err))
-    script = "aule/uncategorized/drnuoamw"
+    # script = "aule/RL_for_Segmentation_sweep/i887r0vd"
+    script = "aule/uncategorized/p3z4g55e"
     if not is_sweep:
         if gpu_type == "3090":
             write_slurm_template(script, batch_script, env_name, lib_replacement_script, pythonexec,
@@ -145,7 +169,9 @@ def submit_slurm(script, input_, n_threads=2, n_gpus=1,
                                        int(n_threads), gpu_type, int(n_gpus),
                                        mem_limit, int(time_limit), qos)
         else:
-            assert False
+            write_slurm_template_sweep_std(script, batch_script, env_name,
+                                     int(n_threads), gpu_type, int(n_gpus),
+                                     mem_limit, int(time_limit), qos)
 
     cmd = ['sbatch', '-o', log, '-e', err, '-J', script_name, batch_script]
     cmd.extend(input_)

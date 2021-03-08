@@ -136,16 +136,17 @@ class MulticutEmbeddingsEnv():
     def get_state(self):
         return self.State(self.current_node_embeddings, self.edge_ids, self.edge_angles, self.sup_masses, self.subgraph_indices, self.sep_subgraphs, self.counter, self.gt_edge_weights)
 
-    def update_data(self, raw, gt, edge_ids, gt_edges, sp_seg, fe_grad, rags, *args, **kwargs):
+    def update_data(self, raw, gt, edge_ids, gt_edges, sp_seg, fe_grad, rags, edge_features, *args, **kwargs):
         bs = raw.shape[0]
         dev = raw.device
         self.rags = rags
         self.gt_seg, self.init_sp_seg = gt.squeeze(1), sp_seg.squeeze(1)
         self.raw = raw
+        self.edge_feats = torch.cat(edge_features, 0)
         with torch.set_grad_enabled(fe_grad):
             self.embeddings = self.embedding_net(raw)
         # get embedding agglomeration over each superpixel
-        self.current_node_embeddings = torch.cat([self.embedding_net.get_mean_sp_embedding_chunked(embed, sp, chunks=4)
+        self.current_node_embeddings = torch.cat([self.embedding_net.get_mean_sp_embedding_chunked(embed, sp, chunks=10)
                                                   for embed, sp in zip(self.embeddings, self.init_sp_seg)], dim=0)
 
         subgraphs, self.sep_subgraphs = [], []

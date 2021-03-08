@@ -13,6 +13,12 @@ agent_model_name:
 fe_model_name:
   desc: path to state dict of trained model
   value: /g/kreshuk/hilt/storage/synthetic_noisy_nuclei/fe_l2_cosine_usaff.pth
+delta_var:
+  desc: max clustersize in embedding space. Comes from contrastive loss term
+  value: 0.1
+delta_dist:
+  desc: min inter cluster dist in embedding space. Comes from contrastive loss term
+  value: 0.3
 dim_embeddings:
   desc: number of embedding feature channels
   value: 16
@@ -33,10 +39,28 @@ backbone:
 
 gnn_n_hidden:
   desc: number of hidden layers in graph conv blocks
-  value: 4
+  value: 2
 gnn_hl_factor:
   desc: factor by which feature size of hidden featuremaps in gnn increases/decreases
-  value: 32
+  value: 64
+gnn_act_depth:
+  desc: num of graph convs (1, 2, 3)
+  value: 2
+gnn_act_norm_inp:
+  desc: put hidden features on unit sphere and scale by sim
+  value: false
+gnn_crit_depth:
+  desc: num of graph convs (1, 2)
+  value: 2
+gnn_crit_norm_inp:
+  desc: put hidden features on unit sphere and scale by sim
+  value: false
+s_subgraph:
+  desc: subgraph sizes
+  value: [4, 8, 16]
+init_temperature:
+  desc: initial temperature in Gibbs distribution
+  value: 0.1
 
 patch_manager:
   desc: if training should happen on patches, this is the config for the patch manager

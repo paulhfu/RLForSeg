@@ -17,13 +17,13 @@ class Agent(torch.nn.Module):
         self.distance = distance
 
         self.actor = PolicyNet(self.cfg.dim_embeddings + 1, 2, cfg.gnn_n_hidden,
-                               cfg.gnn_hl_factor, distance, device, False)
+                               cfg.gnn_hl_factor, distance, device, False, cfg.gnn_act_depth, cfg.gnn_act_norm_inp)
         self.critic = DoubleQValueNet(self.cfg.s_subgraph, self.cfg.dim_embeddings + 1,
                                       1, 1, cfg.gnn_n_hidden, cfg.gnn_hl_factor,
-                                      distance, device, False)
+                                      distance, device, False, cfg.gnn_crit_depth, cfg.gnn_crit_norm_inp)
         self.critic_tgt = DoubleQValueNet(self.cfg.s_subgraph, self.cfg.dim_embeddings + 1,
                                           1, 1, cfg.gnn_n_hidden, cfg.gnn_hl_factor,
-                                          distance, device, False)
+                                          distance, device, False, cfg.gnn_crit_depth, cfg.gnn_crit_norm_inp)
 
         self.log_alpha = torch.tensor([np.log(self.cfg.init_temperature)] * len(self.cfg.s_subgraph)).to(device)
         self.log_alpha.requires_grad = True
@@ -74,12 +74,12 @@ class Agent(torch.nn.Module):
     
 
 class PolicyNet(torch.nn.Module):
-    def __init__(self, n_in_features, n_classes, n_hidden_layer, hl_factor, distance, device, node_actions):
+    def __init__(self, n_in_features, n_classes, n_hidden_layer, hl_factor, distance, device, node_actions, depth, normalize_input):
         super(PolicyNet, self).__init__()
         if node_actions:
             self.gcn = NodeGnn(n_in_features, n_classes, n_hidden_layer, hl_factor, distance, device, "actor")
         else:
-            self.gcn = EdgeGnn(n_in_features, n_classes, n_hidden_layer, hl_factor, distance, device, "actor")
+            self.gcn = EdgeGnn(n_in_features, n_classes, n_hidden_layer, hl_factor, distance, device, "actor", depth, normalize_input)
 
     def forward(self, node_features, edge_index, angles, gt_edges, post_data):
         actor_stats, side_loss = self.gcn(node_features, edge_index, angles, gt_edges, post_data)
@@ -88,7 +88,7 @@ class PolicyNet(torch.nn.Module):
 
 class DoubleQValueNet(torch.nn.Module):
     def __init__(self, s_subgraph, n_in_features, n_actions, n_classes, n_hidden_layer, hl_factor, distance, device,
-                 node_actions):
+                 node_actions, depth, normalize_input):
         super(DoubleQValueNet, self).__init__()
 
         self.s_subgraph = s_subgraph
@@ -100,15 +100,15 @@ class DoubleQValueNet(torch.nn.Module):
             n_edge_in_features = 1
 
         self.gcn1_1 = QGnn(n_node_in_features, n_edge_in_features, n_node_in_features, n_hidden_layer, hl_factor,
-                           distance, device, "critic")
+                           distance, device, "critic", depth, normalize_input)
         self.gcn2_1 = QGnn(n_node_in_features, n_edge_in_features, n_node_in_features, n_hidden_layer, hl_factor,
-                           distance, device, "critic")
+                           distance, device, "critic", depth, normalize_input)
 
         self.gcn1_2, self.gcn2_2 = [], []
 
         for i, ssg in enumerate(self.s_subgraph):
-            self.gcn1_2.append(GlobalEdgeGnn(n_node_in_features, n_node_in_features, ssg//2, hl_factor, device))
-            self.gcn2_2.append(GlobalEdgeGnn(n_node_in_features, n_node_in_features, ssg//2, hl_factor, device))
+            self.gcn1_2.append(GlobalEdgeGnn(n_node_in_features, n_node_in_features, ssg, hl_factor, device))
+            self.gcn2_2.append(GlobalEdgeGnn(n_node_in_features, n_node_in_features, ssg, hl_factor, device))
             super(DoubleQValueNet, self).add_module(f"gcn1_2_{i}", self.gcn1_2[-1])
             super(DoubleQValueNet, self).add_module(f"gcn2_2_{i}", self.gcn2_2[-1])
 

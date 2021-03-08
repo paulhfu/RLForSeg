@@ -10,39 +10,62 @@ from models.message_passing import NodeConv, EdgeConv, EdgeConvNoNodes
 
 class EdgeGnn(nn.Module):
     def __init__(self, n_in_channels, n_out_channels, n_hidden_layer, hl_factor, distance, device, name,
-                 start_bn_nl=False):
+                 depth, normalize_input, start_bn_nl=False):
         super(EdgeGnn, self).__init__()
         self.name = name
         self.device = device
 
         self.n_in_channels = n_in_channels
-        self.node_conv1 = NodeConv(n_in_channels, n_in_channels, distance=distance, normalize_input=False,
-                                   n_hidden_layer=n_hidden_layer, hl_factor=hl_factor, start_bn_nl=start_bn_nl)
-        self.edge_conv1 = EdgeConv(n_in_channels, n_in_channels, use_init_edge_feats=True, n_init_edge_channels=1,
-                                   n_hidden_layer=n_hidden_layer, hl_factor=hl_factor)
-        self.node_conv2 = NodeConv(n_in_channels, n_in_channels, distance=distance, normalize_input=True,
-                                   n_hidden_layer=n_hidden_layer, hl_factor=hl_factor)
-        self.edge_conv2 = EdgeConv(n_in_channels, n_in_channels, use_init_edge_feats=True,
-                                   n_init_edge_channels=n_in_channels, n_hidden_layer=n_hidden_layer,
-                                   hl_factor=hl_factor)
-        self.node_conv3 = NodeConv(n_in_channels, n_in_channels, distance=distance, normalize_input=True,
-                                   n_hidden_layer=n_hidden_layer, hl_factor=hl_factor)
-        self.edge_conv3 = EdgeConv(n_in_channels, n_out_channels, use_init_edge_feats=True,
-                                   n_init_edge_channels=n_in_channels, n_hidden_layer=n_hidden_layer,
-                                   hl_factor=hl_factor)
+        self.depth = depth
+        if depth == 1:
+            self.node_conv1 = NodeConv(n_in_channels, n_in_channels, distance=distance, normalize_input=False,
+                                       n_hidden_layer=n_hidden_layer, hl_factor=hl_factor, start_bn_nl=start_bn_nl)
+            self.edge_conv1 = EdgeConv(n_in_channels, n_out_channels, use_init_edge_feats=True, n_init_edge_channels=1,
+                                       n_hidden_layer=n_hidden_layer, hl_factor=hl_factor)
+        if depth == 2:
+            self.node_conv1 = NodeConv(n_in_channels, n_in_channels, distance=distance, normalize_input=False,
+                                       n_hidden_layer=n_hidden_layer, hl_factor=hl_factor, start_bn_nl=start_bn_nl)
+            self.edge_conv1 = EdgeConv(n_in_channels, n_in_channels, use_init_edge_feats=True, n_init_edge_channels=1,
+                                       n_hidden_layer=n_hidden_layer, hl_factor=hl_factor)
+            self.node_conv2 = NodeConv(n_in_channels, n_in_channels, distance=distance, normalize_input=normalize_input,
+                                       n_hidden_layer=n_hidden_layer, hl_factor=hl_factor)
+            self.edge_conv2 = EdgeConv(n_in_channels, n_out_channels, use_init_edge_feats=True,
+                                       n_init_edge_channels=n_in_channels, n_hidden_layer=n_hidden_layer,
+                                       hl_factor=hl_factor)
+        if depth == 3:
+            self.node_conv1 = NodeConv(n_in_channels, n_in_channels, distance=distance, normalize_input=False,
+                                       n_hidden_layer=n_hidden_layer, hl_factor=hl_factor, start_bn_nl=start_bn_nl)
+            self.edge_conv1 = EdgeConv(n_in_channels, n_in_channels, use_init_edge_feats=True, n_init_edge_channels=1,
+                                       n_hidden_layer=n_hidden_layer, hl_factor=hl_factor)
+            self.node_conv2 = NodeConv(n_in_channels, n_in_channels, distance=distance, normalize_input=normalize_input,
+                                       n_hidden_layer=n_hidden_layer, hl_factor=hl_factor)
+            self.edge_conv2 = EdgeConv(n_in_channels, n_in_channels, use_init_edge_feats=True,
+                                       n_init_edge_channels=n_in_channels, n_hidden_layer=n_hidden_layer,
+                                       hl_factor=hl_factor)
+            self.node_conv3 = NodeConv(n_in_channels, n_in_channels, distance=distance, normalize_input=normalize_input,
+                                       n_hidden_layer=n_hidden_layer, hl_factor=hl_factor)
+            self.edge_conv3 = EdgeConv(n_in_channels, n_out_channels, use_init_edge_feats=True,
+                                       n_init_edge_channels=n_in_channels, n_hidden_layer=n_hidden_layer,
+                                       hl_factor=hl_factor)
 
     def forward(self, node_features, edge_index, angles, gt_edges, post_data=False):
+        side_loss = torch.tensor([0.0], device=node_features.device)
         node_features = self.node_conv1(node_features, edge_index)
-        edge_features, side_loss_1 = self.edge_conv1(node_features, edge_index, angles)
+        edge_features, sl = self.edge_conv1(node_features, edge_index, angles)
+        side_loss = side_loss + sl
+        if self.depth > 1:
+            node_features = node_features + self.node_conv2(node_features, edge_index)
+            _edge_features, sl = self.edge_conv2(node_features, edge_index, edge_features)
+            side_loss = side_loss + sl
+            if self.depth == 2:
+                edge_features = _edge_features
+        if self.depth > 2:
+            edge_features = _edge_features + edge_features
+            node_features = node_features + self.node_conv3(node_features, edge_index)
+            edge_features, sl = self.edge_conv3(node_features, edge_index, edge_features)
+            side_loss = side_loss + sl
 
-        node_features = node_features + self.node_conv2(node_features, edge_index)
-        _edge_features, side_loss_2 = self.edge_conv2(node_features, edge_index, edge_features)
-        edge_features = _edge_features + edge_features
-
-        node_features = node_features + self.node_conv3(node_features, edge_index)
-        edge_features, side_loss_3 = self.edge_conv3(node_features, edge_index, edge_features)
-
-        side_loss = (side_loss_1 + side_loss_2 + side_loss_3) / 3
+        side_loss = side_loss / self.depth
 
         if post_data and edge_features.shape[1] > 3 and gt_edges is not None:
             plt.clf()
@@ -84,30 +107,37 @@ class NodeGnn(nn.Module):
 
 class QGnn(nn.Module):
     def __init__(self, n_node_in_features, n_edge_in_features, n_out_features, n_hidden_layer, hl_factor, distance,
-                 device, name, start_bn_nl=False):
+                 device, name, depth, normalize_input, start_bn_nl=False):
         super(QGnn, self).__init__()
         self.name = name
         self.device = device
-
-        self.node_conv1 = NodeConv(n_node_in_features, n_node_in_features, distance=distance, normalize_input=False,
-                                   n_hidden_layer=n_hidden_layer, hl_factor=hl_factor, start_bn_nl=start_bn_nl)
-        self.edge_conv1 = EdgeConv(n_node_in_features, n_node_in_features * 2, use_init_edge_feats=True,
-                                   n_init_edge_channels=n_edge_in_features, n_hidden_layer=n_hidden_layer,
-                                   hl_factor=hl_factor)
-        self.node_conv2 = NodeConv(n_node_in_features, n_node_in_features, distance=distance, normalize_input=True,
-                                   n_hidden_layer=n_hidden_layer, hl_factor=hl_factor)
-        self.edge_conv2 = EdgeConv(n_node_in_features, n_out_features, use_init_edge_feats=True,
-                                   n_init_edge_channels=n_node_in_features * 2, n_hidden_layer=n_hidden_layer,
-                                   hl_factor=hl_factor)
+        self.depth = depth
+        if depth==1:
+            self.node_conv1 = NodeConv(n_node_in_features, n_node_in_features, distance=distance, normalize_input=False,
+                                       n_hidden_layer=n_hidden_layer, hl_factor=hl_factor, start_bn_nl=start_bn_nl)
+            self.edge_conv1 = EdgeConv(n_node_in_features, n_out_features, use_init_edge_feats=True,
+                                       n_init_edge_channels=n_edge_in_features, n_hidden_layer=n_hidden_layer,
+                                       hl_factor=hl_factor)
+        if depth==2:
+            self.node_conv1 = NodeConv(n_node_in_features, n_node_in_features, distance=distance, normalize_input=False,
+                                       n_hidden_layer=n_hidden_layer, hl_factor=hl_factor, start_bn_nl=start_bn_nl)
+            self.edge_conv1 = EdgeConv(n_node_in_features, n_node_in_features * 2, use_init_edge_feats=True,
+                                       n_init_edge_channels=n_edge_in_features, n_hidden_layer=n_hidden_layer,
+                                       hl_factor=hl_factor)
+            self.node_conv2 = NodeConv(n_node_in_features, n_node_in_features, distance=distance, normalize_input=normalize_input,
+                                       n_hidden_layer=n_hidden_layer, hl_factor=hl_factor)
+            self.edge_conv2 = EdgeConv(n_node_in_features, n_out_features, use_init_edge_feats=True,
+                                       n_init_edge_channels=n_node_in_features * 2, n_hidden_layer=n_hidden_layer,
+                                       hl_factor=hl_factor)
 
     def forward(self, node_features, edge_features, edge_index, gt_edges, post_data=False):
         node_features = self.node_conv1(node_features, edge_index)
         edge_features, side_loss_1 = self.edge_conv1(node_features, edge_index, edge_features)
+        if self.depth==2:
+            node_features = self.node_conv2(node_features, edge_index)
+            edge_features, side_loss_2 = self.edge_conv2(node_features, edge_index, edge_features)
 
-        node_features = self.node_conv2(node_features, edge_index)
-        edge_features, side_loss_2 = self.edge_conv2(node_features, edge_index, edge_features)
-
-        side_loss = (side_loss_1 + side_loss_2) / 2
+        side_loss = side_loss_1
 
         if post_data and edge_features.shape[1] > 3 and gt_edges is not None:
             pca_proj_edge_fe = pca_project_1d(edge_features.detach().squeeze().cpu().numpy())
