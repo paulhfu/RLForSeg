@@ -9,8 +9,8 @@ import torch
 from elf.segmentation.features import compute_rag
 import h5py
 from scipy.ndimage import binary_fill_holes
-# from cv2 import fitEllipse
-# import cv2
+from cv2 import fitEllipse
+import cv2
 import numpy as np
 import matplotlib.pyplot as plt
 

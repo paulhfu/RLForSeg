@@ -69,7 +69,7 @@ class MulticutEmbeddingsEnv():
 
         if 'artificial_cells' in self.cfg.reward_function or 'leptin_data' in self.cfg.reward_function:
             reward = []
-            sp_reward = self.reward_function(self.current_soln.long(), self.init_sp_seg.long(), dir_edges=self.edge_ids,
+            sp_reward = self.reward_function(self.current_soln.long(), self.init_sp_seg.long(), dir_edges=self.dir_edge_ids,
                                              res=100)
             for i, sz in enumerate(self.cfg.s_subgraph):
                 reward.append(sp_reward[self.edge_ids][:, self.subgraph_indices[i].view(-1, sz)].sum(0).mean(1))
@@ -142,7 +142,6 @@ class MulticutEmbeddingsEnv():
         self.rags = rags
         self.gt_seg, self.init_sp_seg = gt.squeeze(1), sp_seg.squeeze(1)
         self.raw = raw
-        self.edge_feats = torch.cat(edge_features, 0)
         with torch.set_grad_enabled(fe_grad):
             self.embeddings = self.embedding_net(raw)
         # get embedding agglomeration over each superpixel
@@ -157,9 +156,9 @@ class MulticutEmbeddingsEnv():
         _subgraphs = [torch.from_numpy(sg.astype(np.int64)).to(dev).permute(2, 0, 1) for sg in _subgraphs]
         _sep_subgraphs = [torch.from_numpy(sg.astype(np.int64)).to(dev).permute(2, 0, 1) for sg in _sep_subgraphs]
 
+        self.dir_edge_ids = [torch.cat([_edge_ids, torch.stack([_edge_ids[1], _edge_ids[0]], dim=0)], dim=1) for _edge_ids in edge_ids]
         self.n_nodes = [eids.max() + 1 for eids in edge_ids]
         self.edge_ids, (self.n_offs, self.e_offs) = collate_edges(edge_ids)
-        self.dir_edge_ids = torch.cat([self.edge_ids, torch.stack([self.edge_ids[1], self.edge_ids[0]], dim=0)], dim=1)
         for i in range(len(self.cfg.s_subgraph)):
             subgraphs.append(torch.cat([sg + self.n_offs[i] for i, sg in enumerate(_subgraphs[i*bs:(i+1)*bs])], -2).flatten(-2, -1))
             self.sep_subgraphs.append(torch.cat(_sep_subgraphs[i*bs:(i+1)*bs], -2).flatten(-2, -1))
@@ -169,6 +168,7 @@ class MulticutEmbeddingsEnv():
 
         self.gt_edge_weights = gt_edges
         if self.gt_edge_weights is not None:
+            self.edge_feats = torch.cat(edge_features, 0)
             self.gt_edge_weights = torch.cat(self.gt_edge_weights)
             self.gt_soln = self.get_current_soln(self.gt_edge_weights)
             self.sg_gt_edges = [self.gt_edge_weights[sg].view(-1, sz) for sz, sg in

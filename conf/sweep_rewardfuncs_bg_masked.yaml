@@ -1,0 +1,11 @@
+program: prep_and_run_bg_masked.py
+project: RL_for_Segmentation_sweep_rewardfuncs_leptin_bg_masked
+name: sweep_reward_functions_leptin_bg_masked
+method: random
+metric:
+  name: validation_reward
+  goal: maximize
+
+parameters:
+  reward_function:
+    values: [leptin_dataEllipticFit, leptin_dataTurningFunc]

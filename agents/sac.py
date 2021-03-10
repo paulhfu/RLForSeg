@@ -38,7 +38,7 @@ class AgentSacTrainer(object):
         self.memory = TransitionData_ts(capacity=self.cfg.t_max)
         self.best_val_reward = -np.inf
 
-    def validate_and_compare_to_clustering(self, model, env, dset, device):
+    def validate(self, model, env, dset, device):
         """validates the prediction against the method of clustering the embedding space"""
 
         if self.cfg.verbose:
@@ -377,7 +377,7 @@ class AgentSacTrainer(object):
 
                 self.global_count.increment()
                 if self.global_count.value() % self.cfg.validatoin_freq == 0:
-                    self.validate_and_compare_to_clustering(model, env, val_dset, device)
+                    self.validate(model, env, val_dset, device)
                 if self.global_count.value() > self.cfg.T_max + self.cfg.t_max:
                     break
 

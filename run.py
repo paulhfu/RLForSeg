@@ -17,5 +17,5 @@ def main(cfg):
     trainer.train(0, return_dict, rn)
 
 if __name__ == '__main__':
-    wandb.init(project="dbg", entity="aule", config="conf/leptin_configs.yaml")
+    wandb.init(project="dbg", entity="aule", config="conf/leptin_bg_masked_configs.yaml")
     main(wandb.config)

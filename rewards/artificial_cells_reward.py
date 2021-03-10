@@ -2,8 +2,8 @@ from rewards.reward_abc import RewardFunctionAbc
 from skimage.measure import approximate_polygon,  find_contours
 from skimage.draw import polygon_perimeter
 from utils.polygon_2d import Polygon2d
-# from cv2 import fitEllipse
-# import cv2
+from cv2 import fitEllipse
+import cv2
 import torch
 import numpy as np
 import matplotlib.pyplot as plt

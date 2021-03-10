@@ -30,6 +30,7 @@ def update_env_data(env, dloader, cfg, device, with_gt_edges=False, fe_grad=Fals
         # gt_edges = [calculate_gt_edge_costs(s_edges.T, sseg.squeeze(), sgt.squeeze(), cfg.gt_edge_overlap_thresh).to(device).float() for s_edges, sseg, sgt in zip(edges, sp_seg, gt)]
     else:
         gt_edges = None
+        edge_feat = None
     env.update_data(edge_ids=edges, gt_edges=gt_edges, sp_seg=sp_seg, raw=raw, gt=gt, fe_grad=fe_grad, rags=rags, edge_features=edge_feat)
 
 
