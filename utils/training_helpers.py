@@ -13,6 +13,7 @@ from utils.general import get_angles, adjust_learning_rate, cluster_embeddings, 
 from utils.matching import matching
 from utils.yaml_conv_parser import AttrDict, add_dict
 from torch.optim.lr_scheduler import ReduceLROnPlateau
+from multiprocessing import Lock
 
 
 def update_env_data(env, dloader, cfg, device, with_gt_edges=False, fe_grad=False):
@@ -117,16 +118,19 @@ def state_to_cuda(state, device, state_class):
         return state_class(*state)
     return state
 
+class Forwarder():
+    def __init__(self):
+        pass
 
-def agent_forward(env, model, state, actions=None, grad=True, post_data=False, policy_opt=False,
-                  return_node_features=False):
-    with torch.set_grad_enabled(grad):
-        state = state_to_cuda(state, env.device, env.State)
-        if actions is not None:
-            actions = actions.to(model.device)
-        ret = model(state,
-                    actions,
-                    post_data,
-                    policy_opt and grad,
-                    return_node_features)
-    return ret
+    def forward(self, model, state, state_class, device, actions=None, grad=True, post_data=False, policy_opt=False,
+                      return_node_features=False):
+        with torch.set_grad_enabled(grad):
+            state = state_to_cuda(state, device, state_class)
+            if actions is not None:
+                actions = actions.to(model.device)
+            ret = model(state,
+                        actions,
+                        post_data,
+                        policy_opt and grad,
+                        return_node_features)
+        return ret

@@ -2,7 +2,7 @@ from collections import namedtuple
 import random
 import numpy as np
 import torch
-from multiprocessing import Lock
+from multiprocessing import Lock, Event
 
 Transition_t = namedtuple('Transition', ('state', 'actions', 'reward', 'state_', 'time', 'behav_probs', 'terminal'))
 
@@ -41,12 +41,23 @@ class TransitionData_ts(object):
         self._losses = []
         self._max_loss = 1e-10
         self._mtx = Lock()
+        self.is_full_event = Event()
+        self._push_count = 0
 
     def __reduce__(self):
         return (self.__class__, (self._cap, ))
 
     def __len__(self):
         return len(self._memory)
+
+    @property
+    def push_count(self):
+        return self._push_count
+
+    def reset_push_count(self):
+        self._mtx.acquire()
+        self._push_count = 0
+        self._mtx.release()
 
     def push(self, *args):
         """Saves a transition."""
@@ -60,6 +71,9 @@ class TransitionData_ts(object):
             self._losses.append(self._max_loss)
             self._memory[self._position] = Transition_ts(*args)
             self._position += 1
+            if self._position >= self._cap and not self.is_full_event.is_set():
+                self.is_full_event.set()
+            self._push_count += 1
         finally:
             self._mtx.release()
 

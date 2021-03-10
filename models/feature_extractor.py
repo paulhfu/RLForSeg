@@ -1,6 +1,7 @@
 import torch.nn as nn
 import torch
 import matplotlib.pyplot as plt
+from multiprocessing import Lock
 from utils.distances import CosineDistance
 from models.unet3d.model import UNet2D
 
@@ -12,11 +13,16 @@ class FeExtractor(nn.Module):
 
         self.device = device
         self.distance = distance
+        self.fwd_mtx = Lock()
 
     def forward(self, raw):
-        ret = self.embed_model(raw.unsqueeze(2)).squeeze(2)
+        self.fwd_mtx.acquire()
+        try:
+            ret = self.embed_model(raw.unsqueeze(2)).squeeze(2)
+        finally:
+            self.fwd_mtx.release()
         if isinstance(self.distance, CosineDistance):
-            return ret / torch.clamp(torch.norm(ret, dim=1, keepdim=True), min=1e-10)
+            ret = ret / torch.clamp(torch.norm(ret, dim=1, keepdim=True), min=1e-10)
         return ret
 
     def get_mean_sp_embedding_chunked(self, embeddings, supix, chunks=1):

@@ -18,9 +18,9 @@ from utils.reward_functions import UnSupervisedReward, SubGraphDiceReward
 from utils.graphs import collate_edges, get_edge_indices, get_angles_smass_in_rag
 from utils.general import get_angles, pca_project, random_label_cmap
 
+State = collections.namedtuple("State", ["node_embeddings", "edge_ids", "edge_angles", "sup_masses", "subgraph_indices", "sep_subgraphs", "round_n", "gt_edge_weights"])
 class MulticutEmbeddingsEnv():
 
-    State = collections.namedtuple("State", ["node_embeddings", "edge_ids", "edge_angles", "sup_masses", "subgraph_indices", "sep_subgraphs", "round_n", "gt_edge_weights"])
     def __init__(self, embedding_net, cfg, device):
         super(MulticutEmbeddingsEnv, self).__init__()
 
@@ -104,37 +104,37 @@ class MulticutEmbeddingsEnv():
         for _rew in reward:
             total_reward += _rew.mean().item()
         total_reward /= len(self.cfg.s_subgraph)
-
-        tag = "train/" if train else "validation/"
-        wandb.log({tag + "avg_return": total_reward})
-        if post_images:
-            mc_soln = self.gt_soln[-1].cpu() if self.gt_edge_weights is not None else torch.zeros(self.raw.shape[-2:])
-            wandb.log({tag + "pred_mean": wandb.Histogram(self.current_edge_weights.view(-1).cpu().numpy())})
-            fig, axes = plt.subplots(2, 3, sharex='col', sharey='row', gridspec_kw={'hspace': 0, 'wspace': 0})
-            axes[0, 0].imshow(self.gt_seg[-1].cpu().squeeze(), cmap=random_label_cmap(), interpolation="none")
-            axes[0, 0].set_title('gt')
-            axes[0, 1].imshow(self.raw[-1].cpu().permute(1, 2, 0).squeeze())
-            axes[0, 1].set_title('raw image')
-            axes[0, 2].imshow(self.init_sp_seg[-1].cpu(), cmap=random_label_cmap(), interpolation="none")
-            axes[0, 2].set_title('superpixels')
-            axes[1, 0].imshow(mc_soln, cmap=random_label_cmap(), interpolation="none")
-            axes[1, 0].set_title('mc_gt')
-            # axes[1, 1].imshow(pca_project(get_angles(self.embeddings)[0].detach().cpu().numpy()))
-            axes[1, 1].imshow(pca_project(self.embeddings[0].detach().cpu()))
-            axes[1, 1].set_title('embed')
-            axes[1, 2].imshow(self.current_soln[-1].cpu(), cmap=random_label_cmap(), interpolation="none")
-            axes[1, 2].set_title('prediction')
-            wandb.log({tag: [wandb.Image(fig, caption="state")]})
-            plt.close('all')
-        if logg_vals is not None and post_stats:
-            for key, val in logg_vals.items():
-                wandb.log({tag + key: val})
+        if post_stats:
+            tag = "train/" if train else "validation/"
+            wandb.log({tag + "avg_return": total_reward})
+            if post_images:
+                mc_soln = self.gt_soln[-1].cpu() if self.gt_edge_weights is not None else torch.zeros(self.raw.shape[-2:])
+                wandb.log({tag + "pred_mean": wandb.Histogram(self.current_edge_weights.view(-1).cpu().numpy())})
+                fig, axes = plt.subplots(2, 3, sharex='col', sharey='row', gridspec_kw={'hspace': 0, 'wspace': 0})
+                axes[0, 0].imshow(self.gt_seg[-1].cpu().squeeze(), cmap=random_label_cmap(), interpolation="none")
+                axes[0, 0].set_title('gt')
+                axes[0, 1].imshow(self.raw[-1].cpu().permute(1, 2, 0).squeeze())
+                axes[0, 1].set_title('raw image')
+                axes[0, 2].imshow(self.init_sp_seg[-1].cpu(), cmap=random_label_cmap(), interpolation="none")
+                axes[0, 2].set_title('superpixels')
+                axes[1, 0].imshow(mc_soln, cmap=random_label_cmap(), interpolation="none")
+                axes[1, 0].set_title('mc_gt')
+                # axes[1, 1].imshow(pca_project(get_angles(self.embeddings)[0].detach().cpu().numpy()))
+                axes[1, 1].imshow(pca_project(self.embeddings[0].detach().cpu()))
+                axes[1, 1].set_title('embed')
+                axes[1, 2].imshow(self.current_soln[-1].cpu(), cmap=random_label_cmap(), interpolation="none")
+                axes[1, 2].set_title('prediction')
+                wandb.log({tag: [wandb.Image(fig, caption="state")]})
+                plt.close('all')
+            if logg_vals is not None:
+                for key, val in logg_vals.items():
+                    wandb.log({tag + key: val})
 
         self.acc_reward.append(total_reward)
         return reward
 
     def get_state(self):
-        return self.State(self.current_node_embeddings, self.edge_ids, self.edge_angles, self.sup_masses, self.subgraph_indices, self.sep_subgraphs, self.counter, self.gt_edge_weights)
+        return State(self.current_node_embeddings, self.edge_ids, self.edge_angles, self.sup_masses, self.subgraph_indices, self.sep_subgraphs, self.counter, self.gt_edge_weights)
 
     def update_data(self, raw, gt, edge_ids, gt_edges, sp_seg, fe_grad, rags, edge_features, *args, **kwargs):
         bs = raw.shape[0]
@@ -142,7 +142,7 @@ class MulticutEmbeddingsEnv():
         self.rags = rags
         self.gt_seg, self.init_sp_seg = gt.squeeze(1), sp_seg.squeeze(1)
         self.raw = raw
-        with torch.set_grad_enabled(fe_grad):
+        with torch.set_grad_enabled(False):
             self.embeddings = self.embedding_net(raw)
         # get embedding agglomeration over each superpixel
         self.current_node_embeddings = torch.cat([self.embedding_net.get_mean_sp_embedding_chunked(embed, sp, chunks=10)

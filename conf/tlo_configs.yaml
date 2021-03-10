@@ -63,7 +63,7 @@ gnn_crit_norm_inp:
 T_max:
   desc: Number of training steps
   value: 50000
-t_max:
+mem_size:
   desc: Mem size in replay memory buffer
   value: 100
 data_update_frequency:
