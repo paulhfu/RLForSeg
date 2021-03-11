@@ -124,7 +124,8 @@ def submit_slurm(script, input_, n_threads=2, n_gpus=1,
                  base_dir='/g/kreshuk/hilt/projects/RLForSeg', is_sweep=False):
     """ Submit python script that needs gpus with given inputs on a slurm node.
     """
-    is_sweep = False if isinstance(is_sweep, str) and is_sweep == "False" else True
+    if isinstance(is_sweep, str):
+        is_sweep = False if is_sweep == "False" else True
     env_lib = site.getsitepackages()
     assert len(env_lib) == 1
     env_lib = env_lib[0]

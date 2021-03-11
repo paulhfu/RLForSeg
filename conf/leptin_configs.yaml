@@ -80,10 +80,10 @@ n_updates_per_step:
   value: 10
 n_explorers:
   desc: n experience explorer threads
-  value: 4
+  value: 1
 batch_size:
   desc: num samples in minibatch
-  value: 1
+  value: 2
 
 # conf for lr scheduling
 lr_sched:
