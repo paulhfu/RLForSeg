@@ -1,0 +1,11 @@
+program: prep_and_run_bg_masked.py
+project: sweep_leptin_sg
+name: sweep_sg_sz_nosheduler_masked
+method: random
+metric:
+  name: validation_reward
+  goal: maximize
+
+parameters:
+  s_subgraph:
+    values: [[4, 8, 16], [2, 4, 6], [8, 16, 24]]

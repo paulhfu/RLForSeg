@@ -51,7 +51,7 @@ gnn_act_depth:
   value: 1
 gnn_act_norm_inp:
   desc: put hidden features on unit sphere and scale by sim
-  value: false
+  value: true
 gnn_crit_depth:
   desc: num of graph convs (1, 2)
   value: 1
@@ -78,9 +78,12 @@ validatoin_freq:
 n_updates_per_step:
   desc: perform n optim steps per env step
   value: 10
+n_explorers:
+  desc: n experience explorer threads
+  value: 4
 batch_size:
   desc: num samples in minibatch
-  value: 2
+  value: 1
 
 # conf for lr scheduling
 lr_sched:
@@ -105,14 +108,14 @@ patch_manager:
 
 # specific configs for the sac algorithm
 reward_function:
-  desc: one of sub_graph_dice, leptin_dataTurningFunc, leptin_dataEllipticFit
-  value: leptin_dataEllipticFit
+  desc: one of sub_graph_dice, leptin_dataTurningFunc, leptin_dataEllipticFit, leptin_dataTurningWithEllipses
+  value: leptin_dataTurningWithEllipses
 gt_edge_overlap_thresh:
   desc: if using gt edges this is the overlap thresh of the underlying gt for a gt edge to be 1
   value: 0.5
 s_subgraph:
   desc: subgraph sizes
-  value: [3, 4, 8, 16] # [8, 16, 32, 64]
+  value: [8, 14, 16] # [8, 16, 32, 64]
 entropy_range:
   desc: range of the min entropy constraint
   value: [0.05, 2.0]

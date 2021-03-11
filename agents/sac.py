@@ -284,15 +284,15 @@ class AgentSacTrainer(object):
         critic_loss, mean_reward = self.update_critic(obs, action, reward)
         self.memory.report_sample_loss(critic_loss + mean_reward, sample_idx)
         self.mov_sum_losses.critic.apply(critic_loss)
-        self.optimizers.critic_shed.step(self.mov_sum_losses.critic.avg)
+        # self.optimizers.critic_shed.step(self.mov_sum_losses.critic.avg)
         wandb.log({"loss/critic": critic_loss})
 
         if self.cfg.actor_update_after < step and step % self.cfg.actor_update_frequency == 0:
             actor_loss, alpha_loss, min_entropy, loc_mean = self.update_actor_and_alpha(obs, reward)
             self.mov_sum_losses.actor.apply(actor_loss)
             self.mov_sum_losses.temperature.apply(alpha_loss)
-            self.optimizers.actor_shed.step(self.mov_sum_losses.actor.avg)
-            self.optimizers.temp_shed.step(self.mov_sum_losses.actor.avg)
+            # self.optimizers.actor_shed.step(self.mov_sum_losses.actor.avg)
+            # self.optimizers.temp_shed.step(self.mov_sum_losses.actor.avg)
             wandb.log({"loss/actor": actor_loss})
             wandb.log({"loss/alpha": alpha_loss})
 
@@ -358,6 +358,7 @@ class AgentSacTrainer(object):
         trainer.start()
 
         trainer.join()
+        self.global_count.set(self.cfg.T_max + self.cfg.mem_size + 4)
         [explorer.join() for explorer in explorers]
         self.memory.clear()
         del self.memory

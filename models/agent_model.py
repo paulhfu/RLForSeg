@@ -16,12 +16,12 @@ class Agent(torch.nn.Module):
         self.StateClass = StateClass
         self.distance = distance
 
-        self.actor = PolicyNet(self.cfg.dim_embeddings + 1, 2, cfg.gnn_n_hidden,
+        self.actor = PolicyNet(self.cfg.dim_embeddings, 2, cfg.gnn_n_hidden,
                                cfg.gnn_hl_factor, distance, device, False, cfg.gnn_act_depth, cfg.gnn_act_norm_inp)
-        self.critic = DoubleQValueNet(self.cfg.s_subgraph, self.cfg.dim_embeddings + 1,
+        self.critic = DoubleQValueNet(self.cfg.s_subgraph, self.cfg.dim_embeddings,
                                       1, 1, cfg.gnn_n_hidden, cfg.gnn_hl_factor,
                                       distance, device, False, cfg.gnn_crit_depth, cfg.gnn_crit_norm_inp)
-        self.critic_tgt = DoubleQValueNet(self.cfg.s_subgraph, self.cfg.dim_embeddings + 1,
+        self.critic_tgt = DoubleQValueNet(self.cfg.s_subgraph, self.cfg.dim_embeddings,
                                           1, 1, cfg.gnn_n_hidden, cfg.gnn_hl_factor,
                                           distance, device, False, cfg.gnn_crit_depth, cfg.gnn_crit_norm_inp)
 
@@ -39,7 +39,8 @@ class Agent(torch.nn.Module):
 
     def forward(self, state, actions, post_data, policy_opt, return_node_features):
         state = self.StateClass(*state)
-        node_features = torch.cat((state.node_embeddings, state.sup_masses), 1)
+        node_features = state.node_embeddings
+        # node_features = torch.cat((state.node_embeddings, state.sup_masses), 1)
         edge_index = torch.cat([state.edge_ids, torch.stack([state.edge_ids[1], state.edge_ids[0]], dim=0)], dim=1)  # gcnn expects two directed edges for one undirected edge
         if actions is None:
             with torch.set_grad_enabled(policy_opt):

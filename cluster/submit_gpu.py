@@ -117,14 +117,14 @@ def write_slurm_template_sweep_std(script, out_path, env_name,
     with open(out_path, 'w') as f:
         f.write(slurm_template)
 
-#V100 2080Ti 3090
+#V100 2080Ti 3090 A100
 def submit_slurm(script, input_, n_threads=2, n_gpus=1,
                  gpu_type='3090', mem_limit='64G',
-                 time_limit=6*DAYS, qos='normal',
-                 base_dir='/g/kreshuk/hilt/projects/RLForSeg',
-                 is_sweep=False):
+                 time_limit=3*DAYS, qos='normal',
+                 base_dir='/g/kreshuk/hilt/projects/RLForSeg', is_sweep=False):
     """ Submit python script that needs gpus with given inputs on a slurm node.
     """
+    is_sweep = False if isinstance(is_sweep, str) and is_sweep == "False" else True
     env_lib = site.getsitepackages()
     assert len(env_lib) == 1
     env_lib = env_lib[0]
@@ -152,11 +152,8 @@ def submit_slurm(script, input_, n_threads=2, n_gpus=1,
     print(env_name)
     print("Batch script saved at", batch_script)
     print("Log will be written to %s, error log to %s" % (log, err))
-    # script = "aule/RL_for_Segmentation_sweep_rewardfuncs_leptin/1xlw30tq"
-    # script = "aule/RL_for_Segmentation_sweep_rewardfuncs_leptin/54u1ylon"
-    # script = "aule/RL_for_Segmentation_sweep_rewardfuncs_leptin_bg_masked/t7vre8qq"
     if not is_sweep:
-        if gpu_type == "3090":
+        if gpu_type == "3090" or gpu_type == "A100":
             write_slurm_template(script, batch_script, env_name, lib_replacement_script, pythonexec,
                                  int(n_threads), gpu_type, int(n_gpus),
                                  mem_limit, int(time_limit), qos)
@@ -165,7 +162,7 @@ def submit_slurm(script, input_, n_threads=2, n_gpus=1,
                                      int(n_threads), gpu_type, int(n_gpus),
                                      mem_limit, int(time_limit), qos)
     else:
-        if gpu_type == "3090":
+        if gpu_type == "3090" or gpu_type == "A100":
             write_slurm_template_sweep(script, batch_script, env_name, lib_replacement_script, pythonexec,
                                        int(n_threads), gpu_type, int(n_gpus),
                                        mem_limit, int(time_limit), qos)
@@ -195,9 +192,12 @@ def scrape_kwargs(input_):
 
 
 if __name__ == '__main__':
-    script = os.path.realpath(os.path.abspath(sys.argv[1]))
-    input_ = sys.argv[2:]
-
-    # scrape the additional arguments (n_threads, mem_limit, etc. from the input)
-    input_, kwargs = scrape_kwargs(input_)
+    input_, kwargs = scrape_kwargs(sys.argv[2:])
+    if "is_sweep" in kwargs:
+        if kwargs["is_sweep"] == "False":
+            script = os.path.realpath(os.path.abspath(sys.argv[1]))
+        else:
+            script = sys.argv[1]
+    else:
+        script = os.path.realpath(os.path.abspath(sys.argv[1]))
     submit_slurm(script, input_, **kwargs)

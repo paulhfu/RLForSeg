@@ -7,10 +7,10 @@ run_id:
   value: mixed_prec
 data_dir:
   desc: train data dir
-  value: /g/kreshuk/hilt/projects/data/leptin_fused_tp1_ch_0/train/bg_masked_data
+  value: /g/kreshuk/hilt/projects/data/leptin_fused_tp1_ch_0/train
 val_data_dir:
   desc: validation data dir
-  value: /g/kreshuk/hilt/projects/data/leptin_fused_tp1_ch_0/val/bg_masked_data
+  value: /g/kreshuk/hilt/projects/data/leptin_fused_tp1_ch_0/val
 agent_model_name:
   desc: if not empty, agent will be initialized with the state dict at this location
   value: '' # agent_model_svpfe.pth
@@ -45,7 +45,7 @@ gnn_n_hidden:
   value: 2
 gnn_hl_factor:
   desc: factor by which feature size of hidden featuremaps in gnn increases/decreases
-  value: 30
+  value: 256
 gnn_act_depth:
   desc: num of graph convs (1, 2, 3)
   value: 1
@@ -62,28 +62,28 @@ gnn_crit_norm_inp:
 # training config
 T_max:
   desc: Number of training steps
-  value: 50
+  value: 50000
 mem_size:
   desc: Mem size in replay memory buffer
-  value: 5
+  value: 100
 data_update_frequency:
   desc: update env data after n steps
-  value: 40
+  value: 100
 post_stats_frequency:
   desc: post logs after n steps
-  value: 1
+  value: 10
 validatoin_freq:
   desc: validate after n steps
-  value: 50
+  value: 500
 n_updates_per_step:
   desc: perform n optim steps per env step
-  value: 2
+  value: 10
 n_explorers:
   desc: n experience explorer threads
   value: 4
 batch_size:
   desc: num samples in minibatch
-  value: 1
+  value: 3
 
 # conf for lr scheduling
 lr_sched:
@@ -94,8 +94,8 @@ lr_sched:
     step_frequency: 10
     mov_avg_offset: 0.0
     torch_sched:  # conf for torch reduceOnPlateau scheduler
-      patience: 1000
-      min_lr: 0.0001
+      patience: 10
+      min_lr: 0.00001
       factor: 0.05
       threshold: 0.01
 
@@ -115,7 +115,7 @@ gt_edge_overlap_thresh:
   value: 0.5
 s_subgraph:
   desc: subgraph sizes
-  value: [8, 16] # [8, 16, 32, 64]
+  value: [8, 16, 32] # [8, 16, 32, 64]
 entropy_range:
   desc: range of the min entropy constraint
   value: [0.05, 2.0]
@@ -133,7 +133,7 @@ actor_update_frequency:
   value: 1
 actor_update_after:
   desc: update actor after critic has been warmed up
-  value: 0
+  value: 1
 critic_lr:
   desc: learning rate for critic opr
   value: 0.02467

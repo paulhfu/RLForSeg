@@ -13,7 +13,7 @@ from elf.segmentation.features import project_node_labels_to_pixels
 from rag_utils import find_dense_subgraphs
 
 from rewards.artificial_cells_reward import ArtificialCellsReward, ArtificialCellsReward2DEllipticFit
-from rewards.leptin_data_reward_2d import LeptinDataReward2DTurning, LeptinDataReward2DEllipticFit
+from rewards.leptin_data_reward_2d import LeptinDataReward2DTurning, LeptinDataReward2DEllipticFit, LeptinDataReward2DTurningWithEllipses
 from utils.reward_functions import UnSupervisedReward, SubGraphDiceReward
 from utils.graphs import collate_edges, get_edge_indices, get_angles_smass_in_rag
 from utils.general import get_angles, pca_project, random_label_cmap
@@ -46,8 +46,9 @@ class MulticutEmbeddingsEnv():
                 gt = _gt
                 sample_shapes.append(torch.zeros((int(gt.max()) + 1,) + gt.size(), device=device).scatter_(0, gt[None], 1)[
                                      1:])  # 0 should be background
-
-            if 'EllipticFit' in self.cfg.reward_function:
+            if 'TurningWithEllipses' in self.cfg.reward_function:
+                self.reward_function = LeptinDataReward2DTurningWithEllipses(torch.cat(sample_shapes))
+            elif 'EllipticFit' in self.cfg.reward_function:
                 self.reward_function = ArtificialCellsReward2DEllipticFit(torch.cat(sample_shapes))
             else:
                 self.reward_function = ArtificialCellsReward(torch.cat(sample_shapes))
@@ -69,10 +70,13 @@ class MulticutEmbeddingsEnv():
 
         if 'artificial_cells' in self.cfg.reward_function or 'leptin_data' in self.cfg.reward_function:
             reward = []
-            sp_reward = self.reward_function(self.current_soln.long(), self.init_sp_seg.long(), dir_edges=self.dir_edge_ids,
+            # sp_reward = self.reward_function(self.current_soln.long(), self.init_sp_seg.long(), dir_edges=self.dir_edge_ids,
+            #                                  res=100)
+            edge_reward = self.reward_function(self.current_soln.long(), self.init_sp_seg.long(), dir_edges=self.dir_edge_ids,
                                              res=100)
             for i, sz in enumerate(self.cfg.s_subgraph):
-                reward.append(sp_reward[self.edge_ids][:, self.subgraph_indices[i].view(-1, sz)].sum(0).mean(1))
+                # reward.append((sp_reward[self.edge_ids][:, self.subgraph_indices[i].view(-1, sz)].sum(0) / 2).mean(1))
+                reward.append(edge_reward[self.subgraph_indices[i].view(-1, sz)].mean(1))
             reward.append(self.last_final_reward)
             if hasattr(self, 'reward_function_sgd') and tau > 0.0:
                 self.sg_current_edge_weights = []
@@ -88,7 +92,8 @@ class MulticutEmbeddingsEnv():
                 reward = _reward
 
             self.counter += 1
-            self.last_final_reward = sp_reward.mean()
+            # self.last_final_reward = sp_reward.mean()
+            self.last_final_reward = edge_reward.mean()
         else:
             self.sg_current_edge_weights = []
             for i, sz in enumerate(self.cfg.s_subgraph):
@@ -120,7 +125,7 @@ class MulticutEmbeddingsEnv():
                 axes[1, 0].imshow(mc_soln, cmap=random_label_cmap(), interpolation="none")
                 axes[1, 0].set_title('mc_gt')
                 # axes[1, 1].imshow(pca_project(get_angles(self.embeddings)[0].detach().cpu().numpy()))
-                axes[1, 1].imshow(pca_project(self.embeddings[0].detach().cpu()))
+                axes[1, 1].imshow(pca_project(self.embeddings[-1].detach().cpu()))
                 axes[1, 1].set_title('embed')
                 axes[1, 2].imshow(self.current_soln[-1].cpu(), cmap=random_label_cmap(), interpolation="none")
                 axes[1, 2].set_title('prediction')
@@ -145,7 +150,7 @@ class MulticutEmbeddingsEnv():
         with torch.set_grad_enabled(False):
             self.embeddings = self.embedding_net(raw)
         # get embedding agglomeration over each superpixel
-        self.current_node_embeddings = torch.cat([self.embedding_net.get_mean_sp_embedding_chunked(embed, sp, chunks=10)
+        self.current_node_embeddings = torch.cat([self.embedding_net.get_mean_sp_embedding_chunked(embed, sp, chunks=20)
                                                   for embed, sp in zip(self.embeddings, self.init_sp_seg)], dim=0)
 
         subgraphs, self.sep_subgraphs = [], []
