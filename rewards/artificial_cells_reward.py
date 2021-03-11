@@ -2,8 +2,8 @@ from rewards.reward_abc import RewardFunctionAbc
 from skimage.measure import approximate_polygon,  find_contours
 from skimage.draw import polygon_perimeter
 from utils.polygon_2d import Polygon2d
-# from cv2 import fitEllipse
-# import cv2
+from cv2 import fitEllipse
+import cv2
 import torch
 import numpy as np
 import matplotlib.pyplot as plt
@@ -35,7 +35,7 @@ class ArtificialCellsReward(RewardFunctionAbc):
 
             self.gt_descriptors.append(Polygon2d(poly_approx))
 
-    def __call__(self, prediction_segmentation, superpixel_segmentation, res, *args, **kwargs):
+    def __call__(self, prediction_segmentation, superpixel_segmentation, res, dir_edges, *args, **kwargs):
         dev = prediction_segmentation.device
         return_scores = []
         inner_halo_mask = torch.zeros(superpixel_segmentation.shape[1:], device=dev)
@@ -45,7 +45,7 @@ class ArtificialCellsReward(RewardFunctionAbc):
         inner_halo_mask[:, -1] = 1
         inner_halo_mask = inner_halo_mask.unsqueeze(0)
 
-        for single_pred, single_sp_seg in zip(prediction_segmentation, superpixel_segmentation):
+        for single_pred, single_sp_seg, s_dir_edges in zip(prediction_segmentation, superpixel_segmentation, dir_edges):
             scores = torch.ones(int((single_sp_seg.max()) + 1,), device=dev) * 0.5
             if single_pred.max() == 0:  # image is empty
                 return_scores.append(scores - 0.5)
@@ -107,7 +107,9 @@ class ArtificialCellsReward(RewardFunctionAbc):
             #     for bg_sp_id in bg_sp_ids:
             #         scores[bg_sp_id] += .2
 
-            return_scores.append(scores)
+            edges = s_dir_edges[:, :int(s_dir_edges.shape[1] / 2)]
+            edge_scores = scores[edges].max(dim=0).values
+            return_scores.append(edge_scores)
             #return scores for each superpixel
 
         return torch.cat(return_scores)
@@ -139,7 +141,7 @@ class ArtificialCellsReward2DEllipticFit(RewardFunctionAbc):
         dev = prediction_segmentation.device
         return_scores = []
 
-        for single_pred, single_sp_seg in zip(prediction_segmentation, superpixel_segmentation):
+        for single_pred, single_sp_seg, s_dir_edges in zip(prediction_segmentation, superpixel_segmentation, dir_edges):
             scores = torch.ones(int((single_sp_seg.max()) + 1,), device=dev) * 0.5
             if single_pred.max() == 0:  # image is empty
                 return_scores.append(scores - 0.5)
@@ -214,7 +216,9 @@ class ArtificialCellsReward2DEllipticFit(RewardFunctionAbc):
                 scores[sp_ids] += score
             if len(false_obj_sp_ids) > 0:
                 scores[false_obj_sp_ids] -= 0.5
-            return_scores.append(scores)
+            edges = s_dir_edges[:, :int(s_dir_edges.shape[1] / 2)]
+            edge_scores = scores[edges].max(dim=0).values
+            return_scores.append(edge_scores)
         return torch.cat(return_scores)
 
 if __name__ == "__main__":

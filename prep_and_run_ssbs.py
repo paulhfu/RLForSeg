@@ -9,5 +9,5 @@ import wandb
 if __name__ == '__main__':
     # os.nice(15)
     # project name: "RL for Segmentation"
-    wandb.init(dir="/g/kreshuk/hilt/projects/RLForSeg/results/wandb", project="leptin", entity="aule", config="conf/leptin_configs.yaml")
+    wandb.init(dir="/g/kreshuk/hilt/projects/RLForSeg/results/wandb", project="leptin_agent_edgerew", entity="aule", config="conf/leptin_configs_ssbs.yaml")
     main(wandb.config)

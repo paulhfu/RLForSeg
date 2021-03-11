@@ -20,7 +20,8 @@ from tifffile import imread
 
 tgtdir_train = "/g/kreshuk/hilt/projects/data/leptin_fused_tp1_ch_0/train"
 tgtdir_val = "/g/kreshuk/hilt/projects/data/leptin_fused_tp1_ch_0/val"
-offs = [[1, 0], [0, 1], [2, 0], [0, 2], [3, 0], [0, 3], [4, 0], [0, 4], [8, 0], [0, 8], [16, 0], [0, 16]]
+offs = [[1, 0], [0, 1], [2, 0], [0, 2]]
+# offs = [[1, 0], [0, 1], [2, 0], [0, 2], [3, 0], [0, 3], [4, 0], [0, 4], [8, 0], [0, 8], [16, 0], [0, 16]]
 sep_chnl = 2
 
 def get_data(img, gt, affs, sigma, strides=[4, 4], overseg_factor=1.2, random_strides=False, fname='ex1.h5'):
@@ -119,30 +120,99 @@ def preprocess_data_1():
     pass
 
 def preprocess_data():
-    for dir in [tgtdir_train, tgtdir_val]:
+    for dir in [tgtdir_train]:
         fnames = sorted(glob(os.path.join(dir, 'raw_wtsd/*.h5')))
         pix_dir = os.path.join(dir, 'pix_data')
         graph_dir = os.path.join(dir, 'graph_data')
-        for i, fname in enumerate(fnames):
+        for i in range(len(fnames)):
+            fname = fnames[i]
+            head, tail = os.path.split(fname)
+            num = tail[6:-3]
+            # os.rename(os.path.join(graph_dir, "graph_" + str(i) + ".h5"), os.path.join(graph_dir, "graph_" + num + ".h5"))
+            # os.rename(os.path.join(pix_dir, "pix_" + str(i) + ".h5"), os.path.join(pix_dir, "pix_" + num + ".h5"))
+
+            # if num in ["4", "96", "42", "238", "164", "229", "290", "307", "124", "200"]:
+            #     print(i)
+            # raw = h5py.File(fname, 'r')['raw'][:]
+            # gt = h5py.File(fname, 'r')['wtsd'][:]
+            # affs = torch.from_numpy(h5py.File(os.path.join(dir, 'affinities_01_trainsz', tail[:-3] + '_predictions' + '.h5'), 'r')['predictions'][:]).squeeze(1)
+            graph_file = h5py.File(os.path.join(graph_dir, "graph_" + num + ".h5"), 'r+')
+            pix_file = h5py.File(os.path.join(pix_dir, "pix_" + num + ".h5"), 'r+')
+            # affs = torch.sigmoid(affs).numpy()
+            # 
+            # node_labeling = run_watershed(gaussian_filter(affs[0] + affs[1] + affs[2] + affs[3], sigma=.2), min_size=4)
+            # 
+            # # relabel to consecutive ints starting at 0
+            # node_labeling = torch.from_numpy(node_labeling.astype(np.long))
+            # gt = torch.from_numpy(gt.astype(np.long))
+            # mask = node_labeling[None] == torch.unique(node_labeling)[:, None, None]
+            # node_labeling = (mask * (torch.arange(len(torch.unique(node_labeling)), device=node_labeling.device)[:, None, None] + 1)).sum(
+            #     0) - 1
+            # 
+            # mask = gt[None] == torch.unique(gt)[:, None, None]
+            # gt = (mask * (torch.arange(len(torch.unique(gt)), device=gt.device)[:, None, None] + 1)).sum(0) - 1
+            # 
+            # 
+            # edge_feat, edges = get_edge_features_1d(node_labeling.numpy(), offs, affs)
+            # gt_edge_weights = calculate_gt_edge_costs(torch.from_numpy(edges.astype(np.long)), node_labeling.squeeze(), gt.squeeze(), 0.5)
+            # 
+            # gt_edge_weights = gt_edge_weights.numpy()
+            # gt = gt.numpy()
+            # node_labeling = node_labeling.numpy()
+            # edges = edges.astype(np.long)
+            # 
+            # affs = affs.astype(np.float32)
+            # edge_feat = edge_feat.astype(np.float32)
+            # node_labeling = node_labeling.astype(np.float32)
+            # gt_edge_weights = gt_edge_weights.astype(np.float32)
+            # diff_to_gt = np.abs((edge_feat[:, 0] - gt_edge_weights)).sum()
+            # edges = np.sort(edges, axis=-1)
+            # edges = edges.T
+            # 
+            # 
+            # pix_file.create_dataset("raw", data=raw, chunks=True)
+            # pix_file.create_dataset("gt", data=gt, chunks=True)
+            # #
+            # graph_file.create_dataset("edges", data=edges, chunks=True)
+            # graph_file.create_dataset("edge_feat", data=edge_feat, chunks=True)
+            # graph_file.create_dataset("diff_to_gt", data=diff_to_gt)
+            # graph_file.create_dataset("gt_edge_weights", data=gt_edge_weights, chunks=True)
+            # graph_file.create_dataset("node_labeling", data=node_labeling, chunks=True)
+            # graph_file.create_dataset("affinities", data=affs, chunks=True)
+            # graph_file.create_dataset("offsets", data=np.array([[1, 0], [0, 1], [2, 0], [0, 2]]), chunks=True)
+
+            graph_file.close()
+            pix_file.close()
+
+    pass
+
+def graphs_for_masked_data():
+    for dir in [tgtdir_val]:
+        fnames = sorted(glob(os.path.join(dir, 'raw_wtsd/*.h5')))
+        pix_dir = os.path.join(dir, 'bg_masked_data/pix_data')
+        graph_dir = os.path.join(dir, 'bg_masked_data/graph_data')
+        for i in range(len(fnames)):
+            fname = fnames[i]
+            head, tail = os.path.split(fname)
+            num = tail[6:-3]
             raw = h5py.File(fname, 'r')['raw'][:]
             gt = h5py.File(fname, 'r')['wtsd'][:]
-            head, tail = os.path.split(fname)
-            affs = torch.from_numpy(h5py.File(os.path.join(dir, 'affinities_1', tail[:-3] + '_predictions' + '.h5'), 'r')['predictions'][:]).squeeze(1)
+            affs = torch.from_numpy(h5py.File(os.path.join(dir, 'affinities_01_trainsz', tail[:-3] + '_predictions' + '.h5'), 'r')['predictions'][:]).squeeze(1)
+            graph_file = h5py.File(os.path.join(graph_dir, "graph_" + num + ".h5"), 'a')
+            pix_file = h5py.File(os.path.join(pix_dir, "pix_" + num + ".h5"), 'a')
             affs = torch.sigmoid(affs).numpy()
-            # sep = affs.shape[0] // 2
-            # affs = torch.sigmoid(affs)
-
-            node_labeling = run_watershed(gaussian_filter(affs[0] + affs[1] + affs[2] + affs[3], sigma=.2), min_size=4)
-
-            # relabel to consecutive ints starting at 0
+            #
+            node_labeling = h5py.File(os.path.join(dir, "bg_masked_data/graph_" + num + ".h5"), 'r')["node_labeling"][:]
+            #
+            # # relabel to consecutive ints starting at 0
             node_labeling = torch.from_numpy(node_labeling.astype(np.long))
             gt = torch.from_numpy(gt.astype(np.long))
             mask = node_labeling[None] == torch.unique(node_labeling)[:, None, None]
-            node_labeling = (mask * (torch.arange(len(torch.unique(node_labeling)), device=node_labeling.device)[:, None, None] + 1)).sum(
-                0) - 1
+            node_labeling = (mask * (torch.arange(len(torch.unique(node_labeling)), device=node_labeling.device)[:, None, None] + 1)).sum(0) - 1
 
             mask = gt[None] == torch.unique(gt)[:, None, None]
             gt = (mask * (torch.arange(len(torch.unique(gt)), device=gt.device)[:, None, None] + 1)).sum(0) - 1
+
 
             edge_feat, edges = get_edge_features_1d(node_labeling.numpy(), offs, affs)
             gt_edge_weights = calculate_gt_edge_costs(torch.from_numpy(edges.astype(np.long)), node_labeling.squeeze(), gt.squeeze(), 0.5)
@@ -160,18 +230,17 @@ def preprocess_data():
             edges = np.sort(edges, axis=-1)
             edges = edges.T
 
-            graph_file = h5py.File(os.path.join(graph_dir, "graph_" + str(i) + ".h5"), 'w')
-            pix_file = h5py.File(os.path.join(pix_dir, "pix_" + str(i) + ".h5"), 'w')
 
             pix_file.create_dataset("raw", data=raw, chunks=True)
             pix_file.create_dataset("gt", data=gt, chunks=True)
-
+            #
             graph_file.create_dataset("edges", data=edges, chunks=True)
             graph_file.create_dataset("edge_feat", data=edge_feat, chunks=True)
             graph_file.create_dataset("diff_to_gt", data=diff_to_gt)
             graph_file.create_dataset("gt_edge_weights", data=gt_edge_weights, chunks=True)
             graph_file.create_dataset("node_labeling", data=node_labeling, chunks=True)
             graph_file.create_dataset("affinities", data=affs, chunks=True)
+            graph_file.create_dataset("offsets", data=np.array([[1, 0], [0, 1], [2, 0], [0, 2]]), chunks=True)
 
             graph_file.close()
             pix_file.close()
@@ -213,7 +282,7 @@ def show_labels(hmap):
     plt.show()
 
 if __name__ == "__main__":
-
     # transfer_to_slices_in_files()
-    preprocess_data()
+    # preprocess_data()
+    # graphs_for_masked_data()
     a=1

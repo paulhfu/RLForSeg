@@ -7,10 +7,10 @@ run_id:
   value: mixed_prec
 data_dir:
   desc: train data dir
-  value: /g/kreshuk/hilt/projects/data/leptin_fused_tp1_ch_0/train/bg_masked_data
+  value: /g/kreshuk/hilt/projects/data/toy_lines_ovals/train
 val_data_dir:
   desc: validation data dir
-  value: /g/kreshuk/hilt/projects/data/leptin_fused_tp1_ch_0/val/bg_masked_data
+  value: /g/kreshuk/hilt/projects/data/toy_lines_ovals/val
 agent_model_name:
   desc: if not empty, agent will be initialized with the state dict at this location
   value: '' # agent_model_svpfe.pth
@@ -18,7 +18,7 @@ agent_model_name:
 # embedding network config
 fe_model_name:
   desc: path to state dict of trained model
-  value: /g/kreshuk/hilt/storage/leptin_data_nets/fe_cosine_ls_bn.pth
+  value: /g/kreshuk/hilt/storage/toy_lines_ovals/fe_cosine_ls.pth
 dim_embeddings:
   desc: number of embedding feature channels
   value: 16
@@ -45,13 +45,13 @@ gnn_n_hidden:
   value: 2
 gnn_hl_factor:
   desc: factor by which feature size of hidden featuremaps in gnn increases/decreases
-  value: 30
+  value: 128
 gnn_act_depth:
   desc: num of graph convs (1, 2, 3)
   value: 1
 gnn_act_norm_inp:
   desc: put hidden features on unit sphere and scale by sim
-  value: false
+  value: true
 gnn_crit_depth:
   desc: num of graph convs (1, 2)
   value: 1
@@ -62,28 +62,28 @@ gnn_crit_norm_inp:
 # training config
 T_max:
   desc: Number of training steps
-  value: 50
+  value: 50000
 mem_size:
   desc: Mem size in replay memory buffer
-  value: 5
+  value: 100
 data_update_frequency:
   desc: update env data after n steps
-  value: 40
+  value: 100
 post_stats_frequency:
   desc: post logs after n steps
-  value: 1
+  value: 10
 validatoin_freq:
   desc: validate after n steps
-  value: 50
+  value: 500
 n_updates_per_step:
   desc: perform n optim steps per env step
-  value: 2
+  value: 10
 n_explorers:
   desc: n experience explorer threads
   value: 4
 batch_size:
   desc: num samples in minibatch
-  value: 1
+  value: 2
 
 # conf for lr scheduling
 lr_sched:
@@ -103,19 +103,19 @@ patch_manager:
   desc: if training should happen on patches, this is the config for the patch manager
   value:
     name: none # rotated, no_cross, none
-    reorder_sp: false
+    reorder_sp: true
 
 
 # specific configs for the sac algorithm
 reward_function:
-  desc: one of sub_graph_dice, leptin_dataTurningFunc, leptin_dataEllipticFit, leptin_dataTurningWithEllipses
-  value: leptin_dataTurningWithEllipses
+  desc: one of sub_graph_dice, artificial_cellsTurningFunc, artificial_cellsEllipticFit
+  value: artificial_cellsTurningFunc
 gt_edge_overlap_thresh:
   desc: if using gt edges this is the overlap thresh of the underlying gt for a gt edge to be 1
   value: 0.5
 s_subgraph:
   desc: subgraph sizes
-  value: [8, 16] # [8, 16, 32, 64]
+  value: [2, 4, 8] # [8, 16, 32, 64]
 entropy_range:
   desc: range of the min entropy constraint
   value: [0.05, 2.0]
@@ -133,7 +133,7 @@ actor_update_frequency:
   value: 1
 actor_update_after:
   desc: update actor after critic has been warmed up
-  value: 0
+  value: 1
 critic_lr:
   desc: learning rate for critic opr
   value: 0.02467

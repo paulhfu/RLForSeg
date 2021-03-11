@@ -20,6 +20,10 @@ class Counter():
     with self.lock:
       self.val.value += 1
 
+  def set(self, val):
+    with self.lock:
+      self.val.value = val
+
   def reset(self):
     with self.lock:
       self.val.value = 0
