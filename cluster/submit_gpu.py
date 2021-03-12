@@ -131,7 +131,6 @@ def submit_slurm(script, input_, n_threads=2, n_gpus=1,
     env_lib = env_lib[0]
     pythonexec = os.path.join("/", *os.path.normpath(env_lib).split(os.sep)[:-3], "bin/python")
 
-
     lib_replacement_script = "./cluster/replace_torch.py"
     tmp_folder = os.path.join(base_dir, 'slurm_logs')
     os.makedirs(tmp_folder, exist_ok=True)

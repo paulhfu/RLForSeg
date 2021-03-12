@@ -83,7 +83,7 @@ n_explorers:
   value: 1
 batch_size:
   desc: num samples in minibatch
-  value: 2
+  value: 1
 
 # conf for lr scheduling
 lr_sched:
