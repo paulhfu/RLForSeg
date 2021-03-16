@@ -122,9 +122,9 @@ reward_function:
 gt_edge_overlap_thresh:
   desc: if using gt edges this is the overlap thresh of the underlying gt for a gt edge to be 1
   value: 0.5
-s_subgraph:
-  desc: subgraph sizes
-  value: [2, 4, 8] # [8, 16, 32, 64]
+#s_subgraph:
+#  desc: subgraph sizes
+#  value: [2, 4, 8] # [8, 16, 32, 64]
 entropy_range:
   desc: range of the min entropy constraint
   value: [0.05, 2.0]
@@ -133,10 +133,10 @@ init_temperature:
   value: 0.1
 alpha_lr:
   desc: learning rate for alpha opt
-  value: 0.03921
+  value: 0.0001
 actor_lr:
   desc: learning rate for actor opt
-  value: 0.001356
+  value: 0.0001
 actor_update_frequency:
   desc: optim every n-th step
   value: 1
@@ -145,7 +145,7 @@ actor_update_after:
   value: 1
 critic_lr:
   desc: learning rate for critic opr
-  value: 0.02467
+  value: 0.0001
 critic_tau:
   desc: update weight for target update
   value: 0.005

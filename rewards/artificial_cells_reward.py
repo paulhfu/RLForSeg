@@ -35,7 +35,7 @@ class ArtificialCellsReward(RewardFunctionAbc):
 
             self.gt_descriptors.append(Polygon2d(poly_approx))
 
-    def __call__(self, prediction_segmentation, superpixel_segmentation, res, dir_edges, *args, **kwargs):
+    def __call__(self, prediction_segmentation, superpixel_segmentation, res, dir_edges, edge_score, *args, **kwargs):
         dev = prediction_segmentation.device
         return_scores = []
         inner_halo_mask = torch.zeros(superpixel_segmentation.shape[1:], device=dev)
@@ -107,9 +107,12 @@ class ArtificialCellsReward(RewardFunctionAbc):
             #     for bg_sp_id in bg_sp_ids:
             #         scores[bg_sp_id] += .2
 
-            edges = s_dir_edges[:, :int(s_dir_edges.shape[1] / 2)]
-            edge_scores = scores[edges].max(dim=0).values
-            return_scores.append(edge_scores)
+            if edge_score:
+                edges = s_dir_edges[:, :int(s_dir_edges.shape[1] / 2)]
+                edge_scores = scores[edges].max(dim=0).values
+                return_scores.append(edge_scores)
+            else:
+                return_scores.append(scores)
             #return scores for each superpixel
 
         return torch.cat(return_scores)
@@ -137,7 +140,7 @@ class ArtificialCellsReward2DEllipticFit(RewardFunctionAbc):
         self.expected_ratio = self.expected_width / self.expected_height
 
 
-    def __call__(self, prediction_segmentation, superpixel_segmentation, res, dir_edges, *args, **kwargs):
+    def __call__(self, prediction_segmentation, superpixel_segmentation, res, dir_edges, edge_score, *args, **kwargs):
         dev = prediction_segmentation.device
         return_scores = []
 
@@ -146,17 +149,16 @@ class ArtificialCellsReward2DEllipticFit(RewardFunctionAbc):
             if single_pred.max() == 0:  # image is empty
                 return_scores.append(scores - 0.5)
                 continue
-            # get one-hot representation
+            # get one-hot representation. One mask for each object in the predictions
             one_hot = torch.zeros((int(single_pred.max()) + 1, ) + single_pred.size(), device=dev, dtype=torch.long) \
                 .scatter_(0, single_pred[None], 1)
 
             # need masses to determine what objects can be considered background
             label_masses = one_hot.flatten(1).sum(-1)
-            bg_mask = torch.zeros_like(label_masses).bool()
-            bg_id = label_masses.argmax()
-            bg_mask[bg_id] = True
-            # get the objects that are torching the patch boarder as for them we cannot compute a relieable sim score
-            false_obj_mask = (label_masses < 15) | (label_masses > 50**2)
+            bg_mask = torch.zeros_like(label_masses).bool()  # prepare a label for the background
+            bg_id = label_masses.argmax()  # determine largest object (is suspected to be background)
+            bg_mask[bg_id] = True  # set the prospective bg labels to true
+            false_obj_mask = (label_masses < 15) | (label_masses > 50**2)  # if masses are too large or too small we can be sure these are false objects
             false_obj_mask[bg_id] = False
             # everything else are potential objects
             potenial_obj_mask = (false_obj_mask == False)
@@ -165,10 +167,11 @@ class ArtificialCellsReward2DEllipticFit(RewardFunctionAbc):
 
             bg = one_hot[bg_id]  # get background masks
             objects = one_hot[potential_object_ids]  # get object masks
+            # get the label IDs for the object classes
             false_obj_sp_ids = torch.unique((single_sp_seg[None] + 1) * one_hot[false_obj_mask])[1:] - 1
-            # bg_sp_ids = [torch.unique((single_sp_seg[None] + 1) * bg_obj)[1:] - 1 for bg_obj in bg]  # mask out the covered superpixels (need to add 1 because the single_sp_seg start from 0)
             object_sp_ids = [torch.unique((single_sp_seg[None] + 1) * obj)[1:] - 1 for obj in objects]
 
+            # iterate over all eventual objects
             for object, obj_id, sp_ids in zip(objects, potential_object_ids, object_sp_ids):
                 try:
                     contour = find_contours(object.cpu().numpy(), level=0)
@@ -180,8 +183,8 @@ class ArtificialCellsReward2DEllipticFit(RewardFunctionAbc):
                     print(e)
                     scores[sp_ids] -= 0.1
                     continue
-                poly_chain = torch.from_numpy(approximate_polygon(contour, tolerance=0.0)).to(dev)
-                if poly_chain.shape[0] <= 5:
+                poly_chain = torch.from_numpy(approximate_polygon(contour, tolerance=0.0)).to(dev)  # get the polygonal chain from the contour (contour might be very long,polygonal chain removes unnecessary points)
+                if poly_chain.shape[0] <= 5:  # check if this might be a valid object
                     print("WARNING polychain too small")
                     scores[sp_ids] -= 0.1
                     continue
@@ -189,11 +192,11 @@ class ArtificialCellsReward2DEllipticFit(RewardFunctionAbc):
 
                 try:
                     ellipseT = fitEllipse(contour.astype(np.int))
-                    ratio = ellipseT[1][1] / (ellipseT[1][0] + 1e-10)
-                    ratio_diff = abs(self.expected_ratio - ratio)
-                    len_diff = abs(self.expected_width - ellipseT[1][1]) + abs(ellipseT[1][0] - self.expected_height)
+                    ratio = ellipseT[1][1] / (ellipseT[1][0] + 1e-10)  # calculate the reatio of the ellipsis two main axes
+                    ratio_diff = abs(self.expected_ratio - ratio)  # see how much this differs from our expected ratio
+                    len_diff = abs(self.expected_width - ellipseT[1][1]) + abs(ellipseT[1][0] - self.expected_height)  # check each axis for themselves
 
-                    if len_diff < (self.expected_width + self.expected_height):
+                    if len_diff < (self.expected_width + self.expected_height):  # according to the scale of the diff we penalize differently
                         if ratio_diff > self.expected_ratio / 2:
                             score += 0.1
                         elif ratio_diff > self.expected_ratio / 3:
@@ -213,13 +216,16 @@ class ArtificialCellsReward2DEllipticFit(RewardFunctionAbc):
                 # plt.imshow(object.cpu()[..., None] * 200 + cv2.ellipse(np.zeros(shape=[256, 256, 3], dtype=np.uint8), ellipse, (23, 184, 80), 3))
                 # plt.show()
 
-                scores[sp_ids] += score
-            if len(false_obj_sp_ids) > 0:
+                scores[sp_ids] += score  # assign our calculated scores to each superpixel label id that is in the object
+            if len(false_obj_sp_ids) > 0:  # penalize all objects which have the wrong mass
                 scores[false_obj_sp_ids] -= 0.5
-            edges = s_dir_edges[:, :int(s_dir_edges.shape[1] / 2)]
-            edge_scores = scores[edges].max(dim=0).values
-            return_scores.append(edge_scores)
-        return torch.cat(return_scores)
+            if edge_score:  # if we want a score per edge we do the tf from sp to edges
+                edges = s_dir_edges[:, :int(s_dir_edges.shape[1] / 2)]  # for each undirected edge get the scores of the two incidental superpixels
+                edge_scores = scores[edges].max(dim=0).values  # from this two scores select the max
+                return_scores.append(edge_scores)
+            else:
+                return_scores.append(scores)
+        return torch.cat(return_scores)  # collect all scores
 
 if __name__ == "__main__":
     import h5py

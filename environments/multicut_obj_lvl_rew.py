@@ -6,16 +6,17 @@ import h5py
 import os
 import wandb
 import matplotlib.pyplot as plt
-import networkx as nx
+from matplotlib import cm
 from glob import glob
 from elf.segmentation.multicut import multicut_kernighan_lin
 from elf.segmentation.features import project_node_labels_to_pixels
+from rag_utils import find_dense_subgraphs
 
-from rewards.leptin_obj_reward_2d import LeptinDataReward2DTurningWithEllipses
-from utils.graphs import collate_edges, get_angles_smass_in_rag
-from utils.general import pca_project, random_label_cmap, get_contour_from_2d_binary
-from utils.pt_gaussfilter import GaussianSmoothing
-import torch.nn.functional as F
+from rewards.artificial_cells_reward import ArtificialCellsReward, ArtificialCellsReward2DEllipticFit
+from rewards.leptin_data_reward_2d import LeptinDataReward2DTurning, LeptinDataReward2DEllipticFit, LeptinDataReward2DTurningWithEllipses
+from utils.reward_functions import UnSupervisedReward, SubGraphDiceReward
+from utils.graphs import collate_edges, get_edge_indices, get_angles_smass_in_rag
+from utils.general import get_angles, pca_project, random_label_cmap
 
 State = collections.namedtuple("State", ["node_embeddings", "edge_ids", "edge_angles", "sp_feat", "obj_edge_ind_critic",
                                          "obj_node_mask_critic", "obj_edge_mask_actor", "gt_edge_weights"])
@@ -30,8 +31,34 @@ class MulticutEmbeddingsEnv():
         self.device = device
         self.last_final_reward = torch.tensor([0.0])
         self.max_p = torch.nn.MaxPool2d(3, padding=1, stride=1)
-        self.reward_function = LeptinDataReward2DTurningWithEllipses()
-        self.gauss_kernel = GaussianSmoothing(1, 5, 3, device=device)
+        if self.cfg.reward_function == 'sub_graph_dice':
+            self.reward_function = SubGraphDiceReward()
+        elif 'artificial_cells' in self.cfg.reward_function:
+            fnames_pix = sorted(glob(os.path.join(self.cfg.data_dir, 'pix_data/*.h5')))
+            gts = [torch.from_numpy(h5py.File(fnames_pix[7], 'r')['gt'][:]).to(device)]
+            # gts.append(torch.from_numpy(h5py.File(fnames_pix[3], 'r')['gt'][:]).to(device))
+            sample_shapes = []
+            for gt in gts:
+                # set gt to consecutive integer labels
+                _gt = torch.zeros_like(gt).long()
+                for _lbl, lbl in enumerate(torch.unique(gt)):
+                    _gt += (gt == lbl).long() * _lbl
+                gt = _gt
+                sample_shapes.append(torch.zeros((int(gt.max()) + 1,) + gt.size(), device=device).scatter_(0, gt[None], 1)[
+                                     1:])  # 0 should be background
+            if 'EllipticFit' in self.cfg.reward_function:
+                self.reward_function = ArtificialCellsReward2DEllipticFit(torch.cat(sample_shapes))
+            else:
+                self.reward_function = ArtificialCellsReward(torch.cat(sample_shapes))
+        elif 'leptin_data' in self.cfg.reward_function:
+            if 'TurningWithEllipses' in self.cfg.reward_function:
+                self.reward_function = LeptinDataReward2DTurningWithEllipses()
+            elif 'EllipticFit' in self.cfg.reward_function:
+                self.reward_function = LeptinDataReward2DEllipticFit()
+            else:
+                self.reward_function = LeptinDataReward2DTurning()
+        else:
+            assert False
 
 
     def execute_action(self, actions, logg_vals=None, post_stats=False, post_images=False, tau=None, train=True):
@@ -40,7 +67,7 @@ class MulticutEmbeddingsEnv():
         self.current_soln, obj_edge_ind_critic, obj_node_mask_critic, obj_edge_mask_actor = self.get_current_soln(self.current_edge_weights)
 
         if 'artificial_cells' in self.cfg.reward_function or 'leptin_data' in self.cfg.reward_function:
-            sp_reward = self.reward_function(self.current_soln.long(), self.init_sp_seg.long(), dir_edges=self.dir_edge_ids, res=100)
+            sp_reward = self.reward_function(self.current_soln.long(), self.init_sp_seg.long(), dir_edges=self.dir_edge_ids, edge_score=False, res=100)
             object_weights = obj_node_mask_critic.sum(1)
             reward = [(sp_reward[None] * obj_node_mask_critic).sum(1) / object_weights]
             reward.append(self.last_final_reward)
@@ -93,7 +120,7 @@ class MulticutEmbeddingsEnv():
         # edge_img = F.pad(get_contour_from_2d_binary(sp_seg[:, None].float()), (2, 2, 2, 2), mode='constant')
         # edge_img = self.gauss_kernel(edge_img.float())
         self.rags = rags
-        self.gt_seg, self.init_sp_seg = gt, sp_seg
+        self.gt_seg, self.init_sp_seg = gt.squeeze(1), sp_seg.squeeze(1)
         self.raw = raw
         with torch.set_grad_enabled(False):
             self.embeddings = self.embedding_net(raw)

@@ -58,9 +58,7 @@ class MulticutEmbeddingsEnv():
             else:
                 self.reward_function = LeptinDataReward2DTurning()
         else:
-            self.reward_function = UnSupervisedReward(env=self)
-        if "+sub_graph_dice" in self.cfg.reward_function:
-            self.reward_function_sgd = SubGraphDiceReward()
+            assert False
 
 
     def execute_action(self, actions, logg_vals=None, post_stats=False, post_images=False, tau=None, train=True):
@@ -72,8 +70,7 @@ class MulticutEmbeddingsEnv():
             reward = []
             # sp_reward = self.reward_function(self.current_soln.long(), self.init_sp_seg.long(), dir_edges=self.dir_edge_ids,
             #                                  res=100)
-            edge_reward = self.reward_function(self.current_soln.long(), self.init_sp_seg.long(), dir_edges=self.dir_edge_ids,
-                                             res=100)
+            edge_reward = self.reward_function(self.current_soln.long(), self.init_sp_seg.long(), dir_edges=self.dir_edge_ids, edge_score=True, res=100)
             for i, sz in enumerate(self.cfg.s_subgraph):
                 # reward.append((sp_reward[self.edge_ids][:, self.subgraph_indices[i].view(-1, sz)].sum(0) / 2).mean(1))
                 reward.append(edge_reward[self.subgraph_indices[i].view(-1, sz)].mean(1))
