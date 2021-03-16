@@ -18,7 +18,7 @@ from utils.reward_functions import UnSupervisedReward, SubGraphDiceReward
 from utils.graphs import collate_edges, get_edge_indices, get_angles_smass_in_rag
 from utils.general import get_angles, pca_project, random_label_cmap
 
-State = collections.namedtuple("State", ["node_embeddings", "edge_ids", "edge_angles", "sup_masses", "subgraph_indices", "sep_subgraphs", "round_n", "gt_edge_weights"])
+State = collections.namedtuple("State", ["node_embeddings", "edge_ids", "edge_angles", "sp_feat", "subgraph_indices", "sep_subgraphs", "round_n", "gt_edge_weights"])
 class MulticutEmbeddingsEnv():
 
     def __init__(self, embedding_net, cfg, device):
@@ -46,14 +46,14 @@ class MulticutEmbeddingsEnv():
                 gt = _gt
                 sample_shapes.append(torch.zeros((int(gt.max()) + 1,) + gt.size(), device=device).scatter_(0, gt[None], 1)[
                                      1:])  # 0 should be background
-            if 'TurningWithEllipses' in self.cfg.reward_function:
-                self.reward_function = LeptinDataReward2DTurningWithEllipses(torch.cat(sample_shapes))
-            elif 'EllipticFit' in self.cfg.reward_function:
+            if 'EllipticFit' in self.cfg.reward_function:
                 self.reward_function = ArtificialCellsReward2DEllipticFit(torch.cat(sample_shapes))
             else:
                 self.reward_function = ArtificialCellsReward(torch.cat(sample_shapes))
         elif 'leptin_data' in self.cfg.reward_function:
-            if 'EllipticFit' in self.cfg.reward_function:
+            if 'TurningWithEllipses' in self.cfg.reward_function:
+                self.reward_function = LeptinDataReward2DTurningWithEllipses()
+            elif 'EllipticFit' in self.cfg.reward_function:
                 self.reward_function = LeptinDataReward2DEllipticFit()
             else:
                 self.reward_function = LeptinDataReward2DTurning()
@@ -139,7 +139,7 @@ class MulticutEmbeddingsEnv():
         return reward
 
     def get_state(self):
-        return State(self.current_node_embeddings, self.edge_ids, self.edge_angles, self.sup_masses, self.subgraph_indices, self.sep_subgraphs, self.counter, self.gt_edge_weights)
+        return State(self.current_node_embeddings, self.edge_ids, self.edge_angles, self.sp_feat, self.subgraph_indices, self.sep_subgraphs, self.counter, self.gt_edge_weights)
 
     def update_data(self, raw, gt, edge_ids, gt_edges, sp_seg, fe_grad, rags, edge_features, *args, **kwargs):
         bs = raw.shape[0]
@@ -154,8 +154,8 @@ class MulticutEmbeddingsEnv():
                                                   for embed, sp in zip(self.embeddings, self.init_sp_seg)], dim=0)
 
         subgraphs, self.sep_subgraphs = [], []
-        edge_angles, sup_masses, sup_com = zip(*[get_angles_smass_in_rag(edge_ids[i], self.init_sp_seg[i]) for i in range(bs)])
-        self.edge_angles, self.sup_masses, self.sup_com = torch.cat(edge_angles).unsqueeze(-1), torch.cat(sup_masses).unsqueeze(-1), torch.cat(sup_com)
+        edge_angles, sp_feat = zip(*[get_angles_smass_in_rag(edge_ids[i], self.init_sp_seg[i]) for i in range(bs)])
+        self.edge_angles, self.sp_feat = torch.cat(edge_angles).unsqueeze(-1), torch.cat(sp_feat)
 
         _subgraphs, _sep_subgraphs = find_dense_subgraphs([eids.transpose(0, 1).cpu().numpy() for eids in edge_ids], self.cfg.s_subgraph)
         _subgraphs = [torch.from_numpy(sg.astype(np.int64)).to(dev).permute(2, 0, 1) for sg in _subgraphs]

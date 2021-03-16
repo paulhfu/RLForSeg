@@ -230,18 +230,18 @@ class EdgeConvNoNodes(EdgeMessagePassing):
 
 class NodeConv(EdgeMessagePassing):
     def __init__(self, n_channels_in, n_channels_out, distance=None, n_hidden_layer=0, hl_factor=128, start_bn_nl=True,
-                 normalize_input=False):
+                 normalize_input=False, n_edge_channels_in=0):
         super(NodeConv, self).__init__(aggr='mean')
 
         m = 2
         self.distance = distance
         self.normalize_input = normalize_input
         if start_bn_nl:
-            hli = [torch.nn.BatchNorm1d(n_channels_in * m, track_running_stats=False)]
+            hli = [torch.nn.BatchNorm1d(n_channels_in * m + n_edge_channels_in, track_running_stats=False)]
             hli.append(torch.nn.LeakyReLU())
-            hli.append(torch.nn.Linear(n_channels_in * m, hl_factor * (m + 2)))
+            hli.append(torch.nn.Linear(n_channels_in * m + n_edge_channels_in, hl_factor * (m + 2)))
         else:
-            hli = [torch.nn.Linear(n_channels_in * m, hl_factor * (m + 2))]
+            hli = [torch.nn.Linear(n_channels_in * m + n_edge_channels_in, hl_factor * (m + 2))]
         m += 2
         for i in range(n_hidden_layer):
             hli.append(torch.nn.BatchNorm1d(hl_factor * m, track_running_stats=False))
@@ -268,11 +268,14 @@ class NodeConv(EdgeMessagePassing):
 
         self.lin_outer = torch.nn.Sequential(OrderedDict([("hl"+str(i), l) for i, l in enumerate(hlo)]))
 
-    def forward(self, x, edge_index):
-        return self.propagate(edge_index, size=(x.size(0), x.size(0)), x=x)
+    def forward(self, x, edge_index, edge_feats=None):
+        return self.propagate(edge_index, size=(x.size(0), x.size(0)), x=x, edge_feats=edge_feats)
 
-    def message(self, x_i, x_j, edge_index, size):
-        feat = torch.cat((x_i, x_j), -1)
+    def message(self, x_i, x_j, edge_index, size, edge_feats):
+        if edge_feats is not None:
+            feat = torch.cat((x_i, x_j, edge_feats), -1)
+        else:
+            feat = torch.cat((x_i, x_j), -1)
         if self.normalize_input:
             feat = feat / (torch.norm(feat, dim=-1, keepdim=True) + 1e-6)
             if self.distance is not None and self.distance.has_normed_similarity:

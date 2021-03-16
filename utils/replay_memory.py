@@ -42,6 +42,8 @@ class TransitionData_ts(object):
         self._max_loss = 1e-10
         self._mtx = Lock()
         self.is_full_event = Event()
+        self.reset_event = Event()
+        self.reset_event.set()
         self._push_count = 0
 
     def __reduce__(self):
@@ -71,11 +73,11 @@ class TransitionData_ts(object):
             self._losses.append(self._max_loss)
             self._memory[self._position] = Transition_ts(*args)
             self._position += 1
-            if self._position >= self._cap and not self.is_full_event.is_set():
-                self.is_full_event.set()
             self._push_count += 1
         finally:
             self._mtx.release()
+        if self._position >= self._cap and not self.is_full_event.is_set():
+            self.is_full_event.set()
 
     def is_full(self):
         if self._position >= self._cap:
@@ -118,10 +120,14 @@ class TransitionData_ts(object):
             self._mtx.release()
 
     def clear(self):
-        self._memory = []
-        self._sample_counts = []
-        self._losses = []
-        self._position = 0
+        self._mtx.acquire()
+        try:
+            self._memory = []
+            self._sample_counts = []
+            self._losses = []
+            self._position = 0
+        finally:
+            self._mtx.release()
 
     def __len__(self):
         return len(self._memory)

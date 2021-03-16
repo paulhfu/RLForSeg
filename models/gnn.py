@@ -152,6 +152,34 @@ class QGnn(nn.Module):
         return edge_features, side_loss
 
 
+class QNodeGnn(nn.Module):
+    def __init__(self, n_node_in_features, n_edge_in_features, n_out_features, n_hidden_layer, hl_factor, distance,
+                 device, name, depth, normalize_input, start_bn_nl=False):
+        super(QNodeGnn, self).__init__()
+        self.name = name
+        self.device = device
+        self.depth = depth
+        if depth==1:
+            self.node_conv1 = NodeConv(n_node_in_features, n_node_in_features, distance=distance, normalize_input=False,
+                                       n_hidden_layer=n_hidden_layer, hl_factor=hl_factor, start_bn_nl=start_bn_nl,
+                                       n_edge_channels_in=n_edge_in_features)
+        if depth==2:
+            self.node_conv1 = NodeConv(n_node_in_features, n_node_in_features, distance=distance, normalize_input=False,
+                                       n_hidden_layer=n_hidden_layer, hl_factor=hl_factor, start_bn_nl=start_bn_nl,
+                                       n_edge_channels_in=n_edge_in_features)
+            self.node_conv2 = NodeConv(n_node_in_features, n_node_in_features, distance=distance, normalize_input=normalize_input,
+                                       n_hidden_layer=n_hidden_layer, hl_factor=hl_factor)
+            self.node_conv3 = NodeConv(n_node_in_features, n_out_features, distance=distance, normalize_input=normalize_input,
+                                       n_hidden_layer=n_hidden_layer, hl_factor=hl_factor)
+
+    def forward(self, node_features, edge_features, edge_index, gt_edges, post_data=False):
+        node_features = self.node_conv1(node_features, edge_index, edge_features)
+        if self.depth == 2:
+            node_features = self.node_conv2(node_features, edge_index, edge_features)
+            node_features = self.node_conv3(node_features, edge_index, edge_features)
+        return node_features
+
+
 class GlobalEdgeGnn(nn.Module):
     def __init__(self, n_in_features, n_out_features, n_conv_its, hl_factor, device):
         super(GlobalEdgeGnn, self).__init__()
@@ -174,3 +202,22 @@ class GlobalEdgeGnn(nn.Module):
         edge_features, side_loss = self.edge_conv(node_features, edge_index)
 
         return edge_features, side_loss
+
+class GlobalNodeGnn(nn.Module):
+    def __init__(self, n_in_features, n_out_features, n_conv_its, hl_factor, device):
+        super(GlobalNodeGnn, self).__init__()
+        self.device = device
+
+        self.n_in_channels = n_in_features
+        self.node_conv = []
+        for i in range(n_conv_its):
+            if i == n_conv_its - 1:
+                self.node_conv.append(NodeConv(n_in_features, n_out_features, n_hidden_layer=0, hl_factor=hl_factor))
+            else:
+                self.node_conv.append(NodeConv(n_in_features, n_in_features, n_hidden_layer=0, hl_factor=hl_factor))
+            super(GlobalNodeGnn, self).add_module(f"node_conv_{i}", self.node_conv[-1])
+
+    def forward(self, node_features, edge_index):
+        for conv in self.node_conv:
+            node_features = node_features + conv(node_features, edge_index)
+        return node_features

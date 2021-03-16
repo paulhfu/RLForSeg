@@ -13,9 +13,10 @@ import warnings
 
 
 class SpgDset(torch_data.Dataset):
-    def __init__(self, root_dir, patch_mngr, n_edges_min=0):
+    def __init__(self, root_dir, patch_mngr, keys, n_edges_min=0):
         """ dataset for loading images (raw, gt, superpixel segs) and according rags"""
         # self.transform = torchvision.transforms.Normalize(0, 1, inplace=False)
+        self.keys = keys
         self.graph_dir = os.path.join(root_dir, 'graph_data')
         self.pix_dir = os.path.join(root_dir, 'pix_data')
         self.graph_file_names = sorted(glob(os.path.join(self.graph_dir, "*.h5")))
@@ -59,17 +60,19 @@ class SpgDset(torch_data.Dataset):
         pix_file = h5py.File(self.pix_file_names[img_idx], 'r')
         graph_file = h5py.File(self.graph_file_names[img_idx], 'r')
 
-        raw = pix_file["raw"][:]
+        raw = pix_file[self.keys.raw][:].squeeze()
         if raw.ndim == 2:
             raw = torch.from_numpy(raw.astype(np.float)).float()[None]
-        else:
+        elif raw.shape[-1] == 3:
             raw = torch.from_numpy(raw.astype(np.float)).permute(2, 0, 1).float()
+        else:
+            raw = torch.from_numpy(raw.astype(np.float)).float()
 
-        raw -= raw.min()
-        raw /= raw.max()
+        # raw -= raw.min()
+        # raw /= raw.max()
 
-        gt = torch.from_numpy(pix_file["gt"][:].astype(np.float))
-        sp_seg = torch.from_numpy(graph_file["node_labeling"][:].astype(np.float))
+        gt = torch.from_numpy(pix_file[self.keys.gt][:].astype(np.float))
+        sp_seg = torch.from_numpy(graph_file[self.keys.node_labeling][:].astype(np.float))
 
         all = torch.cat([raw, gt[None], sp_seg[None]], 0)
         patch = self.pm.get_patch(all, patch_idx)
@@ -90,7 +93,7 @@ class SpgDset(torch_data.Dataset):
         return patch[:-2].float(), gt.long()[None], sp_seg.long()[None], torch.tensor([img_idx])
 
     def get_graphs(self, indices, patches, device="cpu"):
-        edges, edge_feat, diff_to_gt, gt_edge_weights = [], [], [], []
+        edges, edge_feat,  gt_edge_weights = [], [], []
         for i, patch in zip(indices, patches):
             nodes = torch.unique(patch).unsqueeze(-1).unsqueeze(-1)
             try:
@@ -98,19 +101,18 @@ class SpgDset(torch_data.Dataset):
             except Exception as e:
                 warnings.warn("could not find dataset")
 
-            es = torch.from_numpy(graph_file["edges"][:]).to(device)
+            es = torch.from_numpy(graph_file[self.keys.edges][:]).to(device)
             iters = (es.unsqueeze(0) == nodes).float().sum(0).sum(0) >= 2
             es = es[:, iters]
             squeeze_repr(nodes.squeeze(-1).squeeze(-1), es, patch.squeeze(0))
 
             edges.append(es)
-            edge_feat.append(torch.from_numpy(graph_file["edge_feat"][:]).to(device)[iters])
-            diff_to_gt.append(torch.tensor(graph_file["diff_to_gt"][()], device=device))
-            gt_edge_weights.append(torch.from_numpy(graph_file["gt_edge_weights"][:]).to(device)[iters])
+            edge_feat.append(torch.from_numpy(graph_file[self.keys.edge_feat][:]).to(device)[iters])
+            gt_edge_weights.append(torch.from_numpy(graph_file[self.keys.gt_edge_weights][:]).to(device)[iters])
 
             if es.shape[1] < self.n_edges_min:
                 return None
-        return edges, edge_feat, diff_to_gt, gt_edge_weights
+        return edges, edge_feat, gt_edge_weights
 
 
 if __name__ == "__main__":
