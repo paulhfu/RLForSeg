@@ -21,9 +21,6 @@ def update_env_data(env, dloader, cfg, device, with_gt_edges=False, fe_grad=Fals
     rags = [compute_rag(sseg.numpy()) for sseg in sp_seg]
     edges = [torch.from_numpy(rag.uvIds().astype(np.long)).T.to(device) for rag in rags]
     raw, gt, sp_seg = raw.to(device), gt.to(device), sp_seg.to(device)
-    if not all([e.shape[-1] > cfg.s_subgraph[-1] for e in edges]):
-        print("ERROR not enough edges, subgraph generation will fail")
-        assert False
     if with_gt_edges:
         _edges, edge_feat, _, gt_edges = dloader.dataset.get_graphs(indices, sp_seg, device)
         for e1, e2 in zip(edges, _edges):
@@ -123,13 +120,14 @@ class Forwarder():
         pass
 
     def forward(self, model, state, state_class, device, actions=None, grad=True, post_data=False, policy_opt=False,
-                      return_node_features=False):
+                      return_node_features=False, expl_action=None):
         with torch.set_grad_enabled(grad):
             state = state_to_cuda(state, device, state_class)
             if actions is not None:
                 actions = actions.to(model.device)
             ret = model(state,
                         actions,
+                        expl_action,
                         post_data,
                         policy_opt and grad,
                         return_node_features)

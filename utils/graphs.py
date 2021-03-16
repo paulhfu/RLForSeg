@@ -1,6 +1,7 @@
 import torch
 import numpy as np
 import vigra
+import math
 from elf.segmentation.watershed import watershed, apply_size_filter
 import matplotlib.pyplot as plt
 
@@ -62,26 +63,31 @@ def squeeze_repr(nodes, edges, seg):
 
 def get_angles_smass_in_rag(edges, segmentation):
     """
-    calculates the angles in a region adjacency graph based on the center of mass of each sp.
-    Batches are not supported.
-    :param edges: torch.Tensor storing the undirectional edges in the rag
-    :param segmentation: torch.Tensor storing a single segmentation images
-    :return: for each undirectional edge two angles of the line going through the center of masses of the incidental nodes
-    and the x-axis w.r.t. each node. W.r.t. the first and the second node is in first and second half of result respectively
-    the second return value are the masses of the superpixels
+        CAUTION: this is specificly targeted for the leptin dataset
     """
+    sigm_flatness = torch.numel(segmentation) / 500
+    sigm_shift = 0.8
+    c_norm = math.sqrt(segmentation.shape[-1]**2 + segmentation.shape[-2]**2) / 8
     nodes = torch.unique(segmentation)
     sup_sizes = torch.empty((len(nodes), ) , dtype=torch.float, device=edges.device)
     cms = torch.empty((len(nodes), 2), dtype=torch.float, device=edges.device)
-    for i, (n, mask) in enumerate(zip(nodes, segmentation.unsqueeze(0) == nodes.unsqueeze(-1).unsqueeze(-1))):
+    for i, (n, mask) in enumerate(zip(nodes, segmentation[None] == nodes[:, None, None])):
         idxs = torch.where(mask)
         sup_sizes[i] = mask.sum().float()
-        cms[i] = torch.stack([torch.sum(idxs[0]), torch.sum(idxs[1])]) / (sup_sizes[i] + np.finfo(float).eps)
+        cart_cms = torch.stack([torch.sum(idxs[0]), torch.sum(idxs[1])]) / (sup_sizes[i] + np.finfo(float).eps)
+        a = ((mask.shape[1] / 2) - cart_cms[1])
+        b = (cart_cms[0] - (mask.shape[0] / 2))
+        c = torch.sigmoid(torch.sqrt(a**2 + b**2) / c_norm - 1) * 2 - 1
+        ang = torch.atan(a/(b + 1e-10)) + np.pi/2
+        ang = -ang if a < 0 else ang
+        ang /= np.pi
+        cms[i] = torch.stack([ang, c])
 
     vec = cms[edges[0]] - cms[edges[1]]
     angles = torch.atan(vec[:, 0] / (vec[:, 1] + np.finfo(float).eps))
     angles = 2 * angles / np.pi
-    return angles, sup_sizes / sup_sizes.max(), cms
+    sup_sizes = torch.sigmoid(sup_sizes / sigm_flatness - sigm_shift) * 2 - 1
+    return angles, torch.cat([sup_sizes[:, None], cms], 1)
 
 
 def get_joint_sg_logprobs_edges(logprobs, scale, obs, sg_ind, sz):

@@ -13,14 +13,13 @@ from matplotlib import cm
 from multiprocessing import Process, Lock
 import threading
 
-from environments.multicut import MulticutEmbeddingsEnv, State
+from environments.multicut_obj_lvl_rew import MulticutEmbeddingsEnv, State
 from data.spg_dset import SpgDset
-from models.agent_model import Agent
+from models.agent_model_obj_lvl import Agent
 from models.feature_extractor import FeExtractor
 from utils.exploration_functions import RunningAverage
 from utils.general import soft_update_params, set_seed_everywhere, cluster_embeddings, pca_project, random_label_cmap
 from utils.replay_memory import TransitionData_ts
-from utils.graphs import get_joint_sg_logprobs_edges
 from utils.distances import CosineDistance, L2Distance
 from utils.matching import matching
 from utils.yaml_conv_parser import dict_to_attrdict
@@ -28,12 +27,10 @@ from utils.training_helpers import update_env_data, supervised_policy_pretrainin
 # from timeit import default_timer as timer
 
 
-
-
-class AgentSacTrainer(object):
+class AgentSacTrainerObjLvlReward(object):
 
     def __init__(self, cfg, global_count):
-        super(AgentSacTrainer, self).__init__()
+        super(AgentSacTrainerObjLvlReward, self).__init__()
         assert torch.cuda.device_count() == 1
         self.device = torch.device("cuda:0")
         torch.cuda.set_device(self.device)
@@ -41,7 +38,7 @@ class AgentSacTrainer(object):
 
         self.cfg = cfg
         self.global_count = global_count
-        self.memory = TransitionData_ts(capacity=self.cfg.mem_size)
+        self.memory = TransitionData_ts(capacity = self.cfg.mem_size)
         self.best_val_reward = -np.inf
         if self.cfg.distance == 'cosine':
             self.distance = CosineDistance()
@@ -93,8 +90,8 @@ class AgentSacTrainer(object):
         for param in self.fe_ext.parameters():
             param.requires_grad = False
 
-        self.train_dset = SpgDset(self.cfg.data_dir, dict_to_attrdict(self.cfg.patch_manager), dict_to_attrdict(self.cfg.data_keys), max(self.cfg.s_subgraph))
-        self.val_dset = SpgDset(self.cfg.val_data_dir, dict_to_attrdict(self.cfg.patch_manager), dict_to_attrdict(self.cfg.data_keys), max(self.cfg.s_subgraph))
+        self.train_dset = SpgDset(self.cfg.data_dir, dict_to_attrdict(self.cfg.patch_manager), dict_to_attrdict(self.cfg.data_keys))
+        self.val_dset = SpgDset(self.cfg.val_data_dir, dict_to_attrdict(self.cfg.patch_manager), dict_to_attrdict(self.cfg.data_keys))
 
     def validate(self):
         """validates the prediction against the method of clustering the embedding space"""
@@ -115,11 +112,11 @@ class AgentSacTrainer(object):
 
             self.model_mtx.acquire()
             try:
-                distr, _, _, _, _, _ = self.forwarder.forward(self.model, state, State, self.device, grad=False, post_data=False)
+                distr, _ = self.forwarder.forward(self.model, state, State, self.device, grad=False, post_data=False)
             finally:
                 self.model_mtx.release()
             action = torch.sigmoid(distr.loc)
-            reward = env.execute_action(action, None, post_images=True, tau=0.0, train=False)
+            reward, state = env.execute_action(action, None, post_images=True, tau=0.0, train=False)
             acc_reward += reward[-1].item()
             if self.cfg.verbose:
                 print(f"\nstep: {it}; mean_loc: {round(distr.loc.mean().item(), 5)}; mean reward: {round(reward[-1].item(), 5)}", end='')
@@ -197,20 +194,20 @@ class AgentSacTrainer(object):
             axs[0, 0].imshow(ex_gts[i], cmap=random_label_cmap(), interpolation="none")
             axs[0, 0].set_title('gt')
             axs[0, 0].axis('off')
-            axs[0, 1].imshow(ex_raws[i])
+            axs[0, 1].imshow(ex_raws[i][..., 0])
             axs[0, 1].set_title('raw image')
             axs[0, 1].axis('off')
             axs[0, 2].imshow(ex_sps[i], cmap=random_label_cmap(), interpolation="none")
             axs[0, 2].set_title('superpixels')
             axs[0, 2].axis('off')
             axs[1, 0].imshow(ex_embeds[i])
-            axs[1, 0].set_title('pc proj 1-3')
+            axs[1, 0].set_title('pc proj 1-3', y=-0.15)
             axs[1, 0].axis('off')
-            axs[1, 1].imshow(ex_mc_gts[i], cmap=random_label_cmap(), interpolation="none")
-            axs[1, 1].set_title('sp gt')
+            axs[1, 1].imshow(ex_raws[i][..., 1])
+            axs[1, 1].set_title('sp edge', y=-0.15)
             axs[1, 1].axis('off')
             axs[1, 2].imshow(ex_rl[i], cmap=random_label_cmap(), interpolation="none")
-            axs[1, 2].set_title('prediction')
+            axs[1, 2].set_title('prediction', y=-0.15)
             axs[1, 2].axis('off')
             wandb.log({"validation/samples": [wandb.Image(fig, caption="sample images")]})
             plt.close('all')
@@ -218,55 +215,45 @@ class AgentSacTrainer(object):
     def update_critic(self, obs, action, reward):
         self.optimizers.critic.zero_grad()
         with torch.cuda.amp.autocast(enabled=True):
-            current_Q1, current_Q2, side_loss = self.forwarder.forward(self.model, obs, State, self.device, actions=action)
+            current_Q1, current_Q2 = self.forwarder.forward(self.model, obs, State, self.device, actions=action)
 
-            critic_loss = torch.tensor([0.0], device=current_Q1[0].device)
-            mean_reward = 0
+            target_Q = reward[0]
+            target_Q = target_Q.detach()
 
-            for i, sz in enumerate(self.cfg.s_subgraph):
-                target_Q = reward[i]
-                target_Q = target_Q.detach()
-
-                critic_loss = critic_loss + (F.mse_loss(current_Q1[i], target_Q) + F.mse_loss(current_Q2[i], target_Q))
-                mean_reward += reward[i].mean()
-            critic_loss = critic_loss / len(self.cfg.s_subgraph) + self.cfg.side_loss_weight * side_loss
+            critic_loss = F.mse_loss(current_Q1.squeeze(1), target_Q) + F.mse_loss(current_Q2.squeeze(1), target_Q)
 
         self.scalers.critic.scale(critic_loss).backward()
         self.scalers.critic.step(self.optimizers.critic)
         self.scalers.critic.update()
 
-        return critic_loss.item(), mean_reward / len(self.cfg.s_subgraph)
+        return critic_loss.item(), reward[0].mean()
 
-    def update_actor_and_alpha(self, obs, reward):
+    def update_actor_and_alpha(self, obs, reward, expl_action):
         self.optimizers.actor.zero_grad()
         self.optimizers.temperature.zero_grad()
+        obj_edge_mask_actor = obs.obj_edge_mask_actor.to(self.device)
         with torch.cuda.amp.autocast(enabled=True):
-            distribution, actor_Q1, actor_Q2, action, side_loss = self.forwarder.forward(self.model, obs, State, self.device, policy_opt=True)
-
+            distribution, actor_Q1, actor_Q2, action, side_loss = self.forwarder.forward(self.model, obs, State, self.device,
+                                                                                         expl_action=expl_action, policy_opt=True)
+            obj_n_edges = obj_edge_mask_actor.sum(1)
             log_prob = distribution.log_prob(action)
             actor_loss = torch.tensor([0.0], device=actor_Q1[0].device)
             alpha_loss = torch.tensor([0.0], device=actor_Q1[0].device)
-            _log_prob, sg_entropy = [], []
-            for i, sz in enumerate(self.cfg.s_subgraph):
-                actor_Q = torch.min(actor_Q1[i], actor_Q2[i])
-                ret = get_joint_sg_logprobs_edges(log_prob, distribution.scale, obs, i, sz)
-                _log_prob.append(ret[0])
-                sg_entropy.append(ret[1])
 
-                loss = (self.model.alpha[i].detach() * _log_prob[i] - actor_Q).mean()
-                actor_loss = actor_loss + loss
+            actor_Q = torch.min(actor_Q1, actor_Q2)
+            obj_log_prob = (log_prob[None] * obj_edge_mask_actor[..., None]).sum(1)
+            obj_entropy = ((1 / 2 * (1 + (2 * np.pi * distribution.scale ** 2).log()))[None] * obj_edge_mask_actor[..., None]).sum(1).squeeze(1)
 
-            actor_loss = actor_loss / len(self.cfg.s_subgraph) + self.cfg.side_loss_weight * side_loss
+            loss = (self.model.alpha.detach() * obj_log_prob - actor_Q).mean()
+            actor_loss = actor_loss + loss
 
-            min_entropy = (self.cfg.entropy_range[1] - self.cfg.entropy_range[0]) * ((1.5 - reward[-1]) / 1.5) + \
-                          self.cfg.entropy_range[0]
+            actor_loss = actor_loss + self.cfg.side_loss_weight * side_loss
 
-            for i, sz in enumerate(self.cfg.s_subgraph):
-                min_entropy = min_entropy.to(self.model.alpha[i].device).squeeze()
-                entropy = sg_entropy[i].detach() if self.cfg.use_closed_form_entropy else -_log_prob[i].detach()
-                alpha_loss = alpha_loss + (self.model.alpha[i] * (entropy - (self.cfg.s_subgraph[i] * min_entropy))).mean()
+            min_entropy = (self.cfg.entropy_range[1] - self.cfg.entropy_range[0]) * ((1.5 - reward[0]) / 1.5) + self.cfg.entropy_range[0]
 
-            alpha_loss = alpha_loss / len(self.cfg.s_subgraph)
+            min_entropy = min_entropy.to(self.model.alpha.device).squeeze()
+            entropy = obj_entropy.detach() if self.cfg.use_closed_form_entropy else -obj_log_prob.detach()
+            alpha_loss = alpha_loss + (self.model.alpha * (entropy - (obj_n_edges * min_entropy))).mean()
 
         self.scalers.actor.scale(actor_loss).backward()
         self.scalers.actor.scale(alpha_loss).backward()
@@ -274,13 +261,15 @@ class AgentSacTrainer(object):
         self.scalers.actor.step(self.optimizers.temperature)
         self.scalers.actor.update()
 
-        return actor_loss.item(), alpha_loss.item(), min_entropy, distribution.loc.mean().item()
+        return actor_loss.item(), alpha_loss.item(), min_entropy.mean().item(), distribution.loc.mean().item()
 
     def _step(self, step):
         actor_loss, alpha_loss, min_entropy, loc_mean = None, None, None, None
 
         (obs, action, reward), sample_idx = self.memory.sample()
-
+        action = action.to(self.device)
+        for i in range(len(reward)):
+            reward[i] = reward[i].to(self.device)
         critic_loss, mean_reward = self.update_critic(obs, action, reward)
         self.memory.report_sample_loss(critic_loss + mean_reward, sample_idx)
         self.mov_sum_losses.critic.apply(critic_loss)
@@ -288,7 +277,7 @@ class AgentSacTrainer(object):
         wandb.log({"loss/critic": critic_loss})
 
         if self.cfg.actor_update_after < step and step % self.cfg.actor_update_frequency == 0:
-            actor_loss, alpha_loss, min_entropy, loc_mean = self.update_actor_and_alpha(obs, reward)
+            actor_loss, alpha_loss, min_entropy, loc_mean = self.update_actor_and_alpha(obs, reward, action)
             self.mov_sum_losses.actor.apply(actor_loss)
             self.mov_sum_losses.temperature.apply(alpha_loss)
             # self.optimizers.actor_shed.step(self.mov_sum_losses.actor.avg)
@@ -309,7 +298,7 @@ class AgentSacTrainer(object):
         if step % self.cfg.critic_target_update_frequency == 0:
             soft_update_params(self.model.critic, self.model.critic_tgt, self.cfg.critic_tau)
 
-        return critic_loss, actor_loss, alpha_loss, loc_mean
+        return [critic_loss, actor_loss, alpha_loss, loc_mean]
 
     def train_until_finished(self):
         while self.global_count.value() <= self.cfg.T_max + self.cfg.mem_size:
@@ -383,13 +372,14 @@ class AgentSacTrainer(object):
                 else:
                     self.model_mtx.acquire()
                     try:
-                        distr, _, _, action, _, _ = self.forwarder.forward(self.model, state, State, self.device, grad=False)
+                        distr, action = self.forwarder.forward(self.model, state, State, self.device, grad=False)
                     finally:
                         self.model_mtx.release()
+                reward, state = env.execute_action(action, tau=max(0, tau))
+                for i in range(len(reward)):
+                    reward[i] = reward[i].cpu()
 
-                reward = env.execute_action(action, tau=max(0, tau))
-
-                self.memory.push(state_to_cpu(state, State), action, reward)
+                self.memory.push(state_to_cpu(state, State), action.cpu(), reward)
                 if self.global_count.value() > self.cfg.T_max + self.cfg.mem_size:
                     break
         return

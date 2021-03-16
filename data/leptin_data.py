@@ -17,6 +17,9 @@ import matplotlib.pyplot as plt
 from matplotlib import cm
 from elf.segmentation.features import compute_rag, compute_affinity_features
 from tifffile import imread
+from utils.general import pca_project, random_label_cmap, get_contour_from_2d_binary
+from utils.pt_gaussfilter import GaussianSmoothing
+import torch.nn.functional as F
 
 tgtdir_train = "/g/kreshuk/hilt/projects/data/leptin_fused_tp1_ch_0/train"
 tgtdir_val = "/g/kreshuk/hilt/projects/data/leptin_fused_tp1_ch_0/val"
@@ -120,10 +123,13 @@ def preprocess_data_1():
     pass
 
 def preprocess_data():
-    for dir in [tgtdir_train]:
+    gauss_kernel = GaussianSmoothing(1, 5, 3, device="cpu")
+    o_graph_dir = ["/g/kreshuk/hilt/projects/data/leptin_fused_tp1_ch_0/train/graph_data",
+                   "/g/kreshuk/hilt/projects/data/leptin_fused_tp1_ch_0/val/graph_data"]
+    for j, dir in enumerate([tgtdir_train, tgtdir_val]):
         fnames = sorted(glob(os.path.join(dir, 'raw_wtsd/*.h5')))
-        pix_dir = os.path.join(dir, 'pix_data')
-        graph_dir = os.path.join(dir, 'graph_data')
+        pix_dir = os.path.join(dir, "bg_masked_data", 'pix_data')
+        graph_dir = os.path.join(dir, "bg_masked_data", 'graph_data')
         for i in range(len(fnames)):
             fname = fnames[i]
             head, tail = os.path.split(fname)
@@ -136,31 +142,42 @@ def preprocess_data():
             # raw = h5py.File(fname, 'r')['raw'][:]
             # gt = h5py.File(fname, 'r')['wtsd'][:]
             # affs = torch.from_numpy(h5py.File(os.path.join(dir, 'affinities_01_trainsz', tail[:-3] + '_predictions' + '.h5'), 'r')['predictions'][:]).squeeze(1)
-            graph_file = h5py.File(os.path.join(graph_dir, "graph_" + num + ".h5"), 'r+')
+            graph_file = h5py.File(os.path.join(o_graph_dir[j], "graph_" + num + ".h5"), 'r+')
             pix_file = h5py.File(os.path.join(pix_dir, "pix_" + num + ".h5"), 'r+')
+            # n_pix_file = h5py.File(os.path.join("/g/kreshuk/hilt/projects/data/leptin_fused_tp1_ch_0/train/bg_masked_data/pix_dir", "pix_" + num + ".h5"), 'r+')
+            # n_graph_file = h5py.File(
+            #     os.path.join("/g/kreshuk/hilt/projects/data/leptin_fused_tp1_ch_0/train/bg_masked_data/graph_dir",
+            #                  "pix_" + num + ".h5"), 'r+')
+            raw = torch.from_numpy(pix_file["raw"][:].astype(np.float))[None]
+            sp = torch.from_numpy(graph_file["node_labeling"][:].astype(np.float))[None]
+            raw -= raw.min()
+            raw /= raw.max()
+
+            edge_img = F.pad(get_contour_from_2d_binary(sp[:, None].float()), (2, 2, 2, 2), mode='constant')
+            edge_img = gauss_kernel(edge_img.float())
+            raw = torch.cat([raw[None], edge_img], dim=1).squeeze(0)
             # affs = torch.sigmoid(affs).numpy()
-            # 
             # node_labeling = run_watershed(gaussian_filter(affs[0] + affs[1] + affs[2] + affs[3], sigma=.2), min_size=4)
-            # 
+            #
             # # relabel to consecutive ints starting at 0
             # node_labeling = torch.from_numpy(node_labeling.astype(np.long))
             # gt = torch.from_numpy(gt.astype(np.long))
             # mask = node_labeling[None] == torch.unique(node_labeling)[:, None, None]
             # node_labeling = (mask * (torch.arange(len(torch.unique(node_labeling)), device=node_labeling.device)[:, None, None] + 1)).sum(
             #     0) - 1
-            # 
+            #
             # mask = gt[None] == torch.unique(gt)[:, None, None]
             # gt = (mask * (torch.arange(len(torch.unique(gt)), device=gt.device)[:, None, None] + 1)).sum(0) - 1
-            # 
-            # 
+            #
+            #
             # edge_feat, edges = get_edge_features_1d(node_labeling.numpy(), offs, affs)
             # gt_edge_weights = calculate_gt_edge_costs(torch.from_numpy(edges.astype(np.long)), node_labeling.squeeze(), gt.squeeze(), 0.5)
-            # 
+            #
             # gt_edge_weights = gt_edge_weights.numpy()
             # gt = gt.numpy()
             # node_labeling = node_labeling.numpy()
             # edges = edges.astype(np.long)
-            # 
+            #
             # affs = affs.astype(np.float32)
             # edge_feat = edge_feat.astype(np.float32)
             # node_labeling = node_labeling.astype(np.float32)
@@ -168,9 +185,9 @@ def preprocess_data():
             # diff_to_gt = np.abs((edge_feat[:, 0] - gt_edge_weights)).sum()
             # edges = np.sort(edges, axis=-1)
             # edges = edges.T
-            # 
-            # 
-            # pix_file.create_dataset("raw", data=raw, chunks=True)
+            #
+            #
+            pix_file.create_dataset("raw_2chnl", data=raw, chunks=True)
             # pix_file.create_dataset("gt", data=gt, chunks=True)
             # #
             # graph_file.create_dataset("edges", data=edges, chunks=True)
@@ -185,6 +202,23 @@ def preprocess_data():
             pix_file.close()
 
     pass
+
+def check_sp():
+
+    dir = "/g/kreshuk/kaziakhm/leptin_data/train/confocal_2D_unet_bce_dice_ds2x"
+    fnames = sorted(glob(os.path.join(dir, '*.h5')))
+    pix_dir = os.path.join(dir, "bg_masked_data", 'pix_data')
+    graph_dir = os.path.join(dir, "bg_masked_data", 'graph_data')
+    for fname in fnames:
+        edge_pred = h5py.File(fname, 'r')["predictions"][:].squeeze()
+        edge_pred = torch.from_numpy(edge_pred)
+        proba_complproba = torch.stack([edge_pred, 1-edge_pred])
+        proba_complproba = torch.softmax(proba_complproba, dim=0)
+        max_inds = torch.argmax(proba_complproba, dim=0)
+        edge_pred[max_inds == 1] = 1 - proba_complproba[1, max_inds == 1]
+        edge_pred[max_inds == 0] = proba_complproba[0, max_inds == 0]
+
+        node_labeling = run_watershed(gaussian_filter(edge_pred, sigma=.2), min_size=4)
 
 def graphs_for_masked_data():
     for dir in [tgtdir_val]:
@@ -285,4 +319,5 @@ if __name__ == "__main__":
     # transfer_to_slices_in_files()
     # preprocess_data()
     # graphs_for_masked_data()
+    check_sp()
     a=1

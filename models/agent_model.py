@@ -15,13 +15,14 @@ class Agent(torch.nn.Module):
         self.device = device
         self.StateClass = StateClass
         self.distance = distance
+        dim_embed = self.cfg.dim_embeddings + 3
 
-        self.actor = PolicyNet(self.cfg.dim_embeddings, 2, cfg.gnn_n_hidden,
+        self.actor = PolicyNet(dim_embed, 2, cfg.gnn_n_hidden,
                                cfg.gnn_hl_factor, distance, device, False, cfg.gnn_act_depth, cfg.gnn_act_norm_inp)
-        self.critic = DoubleQValueNet(self.cfg.s_subgraph, self.cfg.dim_embeddings,
+        self.critic = DoubleQValueNet(self.cfg.s_subgraph, dim_embed,
                                       1, 1, cfg.gnn_n_hidden, cfg.gnn_hl_factor,
                                       distance, device, False, cfg.gnn_crit_depth, cfg.gnn_crit_norm_inp)
-        self.critic_tgt = DoubleQValueNet(self.cfg.s_subgraph, self.cfg.dim_embeddings,
+        self.critic_tgt = DoubleQValueNet(self.cfg.s_subgraph, dim_embed,
                                           1, 1, cfg.gnn_n_hidden, cfg.gnn_hl_factor,
                                           distance, device, False, cfg.gnn_crit_depth, cfg.gnn_crit_norm_inp)
 
@@ -37,10 +38,10 @@ class Agent(torch.nn.Module):
         self.log_alpha = torch.tensor(np.log(value)).to(self.device)
         self.log_alpha.requires_grad = True
 
-    def forward(self, state, actions, post_data, policy_opt, return_node_features):
+    def forward(self, state, actions, expl_action, post_data, policy_opt, return_node_features):
         state = self.StateClass(*state)
-        node_features = state.node_embeddings
-        # node_features = torch.cat((state.node_embeddings, state.sup_masses), 1)
+        # node_features = state.node_embeddings
+        node_features = torch.cat((state.node_embeddings, state.sp_feat), 1)
         edge_index = torch.cat([state.edge_ids, torch.stack([state.edge_ids[1], state.edge_ids[0]], dim=0)], dim=1)  # gcnn expects two directed edges for one undirected edge
         if actions is None:
             with torch.set_grad_enabled(policy_opt):
@@ -72,7 +73,7 @@ class Agent(torch.nn.Module):
         q1, q2, side_loss = self.critic(node_features, actions, edge_index, state.edge_angles, state.subgraph_indices,
                                         state.sep_subgraphs, state.gt_edge_weights, post_data)
         return q1, q2, side_loss
-    
+
 
 class PolicyNet(torch.nn.Module):
     def __init__(self, n_in_features, n_classes, n_hidden_layer, hl_factor, distance, device, node_actions, depth, normalize_input):

@@ -5,15 +5,31 @@ verbose:
 run_id:
   desc: dir name in base-dir. Logs are in here
   value: mixed_prec
+agent_model_name:
+  desc: if not empty, agent will be initialized with the state dict at this location
+  value: '' # agent_model_svpfe.pth
+
+# data configs
 data_dir:
   desc: train data dir
   value: /g/kreshuk/hilt/projects/data/toy_lines_ovals/train
 val_data_dir:
   desc: validation data dir
   value: /g/kreshuk/hilt/projects/data/toy_lines_ovals/val
-agent_model_name:
-  desc: if not empty, agent will be initialized with the state dict at this location
-  value: '' # agent_model_svpfe.pth
+data_keys:
+  desc: keys for data in h5 file
+  value:
+    raw: "raw"
+    gt: "gt"
+    node_labeling: "node_labeling"
+    gt_edge_weights: "gt_edge_weights"
+    edge_feat: "edge_feat"
+    edges: "edges"
+patch_manager:
+  desc: if training should happen on patches, this is the config for the patch manager
+  value:
+    name: none # rotated, no_cross, none
+    reorder_sp: true
 
 # embedding network config
 fe_model_name:
@@ -99,23 +115,16 @@ lr_sched:
       factor: 0.05
       threshold: 0.01
 
-patch_manager:
-  desc: if training should happen on patches, this is the config for the patch manager
-  value:
-    name: none # rotated, no_cross, none
-    reorder_sp: true
-
-
 # specific configs for the sac algorithm
 reward_function:
   desc: one of sub_graph_dice, artificial_cellsTurningFunc, artificial_cellsEllipticFit
-  value: artificial_cellsTurningFunc
+  value: artificial_cellsEllipticFit
 gt_edge_overlap_thresh:
   desc: if using gt edges this is the overlap thresh of the underlying gt for a gt edge to be 1
   value: 0.5
-s_subgraph:
-  desc: subgraph sizes
-  value: [2, 4, 8] # [8, 16, 32, 64]
+#s_subgraph:
+#  desc: subgraph sizes
+#  value: [2, 4, 8] # [8, 16, 32, 64]
 entropy_range:
   desc: range of the min entropy constraint
   value: [0.05, 2.0]
@@ -124,10 +133,10 @@ init_temperature:
   value: 0.1
 alpha_lr:
   desc: learning rate for alpha opt
-  value: 0.03921
+  value: 0.0001
 actor_lr:
   desc: learning rate for actor opt
-  value: 0.001356
+  value: 0.0001
 actor_update_frequency:
   desc: optim every n-th step
   value: 1
@@ -136,7 +145,7 @@ actor_update_after:
   value: 1
 critic_lr:
   desc: learning rate for critic opr
-  value: 0.02467
+  value: 0.0001
 critic_tau:
   desc: update weight for target update
   value: 0.005

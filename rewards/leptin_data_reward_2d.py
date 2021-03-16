@@ -71,7 +71,7 @@ class LeptinDataReward2DTurningWithEllipses(RewardFunctionAbc):
         self.fg_shape_descriptors = self.celltype_1_ds + self.celltype_2_ds + self.celltype_3_ds
 
 
-    def __call__(self, prediction_segmentation, superpixel_segmentation, res, dir_edges, *args, **kwargs):
+    def __call__(self, prediction_segmentation, superpixel_segmentation, res, dir_edges, edge_score, *args, **kwargs):
         dev = prediction_segmentation.device
         return_scores = []
 
@@ -141,7 +141,7 @@ class LeptinDataReward2DTurningWithEllipses(RewardFunctionAbc):
                 score = 1 - dist_scores.min()
                 score *= 0.8
 
-                ellipset = fitellipse(contour.astype(np.int))
+                ellipset = fitEllipse(contour.astype(np.int))
                 v = np.zeros((2,), dtype=np.float)
                 v[1] = ((object.shape[0] / 2) - ellipset[0][0])
                 v[0] = (ellipset[0][1] - (object.shape[1] / 2))
@@ -205,11 +205,12 @@ class LeptinDataReward2DTurningWithEllipses(RewardFunctionAbc):
             scores[false_obj_sp_ids] -= 0.5
             if torch.isnan(scores).any() or torch.isinf(scores).any():
                 print(Warning("NaN or inf in scores this should not happen"))
-            edges = s_dir_edges[:, :int(s_dir_edges.shape[1] / 2)]
-            edge_scores = scores[edges].max(dim=0).values
-            return_scores.append(edge_scores)
-        #return scores for each superpixel
-
+            if edge_score:
+                edges = s_dir_edges[:, :int(s_dir_edges.shape[1] / 2)]
+                edge_scores = scores[edges].max(dim=0).values
+                return_scores.append(edge_scores)
+            else:
+                return_scores.append(scores)
         return torch.cat(return_scores)
 
 
@@ -277,7 +278,7 @@ class LeptinDataReward2DTurning(RewardFunctionAbc):
         self.fg_shape_descriptors = self.celltype_1_ds + self.celltype_2_ds + self.celltype_3_ds
 
 
-    def __call__(self, prediction_segmentation, superpixel_segmentation, res, dir_edges, *args, **kwargs):
+    def __call__(self, prediction_segmentation, superpixel_segmentation, res, dir_edges, edge_score, *args, **kwargs):
         dev = prediction_segmentation.device
         return_scores = []
 
@@ -402,9 +403,12 @@ class LeptinDataReward2DTurning(RewardFunctionAbc):
             scores[false_obj_sp_ids] -= 0.5
             if torch.isnan(scores).any() or torch.isinf(scores).any():
                 print(Warning("NaN or inf in scores this should not happen"))
-            edges = s_dir_edges[:, :int(s_dir_edges.shape[1] / 2)]
-            edge_scores = scores[edges].max(dim=0).values
-            return_scores.append(edge_scores)
+            if edge_scores:
+                edges = s_dir_edges[:, :int(s_dir_edges.shape[1] / 2)]
+                edge_scores = scores[edges].max(dim=0).values
+                return_scores.append(edge_scores)
+            else:
+                return_scores.append(scores)
         #return scores for each superpixel
 
         return torch.cat(return_scores)
@@ -463,7 +467,7 @@ class LeptinDataReward2DEllipticFit(RewardFunctionAbc):
         self.masses = [290229.3, 97252.3]
 
 
-    def __call__(self, prediction_segmentation, superpixel_segmentation, res, dir_edges, *args, **kwargs):
+    def __call__(self, prediction_segmentation, superpixel_segmentation, res, dir_edges, edge_score, *args, **kwargs):
         dev = prediction_segmentation.device
         return_scores = []
 
@@ -613,9 +617,12 @@ class LeptinDataReward2DEllipticFit(RewardFunctionAbc):
             scores[false_obj_sp_ids] -= 0.5
             if torch.isnan(scores).any() or torch.isinf(scores).any():
                 print(Warning("NaN or inf in scores this should not happen"))
-            edges = s_dir_edges[:, :int(s_dir_edges.shape[1] / 2)]
-            edge_scores = scores[edges].max(dim=0).values
-            return_scores.append(edge_scores)
+            if edge_scores:
+                edges = s_dir_edges[:, :int(s_dir_edges.shape[1] / 2)]
+                edge_scores = scores[edges].max(dim=0).values
+                return_scores.append(edge_scores)
+            else:
+                return_scores.append(scores)
         #return scores for each superpixel
 
         return torch.cat(return_scores)
