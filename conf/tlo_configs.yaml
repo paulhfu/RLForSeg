@@ -1,7 +1,7 @@
 # general configs
 agent:
   desc: method used for the agent
-  value: sac
+  value: sa
 verbose:
   desc: prints intermediate results to sdt.out
   value: true
@@ -93,7 +93,7 @@ post_stats_frequency:
   value: 10
 validatoin_freq:
   desc: validate after n steps
-  value: 5
+  value: 500
 n_updates_per_step:
   desc: perform n optim steps per env step
   value: 10
@@ -125,9 +125,9 @@ reward_function:
 gt_edge_overlap_thresh:
   desc: if using gt edges this is the overlap thresh of the underlying gt for a gt edge to be 1
   value: 0.5
-s_subgraph:
-  desc: subgraph sizes
-  value: [2, 4, 8] # [8, 16, 32, 64]
+#s_subgraph:
+#  desc: subgraph sizes
+#  value: [2, 4, 8] # [8, 16, 32, 64]
 entropy_range:
   desc: range of the min entropy constraint
   value: [0.05, 2.0]
