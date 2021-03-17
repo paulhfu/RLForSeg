@@ -15,7 +15,7 @@ import threading
 
 from environments.multicut_obj_lvl_rew import MulticutEmbeddingsEnv, State
 from data.spg_dset import SpgDset
-from models.agent_model_obj_lvl import Agent
+from models.actor_model_obj_lvl import Agent
 from models.feature_extractor import FeExtractor
 from utils.exploration_functions import RunningAverage
 from utils.general import soft_update_params, set_seed_everywhere, cluster_embeddings, pca_project, random_label_cmap
@@ -24,13 +24,15 @@ from utils.distances import CosineDistance, L2Distance
 from utils.matching import matching
 from utils.yaml_conv_parser import dict_to_attrdict
 from utils.training_helpers import update_env_data, supervised_policy_pretraining, state_to_cpu, Forwarder
+
+
 # from timeit import default_timer as timer
 
 
-class AgentSacTrainerObjLvlReward(object):
+class AgentSaTrainerObjLvlReward(object):
 
     def __init__(self, cfg, global_count):
-        super(AgentSacTrainerObjLvlReward, self).__init__()
+        super(AgentSaTrainerObjLvlReward, self).__init__()
         assert torch.cuda.device_count() == 1
         self.device = torch.device("cuda:0")
         torch.cuda.set_device(self.device)
@@ -38,7 +40,7 @@ class AgentSacTrainerObjLvlReward(object):
 
         self.cfg = cfg
         self.global_count = global_count
-        self.memory = TransitionData_ts(capacity = self.cfg.mem_size)
+        self.memory = TransitionData_ts(capacity=self.cfg.mem_size)
         self.best_val_reward = -np.inf
         if self.cfg.distance == 'cosine':
             self.distance = CosineDistance()
@@ -54,13 +56,7 @@ class AgentSacTrainerObjLvlReward(object):
         self.model.cuda(self.device)
         self.model_mtx = Lock()
 
-        MovSumLosses = namedtuple('mov_avg_losses', ('actor', 'critic', 'temperature'))
-        Scalers = namedtuple('Scalers', ('critic', 'actor'))
-        OptimizerContainer = namedtuple('OptimizerContainer',
-                                        ('actor', 'critic', 'temperature', 'actor_shed', 'critic_shed', 'temp_shed'))
-        actor_optimizer = torch.optim.Adam(self.model.actor.parameters(), lr=self.cfg.actor_lr)
-        critic_optimizer = torch.optim.Adam(self.model.critic.parameters(), lr=self.cfg.critic_lr)
-        temp_optimizer = torch.optim.Adam([self.model.log_alpha], lr=self.cfg.alpha_lr)
+        self.optimizer = torch.optim.Adam(self.model.actor.parameters(), lr=self.cfg.actor_lr)
 
         lr_sched_cfg = dict_to_attrdict(self.cfg.lr_sched)
         bw = lr_sched_cfg.mov_avg_bandwidth
@@ -68,30 +64,24 @@ class AgentSacTrainerObjLvlReward(object):
         weights = np.linspace(lr_sched_cfg.weight_range[0], lr_sched_cfg.weight_range[1], bw)
         weights = weights / weights.sum()  # make them sum up to one
         shed = lr_sched_cfg.torch_sched
+        self.shed = ReduceLROnPlateau(self.optimizer, patience=shed.patience, threshold=shed.threshold,
+                                      min_lr=shed.min_lr, factor=shed.factor)
 
-        self.mov_sum_losses = MovSumLosses(RunningAverage(weights, band_width=bw, offset=off),
-                                           RunningAverage(weights, band_width=bw, offset=off),
-                                           RunningAverage(weights, band_width=bw, offset=off))
-        self.optimizers = OptimizerContainer(actor_optimizer, critic_optimizer, temp_optimizer,
-                                             *[ReduceLROnPlateau(opt, patience=shed.patience,
-                                                                 threshold=shed.threshold, min_lr=shed.min_lr,
-                                                                 factor=shed.factor) for opt in
-                                               (actor_optimizer, critic_optimizer, temp_optimizer)])
-        self.scalers = Scalers(torch.cuda.amp.GradScaler(), torch.cuda.amp.GradScaler())
+        self.mov_sum_loss = RunningAverage(weights, band_width=bw, offset=off)
+        self.scaler = torch.cuda.amp.GradScaler()
         self.forwarder = Forwarder()
 
         if self.cfg.agent_model_name != "":
             self.model.load_state_dict(torch.load(self.cfg.agent_model_name))
-        # if "policy_warmup" in self.cfg and self.cfg.agent_model_name == "":
-        #     supervised_policy_pretraining(self.model, self.env, self.cfg, device=self.device)
-        #     torch.save(self.model.state_dict(), os.path.join(wandb.run.dir, "sv_pretrained_policy_agent.pth"))
 
         # finished with prepping
         for param in self.fe_ext.parameters():
             param.requires_grad = False
 
-        self.train_dset = SpgDset(self.cfg.data_dir, dict_to_attrdict(self.cfg.patch_manager), dict_to_attrdict(self.cfg.data_keys))
-        self.val_dset = SpgDset(self.cfg.val_data_dir, dict_to_attrdict(self.cfg.patch_manager), dict_to_attrdict(self.cfg.data_keys))
+        self.train_dset = SpgDset(self.cfg.data_dir, dict_to_attrdict(self.cfg.patch_manager),
+                                  dict_to_attrdict(self.cfg.data_keys))
+        self.val_dset = SpgDset(self.cfg.val_data_dir, dict_to_attrdict(self.cfg.patch_manager),
+                                dict_to_attrdict(self.cfg.data_keys))
 
     def validate(self):
         """validates the prediction against the method of clustering the embedding space"""
@@ -106,24 +96,29 @@ class AgentSacTrainerObjLvlReward(object):
         dloader = DataLoader(self.val_dset, batch_size=1, shuffle=True, pin_memory=True, num_workers=0)
         acc_reward = 0
         for it in range(len(self.val_dset)):
-            update_env_data(env, dloader, self.cfg, self.device, with_gt_edges="sub_graph_dice" in self.cfg.reward_function)
+            update_env_data(env, dloader, self.cfg, self.device,
+                            with_gt_edges="sub_graph_dice" in self.cfg.reward_function)
             env.reset()
             state = env.get_state()
 
             self.model_mtx.acquire()
             try:
-                distr, _ = self.forwarder.forward(self.model, state, State, self.device, grad=False, post_data=False)
+                distr, _, _ = self.forwarder.forward(self.model, state, State, self.device, grad=False, post_data=False)
             finally:
                 self.model_mtx.release()
             action = torch.sigmoid(distr.loc)
             reward, state = env.execute_action(action, None, post_images=True, tau=0.0, train=False)
             acc_reward += reward[-1].item()
             if self.cfg.verbose:
-                print(f"\nstep: {it}; mean_loc: {round(distr.loc.mean().item(), 5)}; mean reward: {round(reward[-1].item(), 5)}", end='')
+                print(
+                    f"\nstep: {it}; mean_loc: {round(distr.loc.mean().item(), 5)}; mean reward: {round(reward[-1].item(), 5)}",
+                    end='')
 
             embeddings = env.embeddings[0].cpu().numpy()
             gt_seg = env.gt_seg[0].cpu().numpy()
-            gt_mc = cm.prism(env.gt_soln[0].cpu()/env.gt_soln[0].max().item()) if env.gt_edge_weights is not None else torch.zeros(env.raw.shape[-2:])
+            gt_mc = cm.prism(
+                env.gt_soln[0].cpu() / env.gt_soln[0].max().item()) if env.gt_edge_weights is not None else torch.zeros(
+                env.raw.shape[-2:])
             rl_labels = env.current_soln.cpu().numpy()[0]
 
             if it < n_examples:
@@ -221,99 +216,57 @@ class AgentSacTrainerObjLvlReward(object):
             wandb.log({"validation/samples": [wandb.Image(fig, caption="sample images")]})
             plt.close('all')
 
-    def update_critic(self, obs, action, reward):
-        self.optimizers.critic.zero_grad()
-        with torch.cuda.amp.autocast(enabled=True):
-            current_Q1, current_Q2 = self.forwarder.forward(self.model, obs, State, self.device, actions=action)
-
-            target_Q = reward[0]
-            target_Q = target_Q.detach()
-
-            critic_loss = F.mse_loss(current_Q1.squeeze(1), target_Q) + F.mse_loss(current_Q2.squeeze(1), target_Q)
-
-        self.scalers.critic.scale(critic_loss).backward()
-        self.scalers.critic.step(self.optimizers.critic)
-        self.scalers.critic.update()
-
-        return critic_loss.item(), reward[0].mean()
-
     def update_actor_and_alpha(self, obs, reward, expl_action):
-        self.optimizers.actor.zero_grad()
-        self.optimizers.temperature.zero_grad()
+        self.optimizer.zero_grad()
         obj_edge_mask_actor = obs.obj_edge_mask_actor.to(self.device)
         with torch.cuda.amp.autocast(enabled=True):
-            distribution, actor_Q1, actor_Q2, action, side_loss = self.forwarder.forward(self.model, obs, State, self.device,
-                                                                                         expl_action=expl_action, policy_opt=True)
-            obj_n_edges = obj_edge_mask_actor.sum(1)
-            log_prob = distribution.log_prob(action)
-            actor_loss = torch.tensor([0.0], device=actor_Q1[0].device)
-            alpha_loss = torch.tensor([0.0], device=actor_Q1[0].device)
+            distribution, action, side_loss = self.forwarder.forward(self.model, obs, State, self.device,
+                                                                     expl_action=expl_action, policy_opt=True)
+            p = distribution.cdf(action + (1e-2 / 2)) - distribution.cdf(action - (1e-2 / 2))
+            obj_logprob = (p[None] * obj_edge_mask_actor[..., None]).log().sum(1)
+            _obj_logprob = (1 - (p[None] * obj_edge_mask_actor[..., None])).log().sum(1)
+            actor_loss = (-(obj_logprob * reward[0] + _obj_logprob * (1 - reward[0]))).mean()
 
-            actor_Q = torch.min(actor_Q1, actor_Q2)
-            obj_log_prob = (log_prob[None] * obj_edge_mask_actor[..., None]).sum(1)
-            obj_entropy = ((1 / 2 * (1 + (2 * np.pi * distribution.scale ** 2).log()))[None] * obj_edge_mask_actor[..., None]).sum(1).squeeze(1)
+            obj_entropy = ((1 / 2 * (1 + (2 * np.pi * distribution.scale ** 2).log()))[None] * obj_edge_mask_actor[
+                ..., None]).sum(1).squeeze(1)
+            min_entropy = (self.cfg.entropy_range[1] - self.cfg.entropy_range[0]) * (1.0 - reward[0]) + \
+                          self.cfg.entropy_range[0]
+            min_entropy = min_entropy.to(action.device).squeeze()
+            entropy = obj_entropy if self.cfg.use_closed_form_entropy else -obj_logprob
+            entropy_reg = ((entropy - min_entropy) ** 2).mean()
 
-            loss = (self.model.alpha.detach() * obj_log_prob - actor_Q).mean()
-            actor_loss = actor_loss + loss
+            loss = actor_loss + entropy_reg + self.cfg.side_loss_weight * side_loss
 
-            actor_loss = actor_loss + self.cfg.side_loss_weight * side_loss
+        self.scaler.scale(actor_loss).backward()
+        self.scaler.step(self.optimizer)
+        self.scaler.update()
 
-            min_entropy = (self.cfg.entropy_range[1] - self.cfg.entropy_range[0]) * ((1.5 - reward[0]) / 1.5) + self.cfg.entropy_range[0]
-
-            min_entropy = min_entropy.to(self.model.alpha.device).squeeze()
-            entropy = obj_entropy.detach() if self.cfg.use_closed_form_entropy else -obj_log_prob.detach()
-            alpha_loss = alpha_loss + (self.model.alpha * (entropy - (obj_n_edges * min_entropy))).mean()
-
-        self.scalers.actor.scale(actor_loss).backward()
-        self.scalers.actor.scale(alpha_loss).backward()
-        self.scalers.actor.step(self.optimizers.actor)
-        self.scalers.actor.step(self.optimizers.temperature)
-        self.scalers.actor.update()
-
-        return actor_loss.item(), alpha_loss.item(), min_entropy.mean().item(), distribution.loc.mean().item()
+        return loss.item(), min_entropy.mean().item(), distribution.loc.mean().item()
 
     def _step(self, step):
-        actor_loss, alpha_loss, min_entropy, loc_mean = None, None, None, None
-
         (obs, action, reward), sample_idx = self.memory.sample()
         action = action.to(self.device)
         for i in range(len(reward)):
             reward[i] = reward[i].to(self.device)
-        critic_loss, mean_reward = self.update_critic(obs, action, reward)
-        self.memory.report_sample_loss(critic_loss + mean_reward, sample_idx)
-        self.mov_sum_losses.critic.apply(critic_loss)
-        # self.optimizers.critic_shed.step(self.mov_sum_losses.critic.avg)
-        wandb.log({"loss/critic": critic_loss})
 
-        if self.cfg.actor_update_after < step and step % self.cfg.actor_update_frequency == 0:
-            actor_loss, alpha_loss, min_entropy, loc_mean = self.update_actor_and_alpha(obs, reward, action)
-            self.mov_sum_losses.actor.apply(actor_loss)
-            self.mov_sum_losses.temperature.apply(alpha_loss)
-            # self.optimizers.actor_shed.step(self.mov_sum_losses.actor.avg)
-            # self.optimizers.temp_shed.step(self.mov_sum_losses.actor.avg)
-            wandb.log({"loss/actor": actor_loss})
-            wandb.log({"loss/alpha": alpha_loss})
+        actor_loss, min_entropy, loc_mean = self.update_actor_and_alpha(obs, reward, action)
+        self.mov_sum_loss.apply(actor_loss)
+        # self.optimizers.actor_shed.step(self.mov_sum_losses.actor.avg)
+        wandb.log({"loss/actor": actor_loss})
 
         if step % self.cfg.post_stats_frequency == 0:
             if min_entropy != "nl":
                 wandb.log({"min_entropy": min_entropy})
-            wandb.log({"mov_avg/critic": self.mov_sum_losses.critic.avg})
-            wandb.log({"mov_avg/actor": self.mov_sum_losses.actor.avg})
-            wandb.log({"mov_avg/temperature": self.mov_sum_losses.temperature.avg})
-            wandb.log({"lr/critic": self.optimizers.critic_shed.optimizer.param_groups[0]['lr']})
-            wandb.log({"lr/actor": self.optimizers.actor_shed.optimizer.param_groups[0]['lr']})
-            wandb.log({"lr/temperature": self.optimizers.temp_shed.optimizer.param_groups[0]['lr']})
+            wandb.log({"mov_avg/actor": self.mov_sum_loss.avg})
+            wandb.log({"lr/actor": self.shed.optimizer.param_groups[0]['lr']})
 
-        if step % self.cfg.critic_target_update_frequency == 0:
-            soft_update_params(self.model.critic, self.model.critic_tgt, self.cfg.critic_tau)
-
-        return [critic_loss, actor_loss, alpha_loss, loc_mean]
+        return [actor_loss, loc_mean]
 
     def train_until_finished(self):
         while self.global_count.value() <= self.cfg.T_max + self.cfg.mem_size:
             self.model_mtx.acquire()
             try:
-                stats = [[], [], [], []]
+                stats = [[], []]
                 for i in range(self.cfg.n_updates_per_step):
                     _stats = self._step(self.global_count.value())
                     [s.append(_s) for s, _s in zip(stats, _stats)]
@@ -321,18 +274,19 @@ class AgentSacTrainerObjLvlReward(object):
                     if any([_s is None for _s in stats[j]]):
                         stats[j] = "nl"
                     else:
-                        stats[j] = round(sum(stats[j])/self.cfg.n_updates_per_step, 5)
+                        stats[j] = round(sum(stats[j]) / self.cfg.n_updates_per_step, 5)
 
                 if self.cfg.verbose:
-                    print(f"step: {self.global_count.value()}; mean_loc: {stats[-1]}; n_explorer_steps {self.memory.push_count}", end="")
-                    print(f"; cl: {stats[0]}; acl: {stats[1]}; al: {stats[3]}")
+                    print(
+                        f"step: {self.global_count.value()}; mean_loc: {stats[-1]}; n_explorer_steps {self.memory.push_count}",
+                        end="")
+                    print(f"; acl: {stats[0]}")
             finally:
                 self.model_mtx.release()
                 self.global_count.increment()
                 self.memory.reset_push_count()
             if self.global_count.value() % self.cfg.validatoin_freq == 0:
                 self.validate()
-
 
     # Acts and trains model
     def train_and_explore(self, rn):
@@ -369,10 +323,12 @@ class AgentSacTrainerObjLvlReward(object):
         env = MulticutEmbeddingsEnv(self.fe_ext, self.cfg, self.device)
         tau = 1
         while self.global_count.value() <= self.cfg.T_max + self.cfg.mem_size:
-            dloader = DataLoader(self.train_dset, batch_size=self.cfg.batch_size, shuffle=True, pin_memory=True, num_workers=0)
+            dloader = DataLoader(self.train_dset, batch_size=self.cfg.batch_size, shuffle=True, pin_memory=True,
+                                 num_workers=0)
             for iteration in range(len(self.train_dset) * self.cfg.data_update_frequency):
                 if iteration % self.cfg.data_update_frequency == 0:
-                    update_env_data(env, dloader, self.cfg, self.device, with_gt_edges="sub_graph_dice" in self.cfg.reward_function)
+                    update_env_data(env, dloader, self.cfg, self.device,
+                                    with_gt_edges="sub_graph_dice" in self.cfg.reward_function)
                 env.reset()
                 state = env.get_state()
 
@@ -381,7 +337,7 @@ class AgentSacTrainerObjLvlReward(object):
                 else:
                     self.model_mtx.acquire()
                     try:
-                        distr, action = self.forwarder.forward(self.model, state, State, self.device, grad=False)
+                        distr, action, _ = self.forwarder.forward(self.model, state, State, self.device, grad=False)
                     finally:
                         self.model_mtx.release()
                 reward, state = env.execute_action(action, tau=max(0, tau))

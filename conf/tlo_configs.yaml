@@ -1,4 +1,7 @@
 # general configs
+agent:
+  desc: method used for the agent
+  value: sa
 verbose:
   desc: prints intermediate results to sdt.out
   value: true
