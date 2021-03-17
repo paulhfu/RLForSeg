@@ -1,4 +1,7 @@
 # general configs
+agent:
+  desc: method used for the agent
+  value: ac
 verbose:
   desc: prints intermediate results to sdt.out
   value: true
@@ -56,10 +59,10 @@ backbone:
 
 gnn_n_hidden:
   desc: number of hidden layers in graph conv blocks
-  value: 1
+  value: 2
 gnn_hl_factor:
   desc: factor by which feature size of hidden featuremaps in gnn increases/decreases
-  value: 300
+  value: 512
 gnn_act_depth:
   desc: num of graph convs (1, 2, 3)
   value: 1
@@ -97,7 +100,7 @@ n_explorers:
   value: 1
 batch_size:
   desc: num samples in minibatch
-  value: 1
+  value: 2
 
 # conf for lr scheduling
 lr_sched:

@@ -194,7 +194,10 @@ class AgentSacTrainerObjLvlReward(object):
             axs[0, 0].imshow(ex_gts[i], cmap=random_label_cmap(), interpolation="none")
             axs[0, 0].set_title('gt')
             axs[0, 0].axis('off')
-            axs[0, 1].imshow(ex_raws[i][..., 0])
+            if ex_raws.ndim == 3:
+                axs[0, 1].imshow(ex_raws[i][..., 0])
+            else:
+                axs[0, 1].imshow(ex_raws[i])
             axs[0, 1].set_title('raw image')
             axs[0, 1].axis('off')
             axs[0, 2].imshow(ex_sps[i], cmap=random_label_cmap(), interpolation="none")
@@ -203,7 +206,10 @@ class AgentSacTrainerObjLvlReward(object):
             axs[1, 0].imshow(ex_embeds[i])
             axs[1, 0].set_title('pc proj 1-3', y=-0.15)
             axs[1, 0].axis('off')
-            axs[1, 1].imshow(ex_raws[i][..., 1])
+            if ex_raws.ndim == 3:
+                axs[1, 1].imshow(ex_raws[i][..., 1])
+            else:
+                axs[1, 1].imshow(ex_raws[i])
             axs[1, 1].set_title('sp edge', y=-0.15)
             axs[1, 1].axis('off')
             axs[1, 2].imshow(ex_rl[i], cmap=random_label_cmap(), interpolation="none")
