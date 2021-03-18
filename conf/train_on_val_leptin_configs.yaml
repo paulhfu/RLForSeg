@@ -11,14 +11,12 @@ run_id:
 agent_model_name:
   desc: if not empty, agent will be initialized with the state dict at this location
   value: '' # agent_model_svpfe.pth
-
-# data configs
 data_dir:
   desc: train data dir
-  value: /g/kreshuk/hilt/projects/data/toy_lines_ovals/train
+  value: /g/kreshuk/hilt/projects/data/leptin_fused_tp1_ch_0/true_val
 val_data_dir:
   desc: validation data dir
-  value: /g/kreshuk/hilt/projects/data/toy_lines_ovals/val
+  value: /g/kreshuk/hilt/projects/data/leptin_fused_tp1_ch_0/true_val
 data_keys:
   desc: keys for data in h5 file
   value:
@@ -32,12 +30,12 @@ patch_manager:
   desc: if training should happen on patches, this is the config for the patch manager
   value:
     name: none # rotated, no_cross, none
-    reorder_sp: true
+    reorder_sp: false
 
 # embedding network config
 fe_model_name:
   desc: path to state dict of trained model
-  value: /g/kreshuk/hilt/storage/toy_lines_ovals/fe_cosine_ls.pth
+  value: /g/kreshuk/hilt/storage/leptin_data_nets/fe_cosine_ls_bn_gtval.pth
 dim_embeddings:
   desc: number of embedding feature channels
   value: 16
@@ -61,10 +59,10 @@ backbone:
 
 gnn_n_hidden:
   desc: number of hidden layers in graph conv blocks
-  value: 2
+  value: 1
 gnn_hl_factor:
   desc: factor by which feature size of hidden featuremaps in gnn increases/decreases
-  value: 128
+  value: 256
 gnn_act_depth:
   desc: num of graph convs (1, 2, 3)
   value: 1
@@ -84,7 +82,7 @@ T_max:
   value: 50000
 mem_size:
   desc: Mem size in replay memory buffer
-  value: 100
+  value: 20
 data_update_frequency:
   desc: update env data after n steps
   value: 100
@@ -93,16 +91,16 @@ post_stats_frequency:
   value: 10
 validatoin_freq:
   desc: validate after n steps
-  value: 5
+  value: 50
 n_updates_per_step:
   desc: perform n optim steps per env step
   value: 10
 n_explorers:
   desc: n experience explorer threads
-  value: 4
+  value: 1
 batch_size:
   desc: num samples in minibatch
-  value: 2
+  value: 1
 
 # conf for lr scheduling
 lr_sched:
@@ -118,16 +116,18 @@ lr_sched:
       factor: 0.05
       threshold: 0.01
 
+
+
 # specific configs for the sac algorithm
 reward_function:
-  desc: one of sub_graph_dice, artificial_cellsTurningFunc, artificial_cellsEllipticFit
-  value: artificial_cellsEllipticFit
+  desc: one of sub_graph_dice, leptin_dataTurningFunc, leptin_dataEllipticFit, leptin_dataTurningWithEllipses
+  value: leptin_dataTurningWithEllipses
 gt_edge_overlap_thresh:
   desc: if using gt edges this is the overlap thresh of the underlying gt for a gt edge to be 1
   value: 0.5
-#s_subgraph:
-#  desc: subgraph sizes
-#  value: [2, 4, 8] # [8, 16, 32, 64]
+s_subgraph:
+  desc: subgraph sizes
+  value: [4, 8, 16] # [8, 16, 32, 64]
 entropy_range:
   desc: range of the min entropy constraint
   value: [0.05, 2.0]
@@ -183,4 +183,3 @@ mu_bounds:
 #      patch_shape: [512, 512]
 #      patch_stride: [128, 128]
 #      reorder_sp: true
-

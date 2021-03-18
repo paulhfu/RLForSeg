@@ -4,6 +4,7 @@ from matplotlib.pyplot import cm
 import h5py
 import os
 from glob import glob
+from skimage import draw
 from utils.patch_manager import StridedRollingPatches2D, StridedPatches2D, NoPatches2D
 from utils.graphs import squeeze_repr
 import torch.utils.data as torch_data
@@ -70,6 +71,15 @@ class SpgDset(torch_data.Dataset):
 
         # raw -= raw.min()
         # raw /= raw.max()
+        # def _draw(a, b, r1, r2, idx):
+        #     rw = h5py.File(self.pix_file_names[idx], 'r')[self.keys.raw][:].squeeze()
+        #     altered_raw = rw.copy()
+        #     raw_circle = draw.circle_perimeter(a, b, r1, method='bresenham', shape=raw.shape[-2:])
+        #     altered_raw[..., raw_circle[0], raw_circle[1]] = 1
+        #     raw_circle = draw.circle_perimeter(a, b, r2, method='bresenham', shape=raw.shape[-2:])
+        #     altered_raw[..., raw_circle[0], raw_circle[1]] = 1
+        #     return altered_raw
+        # _draw(400, 350, 210, 280, 0)
 
         gt = torch.from_numpy(pix_file[self.keys.gt][:].astype(np.float))
         sp_seg = torch.from_numpy(graph_file[self.keys.node_labeling][:].astype(np.float))

@@ -106,7 +106,7 @@ class AgentSacTrainer(object):
         taus = [0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8, 0.9]
         rl_scores, keys = [], None
         ex_raws, ex_sps, ex_gts, ex_mc_gts, ex_embeds, ex_rl = [], [], [], [], [], []
-        dloader = DataLoader(self.val_dset, batch_size=1, shuffle=True, pin_memory=True, num_workers=0)
+        dloader = iter(DataLoader(self.val_dset, batch_size=1, shuffle=True, pin_memory=True, num_workers=0))
         acc_reward = 0
         for it in range(len(self.val_dset)):
             update_env_data(env, dloader, self.cfg, self.device, with_gt_edges="sub_graph_dice" in self.cfg.reward_function)
@@ -380,7 +380,7 @@ class AgentSacTrainer(object):
         env = MulticutEmbeddingsEnv(self.fe_ext, self.cfg, self.device)
         tau = 1
         while self.global_count.value() <= self.cfg.T_max + self.cfg.mem_size:
-            dloader = DataLoader(self.train_dset, batch_size=self.cfg.batch_size, shuffle=True, pin_memory=True, num_workers=0)
+            dloader = iter(DataLoader(self.train_dset, batch_size=self.cfg.batch_size, shuffle=True, pin_memory=True, num_workers=0))
             for iteration in range(len(self.train_dset) * self.cfg.data_update_frequency):
                 if iteration % self.cfg.data_update_frequency == 0:
                     update_env_data(env, dloader, self.cfg, self.device, with_gt_edges="sub_graph_dice" in self.cfg.reward_function)

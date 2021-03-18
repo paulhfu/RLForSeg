@@ -17,7 +17,7 @@ from multiprocessing import Lock
 
 
 def update_env_data(env, dloader, cfg, device, with_gt_edges=False, fe_grad=False):
-    raw, gt, sp_seg, indices = next(iter(dloader))
+    raw, gt, sp_seg, indices = next(dloader)
     rags = [compute_rag(sseg.numpy()) for sseg in sp_seg]
     edges = [torch.from_numpy(rag.uvIds().astype(np.long)).T.to(device) for rag in rags]
     raw, gt, sp_seg = raw.to(device), gt.to(device), sp_seg.to(device)

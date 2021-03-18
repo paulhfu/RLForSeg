@@ -6,6 +6,7 @@ from skimage.draw import polygon_perimeter
 from utils.polygon_2d import Polygon2d
 from utils.general import random_label_cmap
 import torch
+import math
 from elf.segmentation.features import compute_rag
 import h5py
 from scipy.ndimage import binary_fill_holes
@@ -69,6 +70,8 @@ class LeptinDataReward2DTurningWithEllipses(RewardFunctionAbc):
 
         self.masses = [np.array(m1).mean(), np.array(m2).mean(), np.array(m3 + m4 + m5).mean()]
         self.fg_shape_descriptors = self.celltype_1_ds + self.celltype_2_ds + self.celltype_3_ds
+        self.circle_center = [400, 350]
+        self.circle_rads = [210, 280]
 
 
     def __call__(self, prediction_segmentation, superpixel_segmentation, res, dir_edges, edge_score, *args, **kwargs):
@@ -135,6 +138,12 @@ class LeptinDataReward2DTurningWithEllipses(RewardFunctionAbc):
                     scores[sp_ids] -= 0.1
                     continue
                 polygon = Polygon2d(poly_chain)
+
+                cm = poly_chain.mean(dim=0)
+                dist_from_tolerance = math.sqrt((cm[0]-self.circle_center[0])**2 + (cm[1] - self.circle_center[1])**2)
+                dist_from_tolerance = min(dist_from_tolerance-self.circle_rads[0], dist_from_tolerance-self.circle_rads[1])
+                dist_from_tolerance /= math.sqrt(object.shape[-1]**2 + object.shape[-2]**2) / 2
+
                 dist_scores = torch.tensor([des.distance(polygon, res) for des in self.fg_shape_descriptors], device=dev)
                 #project distances for objects to similarities for superpixels
                 # score = (torch.sigmoid((((1 - dist_scores.min()) * 6.5).exp() / torch.tensor([6.5], device=dev).exp()) * 6 - 3) * 1.2597) - 0.2

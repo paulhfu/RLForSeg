@@ -6,11 +6,10 @@ import h5py
 import os
 import wandb
 import matplotlib.pyplot as plt
-from matplotlib import cm
+from skimage import draw
 from glob import glob
 from elf.segmentation.multicut import multicut_kernighan_lin
 from elf.segmentation.features import project_node_labels_to_pixels
-from rag_utils import find_dense_subgraphs
 
 from rewards.artificial_cells_reward import ArtificialCellsReward, ArtificialCellsReward2DEllipticFit
 from rewards.leptin_data_reward_2d import LeptinDataReward2DTurning, LeptinDataReward2DEllipticFit, LeptinDataReward2DTurningWithEllipses
@@ -89,6 +88,10 @@ class MulticutEmbeddingsEnv():
                 fig, axes = plt.subplots(2, 3, sharex='col', sharey='row', gridspec_kw={'hspace': 0, 'wspace': 0})
                 axes[0, 0].imshow(self.gt_seg[-1].cpu().squeeze(), cmap=random_label_cmap(), interpolation="none")
                 axes[0, 0].set_title('gt')
+                if self.raw.ndim == 3:
+                    axes[0, 1].imshow(self.raw[-1, 0])
+                else:
+                    axes[0, 1].imshow(self.raw[-1])
                 axes[0, 1].imshow(self.raw[-1, 0].cpu().squeeze())
                 axes[0, 1].set_title('raw image')
                 axes[0, 2].imshow(self.raw[-1, 1].cpu().squeeze())
@@ -119,6 +122,7 @@ class MulticutEmbeddingsEnv():
         dev = raw.device
         # edge_img = F.pad(get_contour_from_2d_binary(sp_seg[:, None].float()), (2, 2, 2, 2), mode='constant')
         # edge_img = self.gauss_kernel(edge_img.float())
+
         self.rags = rags
         self.gt_seg, self.init_sp_seg = gt.squeeze(1), sp_seg.squeeze(1)
         self.raw = raw
