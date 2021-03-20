@@ -18,7 +18,7 @@ from utils.reward_functions import UnSupervisedReward, SubGraphDiceReward
 from utils.graphs import collate_edges, get_edge_indices, get_angles_smass_in_rag
 from utils.general import get_angles, pca_project, random_label_cmap
 
-State = collections.namedtuple("State", ["node_embeddings", "edge_ids", "edge_angles", "sp_feat", "subgraph_indices", "sep_subgraphs", "round_n", "gt_edge_weights"])
+State = collections.namedtuple("State", ["node_embeddings", "edge_ids", "edge_feats", "sp_feat", "subgraph_indices", "sep_subgraphs", "round_n", "gt_edge_weights"])
 class MulticutEmbeddingsEnv():
 
     def __init__(self, embedding_net, cfg, device):
@@ -70,7 +70,10 @@ class MulticutEmbeddingsEnv():
             reward = []
             # sp_reward = self.reward_function(self.current_soln.long(), self.init_sp_seg.long(), dir_edges=self.dir_edge_ids,
             #                                  res=100)
-            edge_reward = self.reward_function(self.current_soln.long(), self.init_sp_seg.long(), dir_edges=self.dir_edge_ids, edge_score=True, res=100)
+            split_actions = [actions[self.e_offs[i-1]:self.e_offs[i]].squeeze(-1) for i in range(1, len(self.e_offs))]
+            edge_reward = self.reward_function(self.current_soln.long(), self.init_sp_seg.long(),
+                                               dir_edges=self.dir_edge_ids, edge_score=True, res=50,
+                                               sp_cmrads=self.sp_rads, actions=split_actions)
             for i, sz in enumerate(self.cfg.s_subgraph):
                 # reward.append((sp_reward[self.edge_ids][:, self.subgraph_indices[i].view(-1, sz)].sum(0) / 2).mean(1))
                 reward.append(edge_reward[self.subgraph_indices[i].view(-1, sz)].mean(1))
@@ -115,7 +118,10 @@ class MulticutEmbeddingsEnv():
                 fig, axes = plt.subplots(2, 3, sharex='col', sharey='row', gridspec_kw={'hspace': 0, 'wspace': 0})
                 axes[0, 0].imshow(self.gt_seg[-1].cpu().squeeze(), cmap=random_label_cmap(), interpolation="none")
                 axes[0, 0].set_title('gt')
-                axes[0, 1].imshow(self.raw[-1].cpu().permute(1, 2, 0).squeeze())
+                if self.raw.ndim == 3:
+                    axes[0, 1].imshow(self.raw[-1, 0])
+                else:
+                    axes[0, 1].imshow(self.raw[-1])
                 axes[0, 1].set_title('raw image')
                 axes[0, 2].imshow(self.init_sp_seg[-1].cpu(), cmap=random_label_cmap(), interpolation="none")
                 axes[0, 2].set_title('superpixels')
@@ -136,7 +142,7 @@ class MulticutEmbeddingsEnv():
         return reward
 
     def get_state(self):
-        return State(self.current_node_embeddings, self.edge_ids, self.edge_angles, self.sp_feat, self.subgraph_indices, self.sep_subgraphs, self.counter, self.gt_edge_weights)
+        return State(self.current_node_embeddings, self.edge_ids, self.edge_features, self.sp_feat, self.subgraph_indices, self.sep_subgraphs, self.counter, self.gt_edge_weights)
 
     def update_data(self, raw, gt, edge_ids, gt_edges, sp_seg, fe_grad, rags, edge_features, *args, **kwargs):
         bs = raw.shape[0]
@@ -150,10 +156,10 @@ class MulticutEmbeddingsEnv():
         self.current_node_embeddings = torch.cat([self.embedding_net.get_mean_sp_embedding_chunked(embed, sp, chunks=20)
                                                   for embed, sp in zip(self.embeddings, self.init_sp_seg)], dim=0)
 
-        subgraphs, self.sep_subgraphs = [], []
-        edge_angles, sp_feat = zip(*[get_angles_smass_in_rag(edge_ids[i], self.init_sp_seg[i]) for i in range(bs)])
-        self.edge_angles, self.sp_feat = torch.cat(edge_angles).unsqueeze(-1), torch.cat(sp_feat)
+        edge_angles, sp_feat, sp_rads = zip(*[get_angles_smass_in_rag(edge_ids[i], self.init_sp_seg[i]) for i in range(bs)])
+        edge_angles, self.sp_feat, self.sp_rads = torch.cat(edge_angles).unsqueeze(-1), torch.cat(sp_feat), torch.cat(sp_rads)
 
+        subgraphs, self.sep_subgraphs = [], []
         _subgraphs, _sep_subgraphs = find_dense_subgraphs([eids.transpose(0, 1).cpu().numpy() for eids in edge_ids], self.cfg.s_subgraph)
         _subgraphs = [torch.from_numpy(sg.astype(np.int64)).to(dev).permute(2, 0, 1) for sg in _subgraphs]
         _sep_subgraphs = [torch.from_numpy(sg.astype(np.int64)).to(dev).permute(2, 0, 1) for sg in _sep_subgraphs]
@@ -170,12 +176,12 @@ class MulticutEmbeddingsEnv():
 
         self.gt_edge_weights = gt_edges
         if self.gt_edge_weights is not None:
-            self.edge_feats = torch.cat(edge_features, 0)
             self.gt_edge_weights = torch.cat(self.gt_edge_weights)
             self.gt_soln = self.get_current_soln(self.gt_edge_weights)
             self.sg_gt_edges = [self.gt_edge_weights[sg].view(-1, sz) for sz, sg in
                                 zip(self.cfg.s_subgraph, self.subgraph_indices)]
 
+        self.edge_features = torch.cat([edge_angles, torch.cat(edge_features, 0)[:, :2]], 1)
         self.current_edge_weights = torch.ones(self.edge_ids.shape[1], device=self.edge_ids.device) / 2
 
         return

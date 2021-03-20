@@ -16,19 +16,15 @@ from torch.optim.lr_scheduler import ReduceLROnPlateau
 from multiprocessing import Lock
 
 
-def update_env_data(env, dloader, cfg, device, with_gt_edges=False, fe_grad=False):
-    raw, gt, sp_seg, indices = next(dloader)
+def update_env_data(env, data_iter, data_set, device, with_gt_edges=False, fe_grad=False):
+    raw, gt, sp_seg, indices = next(data_iter)
     rags = [compute_rag(sseg.numpy()) for sseg in sp_seg]
     edges = [torch.from_numpy(rag.uvIds().astype(np.long)).T.to(device) for rag in rags]
     raw, gt, sp_seg = raw.to(device), gt.to(device), sp_seg.to(device)
-    if with_gt_edges:
-        _edges, edge_feat, _, gt_edges = dloader.dataset.get_graphs(indices, sp_seg, device)
-        for e1, e2 in zip(edges, _edges):
-            assert not (e1 != e2).any()
-        # gt_edges = [calculate_gt_edge_costs(s_edges.T, sseg.squeeze(), sgt.squeeze(), cfg.gt_edge_overlap_thresh).to(device).float() for s_edges, sseg, sgt in zip(edges, sp_seg, gt)]
-    else:
-        gt_edges = None
-        edge_feat = None
+    _edges, edge_feat, gt_edges = data_set.get_graphs(indices, sp_seg, device)
+    for e1, e2 in zip(edges, _edges):
+        assert not (e1 != e2).any()
+    # gt_edges = [calculate_gt_edge_costs(s_edges.T, sseg.squeeze(), sgt.squeeze(), cfg.gt_edge_overlap_thresh).to(device).float() for s_edges, sseg, sgt in zip(edges, sp_seg, gt)]
     env.update_data(edge_ids=edges, gt_edges=gt_edges, sp_seg=sp_seg, raw=raw, gt=gt, fe_grad=fe_grad, rags=rags, edge_features=edge_feat)
 
 

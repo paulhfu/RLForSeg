@@ -17,7 +17,7 @@ from utils.reward_functions import UnSupervisedReward, SubGraphDiceReward
 from utils.graphs import collate_edges, get_edge_indices, get_angles_smass_in_rag
 from utils.general import get_angles, pca_project, random_label_cmap
 
-State = collections.namedtuple("State", ["node_embeddings", "edge_ids", "edge_angles", "sp_feat", "obj_edge_ind_critic",
+State = collections.namedtuple("State", ["node_embeddings", "edge_ids", "edge_feats", "sp_feat", "obj_edge_ind_critic",
                                          "obj_node_mask_critic", "obj_edge_mask_actor", "gt_edge_weights"])
 class MulticutEmbeddingsEnv():
 
@@ -66,7 +66,10 @@ class MulticutEmbeddingsEnv():
         self.current_soln, obj_edge_ind_critic, obj_node_mask_critic, obj_edge_mask_actor = self.get_current_soln(self.current_edge_weights)
 
         if 'artificial_cells' in self.cfg.reward_function or 'leptin_data' in self.cfg.reward_function:
-            sp_reward = self.reward_function(self.current_soln.long(), self.init_sp_seg.long(), dir_edges=self.dir_edge_ids, edge_score=False, res=100)
+            split_actions = [actions[self.e_offs[i-1]:self.e_offs[i]].squeeze(-1) for i in range(1, len(self.e_offs))]
+            sp_reward = self.reward_function(self.current_soln.long(), self.init_sp_seg.long(),
+                                               dir_edges=self.dir_edge_ids, edge_score=False, res=50,
+                                               sp_cmrads=self.sp_rads, actions=split_actions)
             object_weights = obj_node_mask_critic.sum(1)
             reward = [(sp_reward[None] * obj_node_mask_critic).sum(1) / object_weights]
             reward.append(self.last_final_reward)
@@ -110,11 +113,11 @@ class MulticutEmbeddingsEnv():
                     wandb.log({tag + key: val})
 
         self.acc_reward.append(total_reward)
-        return reward, State(self.current_node_embeddings, self.edge_ids, self.edge_angles, self.sp_feat,
+        return reward, State(self.current_node_embeddings, self.edge_ids, self.edge_features, self.sp_feat,
                              obj_edge_ind_critic, obj_node_mask_critic, obj_edge_mask_actor, self.gt_edge_weights)
 
     def get_state(self):
-        return State(self.current_node_embeddings, self.edge_ids, self.edge_angles, self.sp_feat, None, None, None,
+        return State(self.current_node_embeddings, self.edge_ids, self.edge_features, self.sp_feat, None, None, None,
                      self.gt_edge_weights)
 
     def update_data(self, raw, gt, edge_ids, gt_edges, sp_seg, rags, edge_features, *args, **kwargs):
@@ -132,8 +135,8 @@ class MulticutEmbeddingsEnv():
         self.current_node_embeddings = torch.cat([self.embedding_net.get_mean_sp_embedding_chunked(embed, sp, chunks=40)
                                                   for embed, sp in zip(self.embeddings, self.init_sp_seg)], dim=0)
 
-        edge_angles, sp_feat = zip(*[get_angles_smass_in_rag(edge_ids[i], self.init_sp_seg[i]) for i in range(bs)])
-        self.edge_angles, self.sp_feat = torch.cat(edge_angles).unsqueeze(-1), torch.cat(sp_feat)
+        edge_angles, sp_feat, sp_rads = zip(*[get_angles_smass_in_rag(edge_ids[i], self.init_sp_seg[i]) for i in range(bs)])
+        edge_angles, self.sp_feat, self.sp_rads = torch.cat(edge_angles).unsqueeze(-1), torch.cat(sp_feat), torch.cat(sp_rads)
 
         self.dir_edge_ids = [torch.cat([_edge_ids, torch.stack([_edge_ids[1], _edge_ids[0]], dim=0)], dim=1) for _edge_ids in edge_ids]
         self.n_nodes = [eids.max() + 1 for eids in edge_ids]
@@ -143,10 +146,9 @@ class MulticutEmbeddingsEnv():
         if self.gt_edge_weights is not None:
             self.edge_feats = torch.cat(edge_features, 0)
             self.gt_edge_weights = torch.cat(self.gt_edge_weights)
-            self.gt_soln, _, _ = self.get_current_soln(self.gt_edge_weights)
-            self.sg_gt_edges = [self.gt_edge_weights[sg].view(-1, sz) for sz, sg in
-                                zip(self.cfg.s_subgraph, self.subgraph_indices)]
+            self.gt_soln, _, _, _ = self.get_current_soln(self.gt_edge_weights)
 
+        self.edge_features = torch.cat([edge_angles, torch.cat(edge_features, 0)[:, :2]], 1)
         self.current_edge_weights = torch.ones(self.edge_ids.shape[1], device=self.edge_ids.device) / 2
 
         return

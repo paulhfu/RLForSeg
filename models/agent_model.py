@@ -45,7 +45,7 @@ class Agent(torch.nn.Module):
         edge_index = torch.cat([state.edge_ids, torch.stack([state.edge_ids[1], state.edge_ids[0]], dim=0)], dim=1)  # gcnn expects two directed edges for one undirected edge
         if actions is None:
             with torch.set_grad_enabled(policy_opt):
-                out, side_loss = self.actor(node_features, edge_index, state.edge_angles, state.gt_edge_weights, post_data)
+                out, side_loss = self.actor(node_features, edge_index, state.edge_feats, state.gt_edge_weights, post_data)
                 mu, std = out.chunk(2, dim=-1)
                 mu, std = mu.contiguous(), std.contiguous()
 
@@ -59,7 +59,7 @@ class Agent(torch.nn.Module):
                 dist = SigmNorm(mu, std)
                 actions = dist.rsample()
 
-            q1, q2, sl = self.critic_tgt(node_features, actions, edge_index, state.edge_angles, state.subgraph_indices,
+            q1, q2, sl = self.critic_tgt(node_features, actions, edge_index, state.edge_feats, state.subgraph_indices,
                                          state.sep_subgraphs, state.gt_edge_weights, post_data)
             side_loss = (side_loss + sl) / 2
             if policy_opt:
@@ -70,7 +70,7 @@ class Agent(torch.nn.Module):
                     return dist, q1, q2, actions, None, side_loss, node_features
                 return dist, q1, q2, actions, None, side_loss
 
-        q1, q2, side_loss = self.critic(node_features, actions, edge_index, state.edge_angles, state.subgraph_indices,
+        q1, q2, side_loss = self.critic(node_features, actions, edge_index, state.edge_feats, state.subgraph_indices,
                                         state.sep_subgraphs, state.gt_edge_weights, post_data)
         return q1, q2, side_loss
 
@@ -81,10 +81,10 @@ class PolicyNet(torch.nn.Module):
         if node_actions:
             self.gcn = NodeGnn(n_in_features, n_classes, n_hidden_layer, hl_factor, distance, device, "actor")
         else:
-            self.gcn = EdgeGnn(n_in_features, n_classes, n_hidden_layer, hl_factor, distance, device, "actor", depth, normalize_input)
+            self.gcn = EdgeGnn(n_in_features, n_classes, 3, n_hidden_layer, hl_factor, distance, device, "actor", depth, normalize_input)
 
-    def forward(self, node_features, edge_index, angles, gt_edges, post_data):
-        actor_stats, side_loss = self.gcn(node_features, edge_index, angles, gt_edges, post_data)
+    def forward(self, node_features, edge_index, edge_feats, gt_edges, post_data):
+        actor_stats, side_loss = self.gcn(node_features, edge_index, edge_feats, gt_edges, post_data)
         return actor_stats, side_loss
 
 
@@ -96,7 +96,7 @@ class DoubleQValueNet(torch.nn.Module):
         self.s_subgraph = s_subgraph
         self.node_actions = node_actions
         n_node_in_features = n_in_features
-        n_edge_in_features = n_actions + 1
+        n_edge_in_features = n_actions + 3
         if node_actions:
             n_node_in_features += n_actions
             n_edge_in_features = 1
@@ -138,14 +138,14 @@ class DoubleQValueNet(torch.nn.Module):
             nn.Linear(hl_factor * 4, n_classes),
         )
 
-    def forward(self, node_features, actions, edge_index, angles, sub_graphs, sep_subgraphs, gt_edges, post_data):
+    def forward(self, node_features, actions, edge_index, edge_feat, sub_graphs, sep_subgraphs, gt_edges, post_data):
         if actions.ndim < 2:
             actions = actions.unsqueeze(-1)
         if self.node_actions:
             node_features = torch.cat([node_features, actions], dim=-1)
-            edge_features = angles
+            edge_features = edge_feat
         else:
-            edge_features = torch.cat([actions, angles], dim=-1)
+            edge_features = torch.cat([actions, edge_feat], dim=-1)
         _sg_edge_features1, side_loss = self.gcn1_1(node_features, edge_features, edge_index, gt_edges, post_data)
 
         _sg_edge_features2, _side_loss = self.gcn2_1(node_features, edge_features, edge_index, gt_edges, post_data)

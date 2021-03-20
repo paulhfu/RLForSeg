@@ -9,7 +9,7 @@ from models.message_passing import NodeConv, EdgeConv, EdgeConvNoNodes
 
 
 class EdgeGnn(nn.Module):
-    def __init__(self, n_in_channels, n_out_channels, n_hidden_layer, hl_factor, distance, device, name,
+    def __init__(self, n_in_channels, n_out_channels, n_edge_feats, n_hidden_layer, hl_factor, distance, device, name,
                  depth, normalize_input, start_bn_nl=False):
         super(EdgeGnn, self).__init__()
         self.name = name
@@ -20,12 +20,12 @@ class EdgeGnn(nn.Module):
         if depth == 1:
             self.node_conv1 = NodeConv(n_in_channels, n_in_channels, distance=distance, normalize_input=False,
                                        n_hidden_layer=n_hidden_layer, hl_factor=hl_factor, start_bn_nl=start_bn_nl)
-            self.edge_conv1 = EdgeConv(n_in_channels, n_out_channels, use_init_edge_feats=True, n_init_edge_channels=1,
+            self.edge_conv1 = EdgeConv(n_in_channels, n_out_channels, use_init_edge_feats=True, n_init_edge_channels=n_edge_feats,
                                        n_hidden_layer=n_hidden_layer, hl_factor=hl_factor)
         if depth == 2:
             self.node_conv1 = NodeConv(n_in_channels, n_in_channels, distance=distance, normalize_input=False,
                                        n_hidden_layer=n_hidden_layer, hl_factor=hl_factor, start_bn_nl=start_bn_nl)
-            self.edge_conv1 = EdgeConv(n_in_channels, n_in_channels, use_init_edge_feats=True, n_init_edge_channels=1,
+            self.edge_conv1 = EdgeConv(n_in_channels, n_in_channels, use_init_edge_feats=True, n_init_edge_channels=n_edge_feats,
                                        n_hidden_layer=n_hidden_layer, hl_factor=hl_factor)
             self.node_conv2 = NodeConv(n_in_channels, n_in_channels, distance=distance, normalize_input=normalize_input,
                                        n_hidden_layer=n_hidden_layer, hl_factor=hl_factor)
@@ -35,7 +35,7 @@ class EdgeGnn(nn.Module):
         if depth == 3:
             self.node_conv1 = NodeConv(n_in_channels, n_in_channels, distance=distance, normalize_input=False,
                                        n_hidden_layer=n_hidden_layer, hl_factor=hl_factor, start_bn_nl=start_bn_nl)
-            self.edge_conv1 = EdgeConv(n_in_channels, n_in_channels, use_init_edge_feats=True, n_init_edge_channels=1,
+            self.edge_conv1 = EdgeConv(n_in_channels, n_in_channels, use_init_edge_feats=True, n_init_edge_channels=n_edge_feats,
                                        n_hidden_layer=n_hidden_layer, hl_factor=hl_factor)
             self.node_conv2 = NodeConv(n_in_channels, n_in_channels, distance=distance, normalize_input=normalize_input,
                                        n_hidden_layer=n_hidden_layer, hl_factor=hl_factor)
@@ -48,10 +48,10 @@ class EdgeGnn(nn.Module):
                                        n_init_edge_channels=n_in_channels, n_hidden_layer=n_hidden_layer,
                                        hl_factor=hl_factor)
 
-    def forward(self, node_features, edge_index, angles, gt_edges, post_data=False):
+    def forward(self, node_features, edge_index, edge_feats, gt_edges, post_data=False):
         side_loss = torch.tensor([0.0], device=node_features.device)
         node_features = self.node_conv1(node_features, edge_index)
-        edge_features, sl = self.edge_conv1(node_features, edge_index, angles)
+        edge_features, sl = self.edge_conv1(node_features, edge_index, edge_feats)
         side_loss = side_loss + sl
         if self.depth > 1:
             node_features = node_features + self.node_conv2(node_features, edge_index)

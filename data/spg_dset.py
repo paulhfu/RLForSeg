@@ -71,15 +71,14 @@ class SpgDset(torch_data.Dataset):
 
         # raw -= raw.min()
         # raw /= raw.max()
-        # def _draw(a, b, r1, r2, idx):
-        #     rw = h5py.File(self.pix_file_names[idx], 'r')[self.keys.raw][:].squeeze()
-        #     altered_raw = rw.copy()
-        #     raw_circle = draw.circle_perimeter(a, b, r1, method='bresenham', shape=raw.shape[-2:])
-        #     altered_raw[..., raw_circle[0], raw_circle[1]] = 1
-        #     raw_circle = draw.circle_perimeter(a, b, r2, method='bresenham', shape=raw.shape[-2:])
-        #     altered_raw[..., raw_circle[0], raw_circle[1]] = 1
+        # def _draw(a, b, rs, idx):
+        #     rw = h5py.File(self.pix_file_names[idx], 'r')[self.keys.raw][:]
+        #     altered_raw = np.stack([rw, rw, rw], -1)
+        #     for r in rs:
+        #         raw_circle = draw.circle_perimeter(a, b, r, method='bresenham', shape=raw.shape[-2:])
+        #         altered_raw[raw_circle[0], raw_circle[1], 0] = 1
         #     return altered_raw
-        # _draw(400, 350, 210, 280, 0)
+        # plt.imshow(_draw(400, 350, [210, 280, 320], 0));plt.show()
 
         gt = torch.from_numpy(pix_file[self.keys.gt][:].astype(np.float))
         sp_seg = torch.from_numpy(graph_file[self.keys.node_labeling][:].astype(np.float))

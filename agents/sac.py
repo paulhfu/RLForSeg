@@ -109,7 +109,7 @@ class AgentSacTrainer(object):
         dloader = iter(DataLoader(self.val_dset, batch_size=1, shuffle=True, pin_memory=True, num_workers=0))
         acc_reward = 0
         for it in range(len(self.val_dset)):
-            update_env_data(env, dloader, self.cfg, self.device, with_gt_edges="sub_graph_dice" in self.cfg.reward_function)
+            update_env_data(env, dloader, self.train_dset, self.device, with_gt_edges="sub_graph_dice" in self.cfg.reward_function)
             env.reset()
             state = env.get_state()
 
@@ -269,6 +269,7 @@ class AgentSacTrainer(object):
 
             min_entropy = (self.cfg.entropy_range[1] - self.cfg.entropy_range[0]) * ((1.5 - reward[-1]) / 1.5) + \
                           self.cfg.entropy_range[0]
+            min_entropy = torch.ones_like(min_entropy)
 
             for i, sz in enumerate(self.cfg.s_subgraph):
                 min_entropy = min_entropy.to(self.model.alpha[i].device).squeeze()
@@ -383,7 +384,7 @@ class AgentSacTrainer(object):
             dloader = iter(DataLoader(self.train_dset, batch_size=self.cfg.batch_size, shuffle=True, pin_memory=True, num_workers=0))
             for iteration in range(len(self.train_dset) * self.cfg.data_update_frequency):
                 if iteration % self.cfg.data_update_frequency == 0:
-                    update_env_data(env, dloader, self.cfg, self.device, with_gt_edges="sub_graph_dice" in self.cfg.reward_function)
+                    update_env_data(env, dloader, self.train_dset, self.device, with_gt_edges="sub_graph_dice" in self.cfg.reward_function)
                 env.reset()
                 state = env.get_state()
 

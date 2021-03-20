@@ -70,18 +70,21 @@ class LeptinDataReward2DTurningWithEllipses(RewardFunctionAbc):
 
         self.masses = [np.array(m1).mean(), np.array(m2).mean(), np.array(m3 + m4 + m5).mean()]
         self.fg_shape_descriptors = self.celltype_1_ds + self.celltype_2_ds + self.celltype_3_ds
-        self.circle_center = [400, 350]
-        self.circle_rads = [210, 280]
+        400, 350, [210, 280, 320]
+        self.circle_center = [390, 340]
+        self.circle_rads = [210, 280, 320, 120]
 
 
-    def __call__(self, prediction_segmentation, superpixel_segmentation, res, dir_edges, edge_score, *args, **kwargs):
+    def __call__(self, prediction_segmentation, superpixel_segmentation, res, dir_edges, edge_score, sp_cmrads, actions,
+                 *args, **kwargs):
         dev = prediction_segmentation.device
         return_scores = []
 
-        for single_pred, single_sp_seg, s_dir_edges in zip(prediction_segmentation, superpixel_segmentation, dir_edges):
-            scores = torch.ones(int((single_sp_seg.max()) + 1,), device=dev) * 0.5
+        for single_pred, single_sp_seg, s_dir_edges, s_actions in zip(prediction_segmentation, superpixel_segmentation,
+                                                                      dir_edges, actions):
+            scores = torch.zeros(int((single_sp_seg.max()) + 1,), device=dev)
             if single_pred.max() == 0:  # image is empty
-                return_scores.append(scores - 0.5)
+                return_scores.append(scores)
                 continue
             # get one-hot representation
             one_hot = torch.zeros((int(single_pred.max()) + 1, ) + single_pred.size(), device=dev, dtype=torch.long) \
@@ -98,7 +101,7 @@ class LeptinDataReward2DTurningWithEllipses(RewardFunctionAbc):
             bg2_id = label_masses.argmax()
             label_masses[bg1_id] = bg1_mass
             bg2_mask[bg2_id] = True
-            # get the objects that are torching the patch boarder as for them we cannot compute a relieable sim score
+            # get the objects that are torching the patch boarder as for them we cannot compute a relieable sim shape_score
             false_obj_mask = label_masses < 4
             false_obj_mask[bg1_id] = False
             false_obj_mask[bg2_id] = False
@@ -116,39 +119,39 @@ class LeptinDataReward2DTurningWithEllipses(RewardFunctionAbc):
             bg2_sp_ids = torch.unique((single_sp_seg[None] + 1) * bg2)[1:] - 1  # mask out the covered superpixels (need to add 1 because the single_sp_seg start from 0)
             object_sp_ids = [torch.unique((single_sp_seg[None] + 1) * obj)[1:] - 1 for obj in objects]
 
-            #get shape descriptors for objects and get a score by comparing to self.descriptors
+            #get shape descriptors for objects and get a shape_score by comparing to self.descriptors
 
             for object, obj_id, sp_ids in zip(objects, potential_object_ids, object_sp_ids):
-                diff = abs(label_masses[obj_id] - self.masses[2])
-                if diff > self.masses[2] / 1.5:
-                    score = diff / (max(label_masses[obj_id], self.masses[2]) * 2)
-                    scores[sp_ids] -= score
+                diff = label_masses[obj_id] - self.masses[2]
+                if diff > 0 and label_masses[obj_id] > self.masses[2] * 3 or diff < 0 and label_masses[obj_id] < self.masses[2] / 3:
                     continue
                 try:
                     contour = find_contours(object.cpu().numpy(), level=0)
                     if len(contour) > 1:
-                        scores[sp_ids] -= 0.1
                         continue
                     contour = contour[0]
                 except:
-                    scores[sp_ids] -= 0.1
                     continue
                 poly_chain = torch.from_numpy(approximate_polygon(contour, tolerance=0.0)).to(dev)
                 if poly_chain.shape[0] <= 3:
-                    scores[sp_ids] -= 0.1
                     continue
                 polygon = Polygon2d(poly_chain)
 
                 cm = poly_chain.mean(dim=0)
-                dist_from_tolerance = math.sqrt((cm[0]-self.circle_center[0])**2 + (cm[1] - self.circle_center[1])**2)
-                dist_from_tolerance = min(dist_from_tolerance-self.circle_rads[0], dist_from_tolerance-self.circle_rads[1])
-                dist_from_tolerance /= math.sqrt(object.shape[-1]**2 + object.shape[-2]**2) / 2
+                position_score = math.sqrt((cm[0]-self.circle_center[0])**2 + (cm[1] - self.circle_center[1])**2)
+                dt1 = self.circle_rads[0] - position_score
+                dt2 = self.circle_rads[1] - position_score
+                dist_normalizer = math.sqrt(object.shape[-1]**2 + object.shape[-2]**2)
+                if dt2 < 0:
+                    position_score = 1 - dt2 / dist_normalizer  # norm to (0, 0.5)
+                elif dt1 > 0:
+                    position_score = 1 - dt1 / dist_normalizer
+                else:
+                    position_score = 1
 
-                dist_scores = torch.tensor([des.distance(polygon, res) for des in self.fg_shape_descriptors], device=dev)
-                #project distances for objects to similarities for superpixels
-                # score = (torch.sigmoid((((1 - dist_scores.min()) * 6.5).exp() / torch.tensor([6.5], device=dev).exp()) * 6 - 3) * 1.2597) - 0.2
-                score = 1 - dist_scores.min()
-                score *= 0.8
+                shape_dist_scores = torch.tensor([des.distance(polygon, res) for des in self.fg_shape_descriptors], device=dev)
+                shape_score = 1 - shape_dist_scores.min()
+                shape_score *= 0.8
 
                 ellipset = fitEllipse(contour.astype(np.int))
                 v = np.zeros((2,), dtype=np.float)
@@ -157,16 +160,17 @@ class LeptinDataReward2DTurningWithEllipses(RewardFunctionAbc):
                 v = v / np.clip(np.linalg.norm(v), a_min=1e-6, a_max=np.inf)
                 slant = np.deg2rad(360 - ellipset[2])
                 u = np.array([np.cos(slant), np.sin(slant)])
-                score += abs(np.dot(u, v)) * 0.2
+                shape_score += abs(np.dot(u, v)) * 0.2
+
+                score = 0.5 * position_score + 0.5 * shape_score
 
                 scores[sp_ids] += score
 
             # penalize size variation
-            diff1 = abs(label_masses[bg1_id] - self.masses[0])
-            diff2 = abs(label_masses[bg2_id] - self.masses[1])
-            if diff1 > self.masses[0] / 3:
-                score = diff1 / (max(label_masses[bg1_id], self.masses[0]) * 4)
-                scores[bg1_sp_ids] -= score
+            diff1 = label_masses[bg1_id] - self.masses[0]
+            diff2 = label_masses[bg2_id] - self.masses[1]
+            if diff1 > 0 and label_masses[bg1_id] > self.masses[0] * 3 or diff1 < 0 and label_masses[bg1_id] < self.masses[0] / 3:
+                pass
             else:
                 try:
                     contour = find_contours(bg1.cpu().numpy(), level=0)
@@ -177,16 +181,15 @@ class LeptinDataReward2DTurningWithEllipses(RewardFunctionAbc):
                     if poly_chain.shape[0] <= 3:
                         raise Exception()
                     polygon = Polygon2d(poly_chain)
-                    dist_scores = torch.tensor([des.distance(polygon, res*10) for des in self.outer_cntr_ds], device=dev)
-                    # score = (torch.sigmoid((((1 - dist_scores.min()) * 6.5).exp() / torch.tensor([6.5], device=dev).exp()) * 6 - 3) * 1.2597) - 0.2
-                    score = 1 - dist_scores.min()
-                    scores[bg1_sp_ids] += score
+                    shape_dist_scores = torch.tensor([des.distance(polygon, res*10) for des in self.outer_cntr_ds], device=dev)
+                    # shape_score = (torch.sigmoid((((1 - shape_dist_scores.min()) * 6.5).exp() / torch.tensor([6.5], device=dev).exp()) * 6 - 3) * 1.2597) - 0.2
+                    shape_score = 1 - shape_dist_scores.min()
+                    scores[bg1_sp_ids] += shape_score
                 except Exception as e:
                     print(e)
                     scores[bg1_sp_ids] -= 0.25
-            if diff2 > self.masses[1] / 3:
-                score = diff2 / (max(label_masses[bg2_id], self.masses[1]) * 4)
-                scores[bg2_sp_ids] -= score
+            if diff2 > 0 and label_masses[bg2_id] > self.masses[1] * 3 or diff2 < 0 and label_masses[bg2_id] < self.masses[1] / 3:
+                pass
             else:
                 try:
                     contour = find_contours(bg2.cpu().numpy(), level=0)
@@ -197,10 +200,10 @@ class LeptinDataReward2DTurningWithEllipses(RewardFunctionAbc):
                     if poly_chain.shape[0] <= 3:
                         raise Exception()
                     polygon = Polygon2d(poly_chain)
-                    dist_scores = torch.tensor([des.distance(polygon, res*10) for des in self.inner_cntr_ds], device=dev)
-                    # score = (torch.sigmoid((((1 - dist_scores.min()) * 6.5).exp() / torch.tensor([6.5], device=dev).exp()) * 6 - 3) * 1.2597) - 0.2
-                    score = 1 - dist_scores.min()
-                    scores[bg2_sp_ids] += score
+                    shape_dist_scores = torch.tensor([des.distance(polygon, res*10) for des in self.inner_cntr_ds], device=dev)
+                    # shape_score = (torch.sigmoid((((1 - shape_dist_scores.min()) * 6.5).exp() / torch.tensor([6.5], device=dev).exp()) * 6 - 3) * 1.2597) - 0.2
+                    shape_score = 1 - shape_dist_scores.min()
+                    scores[bg2_sp_ids] += shape_score
                 except Exception as e:
                     print(e)
                     scores[bg2_sp_ids] -= 0.25
@@ -217,10 +220,16 @@ class LeptinDataReward2DTurningWithEllipses(RewardFunctionAbc):
             if edge_score:
                 edges = s_dir_edges[:, :int(s_dir_edges.shape[1] / 2)]
                 edge_scores = scores[edges].max(dim=0).values
+                # identify wrong edges
+                bg_sp = torch.arange(len(sp_cmrads), device=dev)[(sp_cmrads > self.circle_rads[2]) | (sp_cmrads < self.circle_rads[3])]
+                edge_mask = (edges[None] == bg_sp[:, None, None]).sum(0).sum(0) == 2
+                edge_scores[edge_mask] = 1 - s_actions[edge_mask]
                 return_scores.append(edge_scores)
             else:
                 return_scores.append(scores)
-        return torch.cat(return_scores)
+
+        return_scores = torch.cat(return_scores)
+        return return_scores
 
 
 class LeptinDataReward2DTurning(RewardFunctionAbc):
