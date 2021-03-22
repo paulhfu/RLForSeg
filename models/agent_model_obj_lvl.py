@@ -18,13 +18,9 @@ class Agent(torch.nn.Module):
         self.distance = distance
         embed_dim = self.cfg.dim_embeddings + 3
 
-        self.actor = PolicyNet(embed_dim, 2, cfg.gnn_n_hidden, cfg.gnn_hl_factor, distance, device, False,
-                               cfg.gnn_act_depth, cfg.gnn_act_norm_inp)
-        self.critic = DoubleQValueNet(embed_dim, 1, 1, cfg.gnn_n_hidden, cfg.gnn_hl_factor, distance, device, False,
-                                      cfg.gnn_crit_depth, cfg.gnn_crit_norm_inp)
-        self.critic_tgt = DoubleQValueNet(embed_dim,
-                                          1, 1, cfg.gnn_n_hidden, cfg.gnn_hl_factor,
-                                          distance, device, False, cfg.gnn_crit_depth, cfg.gnn_crit_norm_inp)
+        self.actor = PolicyNet(embed_dim, 2, cfg.gnn_n_hl, cfg.gnn_size_hl, distance, device, False, cfg.gnn_act_depth, cfg.gnn_act_norm_inp)
+        self.critic = DoubleQValueNet(embed_dim, 1, 1, cfg.gnn_n_hl, cfg.gnn_size_hl, distance, device, False, cfg.gnn_crit_depth, cfg.gnn_crit_norm_inp)
+        self.critic_tgt = DoubleQValueNet(embed_dim, 1, 1, cfg.gnn_n_hl, cfg.gnn_size_hl, distance, device, False, cfg.gnn_crit_depth, cfg.gnn_crit_norm_inp)
 
         self.log_alpha = torch.tensor(np.log(self.cfg.init_temperature)).to(device)
         self.log_alpha.requires_grad = True

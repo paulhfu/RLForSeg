@@ -158,39 +158,35 @@ class EdgeConv(EdgeMessagePassing):
                  n_hidden_layer=0, hl_factor=128):
         super(EdgeConv, self).__init__(aggr='no_aggr')  # no need for aggregation when only updating edges.
 
-        m = 2
-        hli = [torch.nn.BatchNorm1d(n_channels_in * m, track_running_stats=False)]
+        hli = [torch.nn.BatchNorm1d(n_channels_in * 2, track_running_stats=False)]
         hli.append(torch.nn.LeakyReLU())
-        hli.append(torch.nn.Linear(n_channels_in * m, hl_factor * (m + 2)))
-        m += 2
+        hli.append(torch.nn.Linear(n_channels_in * 2, hl_factor))
         for i in range(n_hidden_layer):
-            hli.append(torch.nn.BatchNorm1d(hl_factor * m, track_running_stats=False))
+            hli.append(torch.nn.BatchNorm1d(hl_factor, track_running_stats=False))
             hli.append(torch.nn.LeakyReLU())
-            hli.append(torch.nn.Linear(hl_factor * m, hl_factor * (m + 2)))
-            m += 2
+            hli.append(torch.nn.Linear(hl_factor, hl_factor))
         if use_init_edge_feats:
-            hli.append(torch.nn.BatchNorm1d(hl_factor * m, track_running_stats=False))
+            hli.append(torch.nn.BatchNorm1d(hl_factor, track_running_stats=False))
             hli.append(torch.nn.LeakyReLU())
-            hli.append(torch.nn.Linear(hl_factor * m, hl_factor * (m + 2)))
+            hli.append(torch.nn.Linear(hl_factor, hl_factor))
         else:
-            hli.append(torch.nn.BatchNorm1d(hl_factor * m, track_running_stats=False))
+            hli.append(torch.nn.BatchNorm1d(hl_factor, track_running_stats=False))
             hli.append(torch.nn.LeakyReLU())
-            hli.append(torch.nn.Linear(hl_factor * m, n_channels_out))
+            hli.append(torch.nn.Linear(hl_factor, n_channels_out))
 
         self.lin_edges_inner = torch.nn.Sequential(OrderedDict([("hl" + str(i), l) for i, l in enumerate(hli)]))
 
         if use_init_edge_feats:
-            hlo = [torch.nn.BatchNorm1d(n_init_edge_channels + (hl_factor * (m + 2)), track_running_stats=False)]
+            hlo = [torch.nn.BatchNorm1d(n_init_edge_channels + hl_factor, track_running_stats=False)]
             hlo.append(torch.nn.LeakyReLU())
-            hlo.append(torch.nn.Linear(n_init_edge_channels + (hl_factor * (m + 2)), hl_factor * m))
+            hlo.append(torch.nn.Linear(n_init_edge_channels + hl_factor, hl_factor))
             for i in range(n_hidden_layer):
-                hlo.append(torch.nn.BatchNorm1d(hl_factor * m, track_running_stats=False))
+                hlo.append(torch.nn.BatchNorm1d(hl_factor, track_running_stats=False))
                 hlo.append(torch.nn.LeakyReLU())
-                hlo.append(torch.nn.Linear(hl_factor * m, hl_factor * (m-2)))
-                m -= 2
-            hlo.append(torch.nn.BatchNorm1d(hl_factor * m, track_running_stats=False))
+                hlo.append(torch.nn.Linear(hl_factor, hl_factor))
+            hlo.append(torch.nn.BatchNorm1d(hl_factor, track_running_stats=False))
             hlo.append(torch.nn.LeakyReLU())
-            hlo.append(torch.nn.Linear(hl_factor * m, n_channels_out))
+            hlo.append(torch.nn.Linear(hl_factor, n_channels_out))
 
             self.lin_edges_outer = torch.nn.Sequential(OrderedDict([("hl"+str(i), l) for i, l in enumerate(hlo)]))
 
@@ -233,38 +229,34 @@ class NodeConv(EdgeMessagePassing):
                  normalize_input=False, n_edge_channels_in=0):
         super(NodeConv, self).__init__(aggr='mean')
 
-        m = 2
         self.distance = distance
         self.normalize_input = normalize_input
         if start_bn_nl:
-            hli = [torch.nn.BatchNorm1d(n_channels_in * m + n_edge_channels_in, track_running_stats=False)]
+            hli = [torch.nn.BatchNorm1d(n_channels_in * 2 + n_edge_channels_in, track_running_stats=False)]
             hli.append(torch.nn.LeakyReLU())
-            hli.append(torch.nn.Linear(n_channels_in * m + n_edge_channels_in, hl_factor * (m + 2)))
+            hli.append(torch.nn.Linear(n_channels_in * 2 + n_edge_channels_in, hl_factor))
         else:
-            hli = [torch.nn.Linear(n_channels_in * m + n_edge_channels_in, hl_factor * (m + 2))]
-        m += 2
+            hli = [torch.nn.Linear(n_channels_in * 2 + n_edge_channels_in, hl_factor)]
         for i in range(n_hidden_layer):
-            hli.append(torch.nn.BatchNorm1d(hl_factor * m, track_running_stats=False))
+            hli.append(torch.nn.BatchNorm1d(hl_factor, track_running_stats=False))
             hli.append(torch.nn.LeakyReLU())
-            hli.append(torch.nn.Linear(hl_factor * m, hl_factor * (m + 2)))
-            m += 2
-        hli.append(torch.nn.BatchNorm1d(hl_factor * m, track_running_stats=False))
+            hli.append(torch.nn.Linear(hl_factor, hl_factor))
+        hli.append(torch.nn.BatchNorm1d(hl_factor, track_running_stats=False))
         hli.append(torch.nn.LeakyReLU())
-        hli.append(torch.nn.Linear(hl_factor * m, hl_factor * (m + 2)))
+        hli.append(torch.nn.Linear(hl_factor, hl_factor))
 
         self.lin_inner = torch.nn.Sequential(OrderedDict([("hl"+str(i), l) for i, l in enumerate(hli)]))
 
-        hlo = [torch.nn.BatchNorm1d(n_channels_in + (hl_factor * (m + 2)), track_running_stats=False)]
+        hlo = [torch.nn.BatchNorm1d(n_channels_in + hl_factor, track_running_stats=False)]
         hlo.append(torch.nn.LeakyReLU())
-        hlo.append(torch.nn.Linear(n_channels_in + (hl_factor * (m + 2)), hl_factor * m))
+        hlo.append(torch.nn.Linear(n_channels_in + hl_factor, hl_factor))
         for i in range(n_hidden_layer):
-            hlo.append(torch.nn.BatchNorm1d(hl_factor * m, track_running_stats=False))
+            hlo.append(torch.nn.BatchNorm1d(hl_factor, track_running_stats=False))
             hlo.append(torch.nn.LeakyReLU())
-            hlo.append(torch.nn.Linear(hl_factor * m, hl_factor * (m - 2)))
-            m -= 2
-        hlo.append(torch.nn.BatchNorm1d(hl_factor * m, track_running_stats=False))
+            hlo.append(torch.nn.Linear(hl_factor, hl_factor))
+        hlo.append(torch.nn.BatchNorm1d(hl_factor, track_running_stats=False))
         hlo.append(torch.nn.LeakyReLU())
-        hlo.append(torch.nn.Linear(hl_factor * m, n_channels_out))
+        hlo.append(torch.nn.Linear(hl_factor, n_channels_out))
 
         self.lin_outer = torch.nn.Sequential(OrderedDict([("hl"+str(i), l) for i, l in enumerate(hlo)]))
 

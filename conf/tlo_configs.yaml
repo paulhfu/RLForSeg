@@ -59,24 +59,24 @@ backbone:
     final_sigmoid: false
     is_segmentation: false
 
-gnn_n_hidden:
+gnn_n_hl:
   desc: number of hidden layers in graph conv blocks
   value: 2
-gnn_hl_factor:
+gnn_size_hl:
   desc: factor by which feature size of hidden featuremaps in gnn increases/decreases
-  value: 128
+  value: 1024
 gnn_act_depth:
   desc: num of graph convs (1, 2, 3)
   value: 1
 gnn_act_norm_inp:
   desc: put hidden features on unit sphere and scale by sim
-  value: true
+  value: false
 gnn_crit_depth:
   desc: num of graph convs (1, 2)
   value: 1
 gnn_crit_norm_inp:
   desc: put hidden features on unit sphere and scale by sim
-  value: true
+  value: false
 
 # training config
 T_max:
