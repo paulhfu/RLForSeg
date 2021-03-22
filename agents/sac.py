@@ -102,20 +102,20 @@ class AgentSacTrainer(object):
         if self.cfg.verbose:
             print("\n\n###### start validate ######", end='')
         self.model.eval()
-        n_examples = len(self.val_dset)
+        n_examples = 2  # len(self.val_dset)
         taus = [0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8, 0.9]
         rl_scores, keys = [], None
         ex_raws, ex_sps, ex_gts, ex_mc_gts, ex_embeds, ex_rl = [], [], [], [], [], []
         dloader = iter(DataLoader(self.val_dset, batch_size=1, shuffle=True, pin_memory=True, num_workers=0))
         acc_reward = 0
-        for it in range(len(self.val_dset)):
-            update_env_data(env, dloader, self.train_dset, self.device, with_gt_edges="sub_graph_dice" in self.cfg.reward_function)
+        for it in range(n_examples):
+            update_env_data(env, dloader, self.val_dset, self.device, with_gt_edges="sub_graph_dice" in self.cfg.reward_function)
             env.reset()
             state = env.get_state()
 
             self.model_mtx.acquire()
             try:
-                distr, _, _, _, _, _ = self.forwarder.forward(self.model, state, State, self.device, grad=False, post_data=False)
+                distr, _, _, _, _ = self.forwarder.forward(self.model, state, State, self.device, grad=False, post_data=False)
             finally:
                 self.model_mtx.release()
             action = torch.sigmoid(distr.loc)
@@ -129,13 +129,12 @@ class AgentSacTrainer(object):
             gt_mc = cm.prism(env.gt_soln[0].cpu()/env.gt_soln[0].max().item()) if env.gt_edge_weights is not None else torch.zeros(env.raw.shape[-2:])
             rl_labels = env.current_soln.cpu().numpy()[0]
 
-            if it < n_examples:
-                ex_embeds.append(pca_project(embeddings, n_comps=3))
-                ex_raws.append(env.raw[0].cpu().permute(1, 2, 0).squeeze())
-                ex_sps.append(env.init_sp_seg[0].cpu())
-                ex_mc_gts.append(gt_mc)
-                ex_gts.append(gt_seg)
-                ex_rl.append(rl_labels)
+            ex_embeds.append(pca_project(embeddings, n_comps=3))
+            ex_raws.append(env.raw[0].cpu().permute(1, 2, 0).squeeze())
+            ex_sps.append(env.init_sp_seg[0].cpu())
+            ex_mc_gts.append(gt_mc)
+            ex_gts.append(gt_seg)
+            ex_rl.append(rl_labels)
 
             _rl_scores = matching(gt_seg, rl_labels, thresh=taus, criterion='iou', report_matches=False)
 
@@ -227,16 +226,16 @@ class AgentSacTrainer(object):
     def update_critic(self, obs, action, reward):
         self.optimizers.critic.zero_grad()
         with torch.cuda.amp.autocast(enabled=True):
-            current_Q1, current_Q2, side_loss = self.forwarder.forward(self.model, obs, State, self.device, actions=action)
+            current_Q, side_loss = self.forwarder.forward(self.model, obs, State, self.device, actions=action)
 
-            critic_loss = torch.tensor([0.0], device=current_Q1[0].device)
+            critic_loss = torch.tensor([0.0], device=current_Q[0].device)
             mean_reward = 0
 
             for i, sz in enumerate(self.cfg.s_subgraph):
                 target_Q = reward[i]
                 target_Q = target_Q.detach()
 
-                critic_loss = critic_loss + (F.mse_loss(current_Q1[i], target_Q) + F.mse_loss(current_Q2[i], target_Q))
+                critic_loss = critic_loss + F.mse_loss(current_Q[i], target_Q)
                 mean_reward += reward[i].mean()
             critic_loss = critic_loss / len(self.cfg.s_subgraph) + self.cfg.side_loss_weight * side_loss
 
@@ -250,19 +249,18 @@ class AgentSacTrainer(object):
         self.optimizers.actor.zero_grad()
         self.optimizers.temperature.zero_grad()
         with torch.cuda.amp.autocast(enabled=True):
-            distribution, actor_Q1, actor_Q2, action, side_loss = self.forwarder.forward(self.model, obs, State, self.device, policy_opt=True)
+            distribution, actor_Q, action, side_loss = self.forwarder.forward(self.model, obs, State, self.device, policy_opt=True)
 
             log_prob = distribution.log_prob(action)
-            actor_loss = torch.tensor([0.0], device=actor_Q1[0].device)
-            alpha_loss = torch.tensor([0.0], device=actor_Q1[0].device)
+            actor_loss = torch.tensor([0.0], device=actor_Q[0].device)
+            alpha_loss = torch.tensor([0.0], device=actor_Q[0].device)
             _log_prob, sg_entropy = [], []
             for i, sz in enumerate(self.cfg.s_subgraph):
-                actor_Q = torch.min(actor_Q1[i], actor_Q2[i])
                 ret = get_joint_sg_logprobs_edges(log_prob, distribution.scale, obs, i, sz)
                 _log_prob.append(ret[0])
                 sg_entropy.append(ret[1])
 
-                loss = (self.model.alpha[i].detach() * _log_prob[i] - actor_Q).mean()
+                loss = (self.model.alpha[i].detach() * _log_prob[i] - actor_Q[i]).mean()
                 actor_loss = actor_loss + loss
 
             actor_loss = actor_loss / len(self.cfg.s_subgraph) + self.cfg.side_loss_weight * side_loss
@@ -382,7 +380,7 @@ class AgentSacTrainer(object):
         tau = 1
         while self.global_count.value() <= self.cfg.T_max + self.cfg.mem_size:
             dloader = iter(DataLoader(self.train_dset, batch_size=self.cfg.batch_size, shuffle=True, pin_memory=True, num_workers=0))
-            for iteration in range(len(self.train_dset) * self.cfg.data_update_frequency):
+            for iteration in range((len(self.train_dset) // self.cfg.batch_size) * self.cfg.data_update_frequency):
                 if iteration % self.cfg.data_update_frequency == 0:
                     update_env_data(env, dloader, self.train_dset, self.device, with_gt_edges="sub_graph_dice" in self.cfg.reward_function)
                 env.reset()
@@ -393,12 +391,11 @@ class AgentSacTrainer(object):
                 else:
                     self.model_mtx.acquire()
                     try:
-                        distr, _, _, action, _, _ = self.forwarder.forward(self.model, state, State, self.device, grad=False)
+                        distr, _, action, _, _ = self.forwarder.forward(self.model, state, State, self.device, grad=False)
                     finally:
                         self.model_mtx.release()
 
                 reward = env.execute_action(action, tau=max(0, tau))
-
                 self.memory.push(state_to_cpu(state, State), action, reward)
                 if self.global_count.value() > self.cfg.T_max + self.cfg.mem_size:
                     break

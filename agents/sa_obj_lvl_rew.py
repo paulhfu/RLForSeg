@@ -96,7 +96,7 @@ class AgentSaTrainerObjLvlReward(object):
         dloader = iter(DataLoader(self.val_dset, batch_size=1, shuffle=True, pin_memory=True, num_workers=0))
         acc_reward = 0
         for it in range(len(self.val_dset)):
-            update_env_data(env, dloader, self.cfg, self.device,
+            update_env_data(env, dloader, self.val_dset, self.device,
                             with_gt_edges="sub_graph_dice" in self.cfg.reward_function)
             env.reset()
             state = env.get_state()
@@ -325,9 +325,9 @@ class AgentSaTrainerObjLvlReward(object):
         while self.global_count.value() <= self.cfg.T_max + self.cfg.mem_size:
             dloader = iter(DataLoader(self.train_dset, batch_size=self.cfg.batch_size, shuffle=True, pin_memory=True,
                                  num_workers=0))
-            for iteration in range(len(self.train_dset) * self.cfg.data_update_frequency):
+            for iteration in range((len(self.train_dset) // self.cfg.batch_size) * self.cfg.data_update_frequency):
                 if iteration % self.cfg.data_update_frequency == 0:
-                    update_env_data(env, dloader, self.cfg, self.device,
+                    update_env_data(env, dloader, self.train_dset, self.device,
                                     with_gt_edges="sub_graph_dice" in self.cfg.reward_function)
                 env.reset()
                 state = env.get_state()

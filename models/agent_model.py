@@ -17,14 +17,9 @@ class Agent(torch.nn.Module):
         self.distance = distance
         dim_embed = self.cfg.dim_embeddings + 3
 
-        self.actor = PolicyNet(dim_embed, 2, cfg.gnn_n_hidden,
-                               cfg.gnn_hl_factor, distance, device, False, cfg.gnn_act_depth, cfg.gnn_act_norm_inp)
-        self.critic = DoubleQValueNet(self.cfg.s_subgraph, dim_embed,
-                                      1, 1, cfg.gnn_n_hidden, cfg.gnn_hl_factor,
-                                      distance, device, False, cfg.gnn_crit_depth, cfg.gnn_crit_norm_inp)
-        self.critic_tgt = DoubleQValueNet(self.cfg.s_subgraph, dim_embed,
-                                          1, 1, cfg.gnn_n_hidden, cfg.gnn_hl_factor,
-                                          distance, device, False, cfg.gnn_crit_depth, cfg.gnn_crit_norm_inp)
+        self.actor = PolicyNet(dim_embed, 2, cfg.gnn_n_hl, cfg.gnn_size_hl, distance, device, False, cfg.gnn_act_depth, cfg.gnn_act_norm_inp)
+        self.critic = QValueNet(self.cfg.s_subgraph, dim_embed, 1, 1, cfg.gnn_n_hl, cfg.gnn_size_hl, distance, device, False, cfg.gnn_crit_depth, cfg.gnn_crit_norm_inp)
+        self.critic_tgt = QValueNet(self.cfg.s_subgraph, dim_embed, 1, 1, cfg.gnn_n_hl, cfg.gnn_size_hl, distance, device, False, cfg.gnn_crit_depth, cfg.gnn_crit_norm_inp)
 
         self.log_alpha = torch.tensor([np.log(self.cfg.init_temperature)] * len(self.cfg.s_subgraph)).to(device)
         self.log_alpha.requires_grad = True
@@ -59,20 +54,20 @@ class Agent(torch.nn.Module):
                 dist = SigmNorm(mu, std)
                 actions = dist.rsample()
 
-            q1, q2, sl = self.critic_tgt(node_features, actions, edge_index, state.edge_feats, state.subgraph_indices,
+            q, sl = self.critic_tgt(node_features, actions, edge_index, state.edge_feats, state.subgraph_indices,
                                          state.sep_subgraphs, state.gt_edge_weights, post_data)
             side_loss = (side_loss + sl) / 2
             if policy_opt:
-                return dist, q1, q2, actions, side_loss
+                return dist, q, actions, side_loss
             else:
                 # this means either exploration or critic opt
                 if return_node_features:
-                    return dist, q1, q2, actions, None, side_loss, node_features
-                return dist, q1, q2, actions, None, side_loss
+                    return dist, q, actions, None, side_loss, node_features
+                return dist, q, actions, None, side_loss
 
-        q1, q2, side_loss = self.critic(node_features, actions, edge_index, state.edge_feats, state.subgraph_indices,
+        q, side_loss = self.critic(node_features, actions, edge_index, state.edge_feats, state.subgraph_indices,
                                         state.sep_subgraphs, state.gt_edge_weights, post_data)
-        return q1, q2, side_loss
+        return q, side_loss
 
 
 class PolicyNet(torch.nn.Module):
@@ -88,10 +83,10 @@ class PolicyNet(torch.nn.Module):
         return actor_stats, side_loss
 
 
-class DoubleQValueNet(torch.nn.Module):
+class QValueNet(torch.nn.Module):
     def __init__(self, s_subgraph, n_in_features, n_actions, n_classes, n_hidden_layer, hl_factor, distance, device,
                  node_actions, depth, normalize_input):
-        super(DoubleQValueNet, self).__init__()
+        super(QValueNet, self).__init__()
 
         self.s_subgraph = s_subgraph
         self.node_actions = node_actions
@@ -101,42 +96,24 @@ class DoubleQValueNet(torch.nn.Module):
             n_node_in_features += n_actions
             n_edge_in_features = 1
 
-        self.gcn1_1 = QGnn(n_node_in_features, n_edge_in_features, n_node_in_features, n_hidden_layer, hl_factor,
-                           distance, device, "critic", depth, normalize_input)
-        self.gcn2_1 = QGnn(n_node_in_features, n_edge_in_features, n_node_in_features, n_hidden_layer, hl_factor,
+        self.gcn = QGnn(n_node_in_features, n_edge_in_features, n_node_in_features, n_hidden_layer, hl_factor,
                            distance, device, "critic", depth, normalize_input)
 
-        self.gcn1_2, self.gcn2_2 = [], []
+        self.value = []
 
         for i, ssg in enumerate(self.s_subgraph):
-            self.gcn1_2.append(GlobalEdgeGnn(n_node_in_features, n_node_in_features, ssg, hl_factor, device))
-            self.gcn2_2.append(GlobalEdgeGnn(n_node_in_features, n_node_in_features, ssg, hl_factor, device))
-            super(DoubleQValueNet, self).add_module(f"gcn1_2_{i}", self.gcn1_2[-1])
-            super(DoubleQValueNet, self).add_module(f"gcn2_2_{i}", self.gcn2_2[-1])
-
-        self.value1 = nn.Sequential(
-            torch.nn.BatchNorm1d(n_node_in_features, track_running_stats=False),
-            torch.nn.LeakyReLU(),
-            nn.Linear(n_node_in_features, hl_factor * 4),
-            torch.nn.BatchNorm1d(hl_factor * 4, track_running_stats=False),
-            nn.LeakyReLU(inplace=True),
-            nn.Linear(hl_factor * 4, hl_factor * 4),
-            torch.nn.BatchNorm1d(hl_factor * 4, track_running_stats=False),
-            nn.LeakyReLU(inplace=True),
-            nn.Linear(hl_factor * 4, n_classes),
-        )
-
-        self.value2 = nn.Sequential(
-            torch.nn.BatchNorm1d(n_node_in_features, track_running_stats=False),
-            torch.nn.LeakyReLU(inplace=True),
-            nn.Linear(n_node_in_features, hl_factor * 4),
-            torch.nn.BatchNorm1d(hl_factor * 4, track_running_stats=False),
-            nn.LeakyReLU(inplace=True),
-            nn.Linear(hl_factor * 4, hl_factor * 4),
-            torch.nn.BatchNorm1d(hl_factor * 4, track_running_stats=False),
-            nn.LeakyReLU(inplace=True),
-            nn.Linear(hl_factor * 4, n_classes),
-        )
+            self.value.append(nn.Sequential(
+                torch.nn.BatchNorm1d(n_node_in_features * ssg, track_running_stats=False),
+                torch.nn.LeakyReLU(),
+                nn.Linear(n_node_in_features * ssg, hl_factor),
+                torch.nn.BatchNorm1d(hl_factor, track_running_stats=False),
+                nn.LeakyReLU(inplace=True),
+                nn.Linear(hl_factor, hl_factor),
+                torch.nn.BatchNorm1d(hl_factor, track_running_stats=False),
+                nn.LeakyReLU(inplace=True),
+                nn.Linear(hl_factor, n_classes),
+            ))
+            super(QValueNet, self).add_module(f"value{i}", self.value[-1])
 
     def forward(self, node_features, actions, edge_index, edge_feat, sub_graphs, sep_subgraphs, gt_edges, post_data):
         if actions.ndim < 2:
@@ -146,25 +123,13 @@ class DoubleQValueNet(torch.nn.Module):
             edge_features = edge_feat
         else:
             edge_features = torch.cat([actions, edge_feat], dim=-1)
-        _sg_edge_features1, side_loss = self.gcn1_1(node_features, edge_features, edge_index, gt_edges, post_data)
 
-        _sg_edge_features2, _side_loss = self.gcn2_1(node_features, edge_features, edge_index, gt_edges, post_data)
-        side_loss += _side_loss
+        edge_feats, side_loss = self.gcn(node_features, edge_features, edge_index, gt_edges, post_data)
 
-        sg_edge_features1, sg_edge_features2 = [], []
-        for i, sg_size in enumerate(self.s_subgraph):
-            sub_sg_edge_features1 = _sg_edge_features1[sub_graphs[i]]
-            sub_sg_edge_features2 = _sg_edge_features2[sub_graphs[i]]
-            sg_edges = torch.cat([sep_subgraphs[i], torch.stack([sep_subgraphs[i][1], sep_subgraphs[i][0]], dim=0)], dim=1)  # gcnn expects two directed edges for one undirected edge
+        sg_edge_features = []
+        for i, ssg in enumerate(self.s_subgraph):
+            sg_edge_feats = edge_feats[sub_graphs[i]].view(-1, ssg, edge_feats.shape[-1])
+            sg_edge_feats = sg_edge_feats.view(sg_edge_feats.shape[0], ssg * sg_edge_feats.shape[-1])
+            sg_edge_features.append(self.value[i](sg_edge_feats).squeeze())
 
-            sub_sg_edge_features1, _side_loss = self.gcn1_2[i](sub_sg_edge_features1, sg_edges)
-            side_loss += _side_loss
-            sub_sg_edge_features2, _side_loss = self.gcn2_2[i](sub_sg_edge_features2, sg_edges)
-            side_loss += _side_loss
-
-            sg_edge_features1.append(self.value1(sub_sg_edge_features1.view(-1, sg_size,
-                                                                            sub_sg_edge_features1.shape[-1]).mean(1)).squeeze())
-            sg_edge_features2.append(self.value2(sub_sg_edge_features2.view(-1, sg_size,
-                                                                            sub_sg_edge_features2.shape[-1]).mean(1)).squeeze())
-
-        return sg_edge_features1, sg_edge_features2, side_loss / 4
+        return sg_edge_features, side_loss
