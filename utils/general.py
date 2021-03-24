@@ -180,7 +180,7 @@ def pca_svd(X, k, center=True):
     return components, explained_variance
 
 
-def get_contour_from_seg(mask: torch.Tensor):
+def get_contour_from_2d_binary(mask: torch.Tensor):
     """
     :param mask: n_dim should be three (N|H|W). can be bool or long but should be binary if long.
     :return: tensor of the same shape and type bool containing all inner contours of objects in mask
