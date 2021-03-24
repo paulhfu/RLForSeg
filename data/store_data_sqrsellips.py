@@ -237,14 +237,9 @@ def store_all(base_dir, n_samples, fnames):
         graph_file.close()
         pix_file.close()
 
-def get_graphs(fname, sigma, edge_offsets):
+def get_graphs(img, gt, sigma, edge_offsets):
     overseg_factor = 1.7
     sep_chnl = 2
-
-    file = h5py.File(fname, 'r')
-    img = file['raw'][:]
-    gt = file['gt'][:]
-
 
     affinities = get_naive_affinities(gaussian(img, sigma=sigma), edge_offsets)
     affinities[:sep_chnl] *= -1
@@ -264,18 +259,18 @@ def get_graphs(fname, sigma, edge_offsets):
     # get edges from node labeling and edge features from affinity stats
     edge_feat, neighbors = get_edge_features_1d(node_labeling, edge_offsets, affinities)
     # get gt edge weights based on edges and gt image
-    gt_edge_weights = calculate_gt_edge_costs(neighbors, node_labeling.squeeze(), gt.squeeze())
+    gt_edge_weights = calculate_gt_edge_costs(neighbors, node_labeling.squeeze(), gt.squeeze(), 0.5)
     edges = neighbors.astype(np.long)
 
     # calc multicut from gt
     gt_seg = get_current_soln(gt_edge_weights, node_labeling, edges)
 
-    # fig, (ax1, ax2, ax3, ax4) = plt.subplots(1, 4)
-    # ax1.imshow(cm.prism(gt/gt.max()));ax1.set_title('gt')
-    # ax2.imshow(cm.prism(node_labeling / node_labeling.max()));ax2.set_title('sp')
-    # ax3.imshow(cm.prism(gt_seg / gt_seg.max()));ax3.set_title('mc')
-    # ax4.imshow(img);ax4.set_title('raw')
-    # plt.show()
+    fig, (ax1, ax2, ax3, ax4) = plt.subplots(1, 4)
+    ax1.imshow(cm.prism(gt/gt.max()));ax1.set_title('gt')
+    ax2.imshow(cm.prism(node_labeling / node_labeling.max()));ax2.set_title('sp')
+    ax3.imshow(cm.prism(gt_seg / gt_seg.max()));ax3.set_title('mc')
+    ax4.imshow(img);ax4.set_title('raw')
+    plt.show()
 
     affinities = affinities.astype(np.float32)
     edge_feat = edge_feat.astype(np.float32)

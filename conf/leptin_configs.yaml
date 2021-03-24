@@ -59,10 +59,10 @@ backbone:
 
 gnn_n_hl:
   desc: number of hidden layers in graph conv blocks
-  value: 0
+  value: 1
 gnn_size_hl:
   desc: factor by which feature size of hidden featuremaps in gnn increases/decreases
-  value: 2048
+  value: 1028
 gnn_act_depth:
   desc: num of graph convs (1, 2, 3)
   value: 1
@@ -82,7 +82,7 @@ T_max:
   value: 50000
 mem_size:
   desc: Mem size in replay memory buffer
-  value: 40
+  value: 20
 data_update_frequency:
   desc: update env data after n steps
   value: 50
@@ -111,15 +111,15 @@ lr_sched:
     step_frequency: 10
     mov_avg_offset: 0.0
     torch_sched:  # conf for torch reduceOnPlateau scheduler
-      patience: 1000
-      min_lr: 0.0001
+      patience: 20
+      min_lr: 0.000001
       factor: 0.05
       threshold: 0.01
 
 # specific configs for the sac algorithm
 reward_function:
   desc: one of sub_graph_dice, leptin_dataTurningFunc, leptin_dataEllipticFit, leptin_dataTurningWithEllipses
-  value: leptin_dataTurningWithEllipses
+  value: leptin_dataRectFit
 gt_edge_overlap_thresh:
   desc: if using gt edges this is the overlap thresh of the underlying gt for a gt edge to be 1
   value: 0.5

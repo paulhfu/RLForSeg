@@ -85,10 +85,6 @@ class AgentSacTrainer(object):
 
         if self.cfg.agent_model_name != "":
             self.model.load_state_dict(torch.load(self.cfg.agent_model_name))
-        # if "policy_warmup" in self.cfg and self.cfg.agent_model_name == "":
-        #     supervised_policy_pretraining(self.model, self.env, self.cfg, device=self.device)
-        #     torch.save(self.model.state_dict(), os.path.join(wandb.run.dir, "sv_pretrained_policy_agent.pth"))
-
         # finished with prepping
         for param in self.fe_ext.parameters():
             param.requires_grad = False
@@ -184,6 +180,11 @@ class AgentSacTrainer(object):
         wandb.log({"validation/metrics": [wandb.Image(fig, caption="metrics")]})
         wandb.log({"validation_reward": acc_reward})
         plt.close('all')
+
+        # do the lr sheduling
+        self.optimizers.critic_shed.step(acc_reward)
+        self.optimizers.actor_shed.step(acc_reward)
+
         if acc_reward > self.best_val_reward:
             self.best_val_reward = acc_reward
             wandb.run.summary["validation_reward"] = acc_reward
@@ -292,15 +293,12 @@ class AgentSacTrainer(object):
         critic_loss, mean_reward = self.update_critic(obs, action, reward)
         self.memory.report_sample_loss(critic_loss + mean_reward, sample_idx)
         self.mov_sum_losses.critic.apply(critic_loss)
-        # self.optimizers.critic_shed.step(self.mov_sum_losses.critic.avg)
         wandb.log({"loss/critic": critic_loss})
 
         if self.cfg.actor_update_after < step and step % self.cfg.actor_update_frequency == 0:
             actor_loss, alpha_loss, min_entropy, loc_mean = self.update_actor_and_alpha(obs, reward)
             self.mov_sum_losses.actor.apply(actor_loss)
             self.mov_sum_losses.temperature.apply(alpha_loss)
-            # self.optimizers.actor_shed.step(self.mov_sum_losses.actor.avg)
-            # self.optimizers.temp_shed.step(self.mov_sum_losses.actor.avg)
             wandb.log({"loss/actor": actor_loss})
             wandb.log({"loss/alpha": alpha_loss})
 

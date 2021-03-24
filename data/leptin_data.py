@@ -17,7 +17,7 @@ import matplotlib.pyplot as plt
 from matplotlib import cm
 from elf.segmentation.features import compute_rag, compute_affinity_features
 from tifffile import imread
-from utils.general import pca_project, random_label_cmap, get_contour_from_2d_binary
+from utils.general import pca_project, random_label_cmap, get_contour_from_seg
 from utils.pt_gaussfilter import GaussianSmoothing
 import torch.nn.functional as F
 tgtdir_train = "/g/kreshuk/hilt/projects/data/leptin_fused_tp1_ch_0/train"

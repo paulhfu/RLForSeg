@@ -119,7 +119,7 @@ lr_sched:
 # specific configs for the sac algorithm
 reward_function:
   desc: one of sub_graph_dice, leptin_dataTurningFunc, leptin_dataEllipticFit, leptin_dataTurningWithEllipses
-  value: sub_graph_dice
+  value: leptin_dataRectFit
 gt_edge_overlap_thresh:
   desc: if using gt edges this is the overlap thresh of the underlying gt for a gt edge to be 1
   value: 0.5

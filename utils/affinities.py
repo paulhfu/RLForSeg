@@ -58,6 +58,7 @@ def get_edge_features_1d(sp_seg, offsets, affinities):
     edge_feat = feats.compute_affinity_features(rag, np.expand_dims(affinities, axis=1), offsets_3d)[:, :]
     return edge_feat, rag.uvIds()
 
+from skimage.feature import hessian_matrix, hessian_matrix_eigvals, hessian_matrix_det
 def get_max_hessian_eval(data, sigma=None):
     if sigma is None:
         sigma = np.ones(data.ndim)

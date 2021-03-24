@@ -179,13 +179,68 @@ def pca_svd(X, k, center=True):
     return components, explained_variance
 
 
-def get_contour_from_2d_binary(mask: torch.Tensor):
+def get_contour_from_seg(mask: torch.Tensor):
     """
     :param mask: n_dim should be three (N|H|W). can be bool or long but should be binary if long.
     :return: tensor of the same shape and type bool containing all inner contours of objects in mask
     """
     max_p = torch.nn.MaxPool2d(3, stride=1, padding=1)
     return ((max_p(mask) != mask) | (-max_p(-mask) != mask)).long()
+
+def get_colored_edges_in_sseg(sseg: torch.Tensor, edges: torch.Tensor, scores: torch.Tensor):
+    sseg = sseg + 1
+    edges = edges + 1
+    max_p = torch.nn.MaxPool2d(3, stride=1, padding=1)
+    maxp_seg = max_p(sseg)
+    minp_seg = -max_p(-sseg)
+    bnds = ((maxp_seg != sseg) * maxp_seg + (minp_seg != sseg) * minp_seg).long()
+
+    #chunk the whole op since gpu too small
+    scored_bnds = torch.zeros_like(sseg.squeeze())
+    chunks = 500
+    slc_sz = edges.shape[-1] // chunks
+    slices = [slice(slc_sz * step, slc_sz * (step + 1), 1) for step in range(chunks)]
+    if edges.shape[-1] != chunks * slc_sz:
+        slices.append(slice(slc_sz * chunks, edges.shape[-1], 1))
+
+    for slc in slices:
+        scattered_pairs = (sseg[None] == edges[:, slc, None, None]).sum(0)
+        bnd_pairs = (bnds[None] == edges[:, slc, None, None]).sum(0)
+        scored_bnds += (scattered_pairs * bnd_pairs * scores[slc, None, None]).sum(0)
+
+    sseg = sseg - 1
+    edges = edges - 1
+    bnd_mask = bnds[0] != 0
+    return torch.stack([(0.5 + scored_bnds) * (bnd_mask & (scored_bnds < 0.5)), scored_bnds * (scored_bnds > 0.5), torch.zeros_like(scored_bnds)], -1), bnd_mask
+
+def sync_segmentations(seg_base, seg_var, sync_bg_as_id0=False):
+    ids = torch.unique(seg_base)
+    max_id = ids.max()
+    seg_var = seg_var.clone() + max_id
+    all_var_bins = torch.bincount(seg_var.ravel())
+
+    for id in ids:
+        mask = (seg_base == id).long()
+        seg_var_mask = seg_var * mask
+        seg_var_ids = torch.unique(seg_var_mask)[1:]
+        if id == 0:
+            for var_id in seg_var_ids:
+                overlap = (var_id == seg_var_mask).sum()
+                var_mask = (var_id == seg_var)
+                if sync_bg_as_id0 and var_id == max_id:
+                    seg_var[var_mask] = id
+                elif overlap > var_mask.sum() / 2:
+                    seg_var[var_mask] = id
+                all_var_bins = torch.bincount(seg_var.ravel())
+        else:
+            bins = torch.bincount(seg_var_mask.ravel())
+            sorted_indices = torch.argsort(bins[seg_var_ids])
+            for id_var in reversed(seg_var_ids[sorted_indices]):
+                if bins[id_var] > all_var_bins[id_var] / 2:
+                    seg_var[seg_var == id_var] = id
+                    all_var_bins = torch.bincount(seg_var.ravel())
+                    break
+    return seg_var
 
 def maskout(img):
     img = (img * 255).astype(np.uint8)
@@ -300,14 +355,14 @@ def plt_bar_plot(values, labels, colors=['#cd025c', '#032f3e', '#b635aa', '#e677
 
     return fig
 
-def random_label_cmap(n=2**16, h = (0,1), l = (.4,1), s =(.2,.8)):
+def random_label_cmap(n=2**16, h = (0,1), l = (.4,1), s =(.2,.8), zeroth=0):
     import matplotlib
     import colorsys
     # cols = np.random.rand(n,3)
     # cols = np.random.uniform(0.1,1.0,(n,3))
     h, l, s = np.random.uniform(*h, n), np.random.uniform(*l, n), np.random.uniform(*s, n)
     cols = np.stack([colorsys.hls_to_rgb(_h, _l, _s) for _h, _l, _s in zip(h, l, s)], axis=0)
-    cols[0] = 0
+    cols[0] = zeroth
     return matplotlib.colors.ListedColormap(cols)
 
 def set_seed_everywhere(seed):

@@ -13,7 +13,7 @@ from elf.segmentation.features import project_node_labels_to_pixels
 from rag_utils import find_dense_subgraphs
 
 from rewards.artificial_cells_reward import ArtificialCellsReward, ArtificialCellsReward2DEllipticFit
-from rewards.leptin_data_reward_2d import LeptinDataReward2DTurning, LeptinDataReward2DEllipticFit, LeptinDataReward2DTurningWithEllipses
+from rewards.leptin_data_reward_2d import LeptinDataReward2DTurning, LeptinDataReward2DEllipticFit, LeptinDataRotatedRectRewards, LeptinDataReward2DTurningWithEllipses
 from utils.reward_functions import UnSupervisedReward, SubGraphDiceReward
 from utils.graphs import collate_edges, get_edge_indices, get_angles_smass_in_rag
 from utils.general import get_angles, pca_project, random_label_cmap
@@ -55,6 +55,8 @@ class MulticutEmbeddingsEnv():
                 self.reward_function = LeptinDataReward2DTurningWithEllipses()
             elif 'EllipticFit' in self.cfg.reward_function:
                 self.reward_function = LeptinDataReward2DEllipticFit()
+            elif 'RectFit' in self.cfg.reward_function:
+                self.reward_function = LeptinDataRotatedRectRewards()
             else:
                 self.reward_function = LeptinDataReward2DTurning()
         else:
@@ -156,8 +158,8 @@ class MulticutEmbeddingsEnv():
         self.current_node_embeddings = torch.cat([self.embedding_net.get_mean_sp_embedding_chunked(embed, sp, chunks=20)
                                                   for embed, sp in zip(self.embeddings, self.init_sp_seg)], dim=0)
 
-        edge_angles, sp_feat, sp_rads = zip(*[get_angles_smass_in_rag(edge_ids[i], self.init_sp_seg[i]) for i in range(bs)])
-        edge_angles, self.sp_feat, self.sp_rads = torch.cat(edge_angles).unsqueeze(-1), torch.cat(sp_feat), torch.cat(sp_rads)
+        edge_angles, sp_feat, self.sp_rads = zip(*[get_angles_smass_in_rag(edge_ids[i], self.init_sp_seg[i]) for i in range(bs)])
+        edge_angles, self.sp_feat = torch.cat(edge_angles).unsqueeze(-1), torch.cat(sp_feat)
 
         subgraphs, self.sep_subgraphs = [], []
         _subgraphs, _sep_subgraphs = find_dense_subgraphs([eids.transpose(0, 1).cpu().numpy() for eids in edge_ids], self.cfg.s_subgraph)
