@@ -9,7 +9,8 @@ from torch import multiprocessing as mp
 from sklearn.decomposition import PCA
 from scipy.cluster.vq import kmeans2, whiten
 import cv2
-
+from skimage.segmentation import find_boundaries
+from skimage.filters import gaussian
 
 # Global counter
 class Counter():
@@ -371,3 +372,15 @@ def set_seed_everywhere(seed):
         torch.cuda.manual_seed_all(seed)
     np.random.seed(seed)
     random.seed(seed)
+
+def get_contour_from_2d_binary(imgs):
+    img_out = []
+    device = imgs.device
+
+    for img in imgs:
+        img = img.detach().cpu().numpy()
+        edge_map = find_boundaries(img)
+        edge_map = gaussian(edge_map, sigma=1)
+        img_out.append(edge_map)
+
+    return torch.from_numpy(np.array(img_out)).float().to(device)

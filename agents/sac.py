@@ -12,6 +12,8 @@ import matplotlib.pyplot as plt
 from matplotlib import cm
 from multiprocessing import Process, Lock
 import threading
+import shutil
+import imageio
 
 from environments.multicut import MulticutEmbeddingsEnv, State
 from data.spg_dset import SpgDset
@@ -92,13 +94,53 @@ class AgentSacTrainer(object):
         self.train_dset = SpgDset(self.cfg.data_dir, dict_to_attrdict(self.cfg.patch_manager), dict_to_attrdict(self.cfg.data_keys), max(self.cfg.s_subgraph))
         self.val_dset = SpgDset(self.cfg.val_data_dir, dict_to_attrdict(self.cfg.patch_manager), dict_to_attrdict(self.cfg.data_keys), max(self.cfg.s_subgraph))
 
+        '''
+            Prepare storages for validation and training sets
+        '''
+
+        run_dir = '/'.join(wandb.run.dir.split('/')[:-3])
+        base_dir = os.path.join(run_dir, self.cfg.run_id)
+        valid_img_dir = os.path.join(base_dir, "valid_gif")
+        train_img_dir = os.path.join(base_dir, "train_gif")
+
+        try:
+            shutil.rmtree(valid_img_dir)
+            shutil.rmtree(train_img_dir)
+        except:
+            pass
+
+        os.makedirs(valid_img_dir, exist_ok=True)
+        os.makedirs(train_img_dir, exist_ok=True)
+
+        self.valid_pred_dir = {}
+        self.train_pred_dir = {}
+
+        val_dset_numbers = np.array(list(range(len(self.val_dset))))
+        train_dset_numbers = np.array(list(range(len(self.train_dset))))
+        np.random.shuffle(val_dset_numbers)
+        np.random.shuffle(train_dset_numbers)
+        self.valid_indices = val_dset_numbers[:self.cfg.store_amount]
+        self.train_indices = train_dset_numbers[:self.cfg.store_amount]
+
+        for index in self.valid_indices:
+            dirname = os.path.join(valid_img_dir, "img" + str(index))
+            os.makedirs(dirname, exist_ok=True)
+            self.valid_pred_dir[index] = dirname
+
+        for index in self.train_indices:
+            dirname = os.path.join(train_img_dir, "img" + str(index))
+            os.makedirs(dirname, exist_ok=True)
+            self.train_pred_dir[index] = dirname
+
+        self.dump_number = 0
+
     def validate(self):
         """validates the prediction against the method of clustering the embedding space"""
         env = MulticutEmbeddingsEnv(self.fe_ext, self.cfg, self.device)
         if self.cfg.verbose:
             print("\n\n###### start validate ######", end='')
         self.model.eval()
-        n_examples = 2  # len(self.val_dset)
+        n_examples = len(self.val_dset)
         taus = [0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8, 0.9]
         rl_scores, keys = [], None
         ex_raws, ex_sps, ex_gts, ex_mc_gts, ex_embeds, ex_rl = [], [], [], [], [], []
@@ -223,6 +265,15 @@ class AgentSacTrainer(object):
             axs[1, 2].axis('off')
             wandb.log({"validation/samples": [wandb.Image(fig, caption="sample images")]})
             plt.close('all')
+
+        '''
+        Dump validation images to directories
+        '''
+        for index in self.valid_indices:
+            dirname = self.valid_pred_dir[index]
+            img = ex_rl[index]
+            imageio.imsave(os.path.join(dirname, str(self.dump_number) + ".jpg"), img)
+        self.dump_number = self.dump_number + 1
 
     def update_critic(self, obs, action, reward):
         self.optimizers.critic.zero_grad()

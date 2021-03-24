@@ -16,7 +16,7 @@ from rewards.artificial_cells_reward import ArtificialCellsReward, ArtificialCel
 from rewards.leptin_data_reward_2d import LeptinDataReward2DTurning, LeptinDataReward2DEllipticFit, LeptinDataRotatedRectRewards, LeptinDataReward2DTurningWithEllipses
 from utils.reward_functions import UnSupervisedReward, SubGraphDiceReward
 from utils.graphs import collate_edges, get_edge_indices, get_angles_smass_in_rag
-from utils.general import get_angles, pca_project, random_label_cmap
+from utils.general import get_angles, pca_project, random_label_cmap, get_contour_from_2d_binary
 
 State = collections.namedtuple("State", ["node_embeddings", "edge_ids", "edge_feats", "sp_feat", "subgraph_indices", "sep_subgraphs", "round_n", "gt_edge_weights"])
 class MulticutEmbeddingsEnv():
@@ -152,8 +152,18 @@ class MulticutEmbeddingsEnv():
         self.rags = rags
         self.gt_seg, self.init_sp_seg = gt.squeeze(1), sp_seg.squeeze(1)
         self.raw = raw
-        with torch.set_grad_enabled(False):
-            self.embeddings = self.embedding_net(raw)
+
+        if (self.cfg.backbone['in_channels'] == 4):
+            edge_img = get_contour_from_2d_binary(sp_seg)
+            raw_input = torch.cat([raw, edge_img], dim=1)
+
+            with torch.set_grad_enabled(False):
+                #print(raw_input.shape)
+                self.embeddings = self.embedding_net(raw_input)
+        else:
+            with torch.set_grad_enabled(False):
+                self.embeddings = self.embedding_net(raw)
+
         # get embedding agglomeration over each superpixel
         self.current_node_embeddings = torch.cat([self.embedding_net.get_mean_sp_embedding_chunked(embed, sp, chunks=20)
                                                   for embed, sp in zip(self.embeddings, self.init_sp_seg)], dim=0)
