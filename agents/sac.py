@@ -27,6 +27,7 @@ from utils.distances import CosineDistance, L2Distance
 from utils.matching import matching
 from utils.yaml_conv_parser import dict_to_attrdict
 from utils.training_helpers import update_env_data, supervised_policy_pretraining, state_to_cpu, Forwarder
+from utils.metrics import AveragePrecision
 # from timeit import default_timer as timer
 
 
@@ -134,6 +135,8 @@ class AgentSacTrainer(object):
 
         self.dump_number = 0
 
+        self.valid_metric = AveragePrecision()
+
     def validate(self):
         """validates the prediction against the method of clustering the embedding space"""
         env = MulticutEmbeddingsEnv(self.fe_ext, self.cfg, self.device)
@@ -143,9 +146,11 @@ class AgentSacTrainer(object):
         n_examples = len(self.val_dset)
         taus = [0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8, 0.9]
         rl_scores, keys = [], None
+        map_scores = []
         ex_raws, ex_sps, ex_gts, ex_mc_gts, ex_embeds, ex_rl = [], [], [], [], [], []
         dloader = iter(DataLoader(self.val_dset, batch_size=1, shuffle=True, pin_memory=True, num_workers=0))
         acc_reward = 0
+
         for it in range(n_examples):
             update_env_data(env, dloader, self.val_dset, self.device, with_gt_edges="sub_graph_dice" in self.cfg.reward_function)
             env.reset()
@@ -175,6 +180,7 @@ class AgentSacTrainer(object):
             ex_rl.append(rl_labels)
 
             _rl_scores = matching(gt_seg, rl_labels, thresh=taus, criterion='iou', report_matches=False)
+            map_scores.append(self.valid_metric(rl_labels, gt_seg))
 
             if it == 0:
                 for tau_it in range(len(_rl_scores)):
@@ -219,8 +225,10 @@ class AgentSacTrainer(object):
         axs[1].set_title('RL method')
         axs[1].set_xlabel(r'IoU threshold $\tau$')
 
-        wandb.log({"validation/metrics": [wandb.Image(fig, caption="metrics")]})
+        #wandb.log({"validation/metrics": [wandb.Image(fig, caption="metrics")]})
         wandb.log({"validation_reward": acc_reward})
+        wandb.log({"validation_map": np.mean(map_scores)})
+
         plt.close('all')
 
         # do the lr sheduling
@@ -272,7 +280,10 @@ class AgentSacTrainer(object):
         for index in self.valid_indices:
             dirname = self.valid_pred_dir[index]
             img = ex_rl[index]
-            imageio.imsave(os.path.join(dirname, str(self.dump_number) + ".jpg"), img)
+            plt.imshow(img, cmap=random_label_cmap(), interpolation="none")
+            plt.axis(False)
+            plt.grid(False)
+            plt.savefig(os.path.join(dirname, str(self.dump_number) + ".jpg"))
         self.dump_number = self.dump_number + 1
 
     def update_critic(self, obs, action, reward):
