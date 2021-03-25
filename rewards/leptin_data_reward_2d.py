@@ -76,7 +76,7 @@ class LeptinDataRotatedRectRewards(RewardFunctionAbc):
         self.masses = [np.array(m1).mean(), np.array(m2).mean(), np.array(m3 + m4 + m5).mean()]
         self.fg_shape_descriptors = self.celltype_1_ds + self.celltype_2_ds + self.celltype_3_ds
         self.circle_center = np.array([390, 340])
-        self.circle_rads = [210, 280, 320, 120]
+        self.circle_rads = [210, 280, 100, 340]
         self.side_lens = [28, 125]
 
     def __call__(self, prediction_segmentation, superpixel_segmentation, dir_edges, edge_score, sp_cmrads, actions,
@@ -286,6 +286,42 @@ class LeptinDataRotatedRectRewards(RewardFunctionAbc):
 
         return_scores = torch.cat(return_scores)
         return return_scores
+
+    def get_gaussians(self):
+        from mpl_toolkits.mplot3d import Axes3D
+        from matplotlib import cm
+        xx, yy = np.meshgrid(np.arange(0, 749), np.arange(0, 692))
+        pix_rads = np.sqrt((xx - self.circle_center[0])**2 + (yy - self.circle_center[1])**2)
+        bg_2_mask = pix_rads > self.circle_rads[1]
+        bg_1_mask = pix_rads < self.circle_rads[0]
+        fg_mask = (pix_rads > self.circle_rads[2]) & (pix_rads < self.circle_rads[3])
+
+        normalizer2 = abs(np.linalg.norm(self.circle_center) - self.circle_rads[1]) / 1.5
+        normalizer1 = self.circle_rads[0] / 1.5
+
+        dst2 = np.zeros_like(pix_rads)
+        dst1 = np.zeros_like(pix_rads)
+        dst3 = np.zeros_like(pix_rads)
+        bg_prob2 = np.zeros_like(pix_rads)
+        bg_prob1 = np.zeros_like(pix_rads)
+        fg_prob = np.zeros_like(pix_rads)
+
+        dst2[bg_2_mask] = 0.5 / ((pix_rads[bg_2_mask] - self.circle_rads[1]) / normalizer2)
+        dst1[bg_1_mask] = ((pix_rads[bg_1_mask]) / normalizer1)
+
+        dst3[fg_mask] = ((pix_rads[fg_mask] - ((self.circle_rads[2] + self.circle_rads[3]) / 2)) / normalizer2)
+
+        bg_prob2[bg_2_mask] = np.exp(-dst2[bg_2_mask] ** 2 / (2 * 1.0 ** 2)) / (math.sqrt(2 * np.pi) * 1.0) * 2
+        bg_prob1[bg_1_mask] = np.exp(-dst1[bg_1_mask] ** 2 / (2 * 1.0 ** 2)) / (math.sqrt(2 * np.pi) * 1.0) * 2
+        fg_prob[fg_mask] = np.exp(-dst3[fg_mask] ** 2 / (2 * 1.0 ** 2)) / (math.sqrt(2 * np.pi) * 1.0) * 2
+
+        zz = bg_prob2 + bg_prob1 + fg_prob
+
+        fig = plt.figure(0)
+        ax = Axes3D(fig)
+        ax.plot_surface(xx, yy, zz, rstride=1, cstride=1, cmap=cm.magma,
+                               linewidth=0, antialiased=False)
+        plt.show()
 
 
 class LeptinDataReward2DTurningWithEllipses(RewardFunctionAbc):
@@ -925,7 +961,6 @@ if __name__ == "__main__":
     from glob import glob
     import os
 
-    print("test")
 
     label_cm = random_label_cmap(zeroth=1.0)
     label_cm.set_bad(alpha=0)
@@ -986,6 +1021,7 @@ if __name__ == "__main__":
             mc_seg = mc_seg[None]
 
             f = LeptinDataRotatedRectRewards()
+            f.get_gaussians()
             # rewards2 = f(gt_seg.long(), superpixel_seg.long(), dir_edges=[dir_edges], res=100)
             edge_angles, sp_feat, sp_rads = get_angles_smass_in_rag(edges, superpixel_seg.long())
             edge_rewards = f(mc_seg.long(), superpixel_seg[None].long(), dir_edges=[dir_edges], res=50, edge_score=True,

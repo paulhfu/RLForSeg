@@ -13,6 +13,7 @@ from elf.segmentation.features import project_node_labels_to_pixels
 from rag_utils import find_dense_subgraphs
 
 from rewards.artificial_cells_reward import ArtificialCellsReward, ArtificialCellsReward2DEllipticFit
+from rewards.circles_reward import CirclesRewards
 from rewards.leptin_data_reward_2d import LeptinDataReward2DTurning, LeptinDataReward2DEllipticFit, LeptinDataRotatedRectRewards, LeptinDataReward2DTurningWithEllipses
 from utils.reward_functions import UnSupervisedReward, SubGraphDiceReward
 from utils.graphs import collate_edges, get_edge_indices, get_angles_smass_in_rag
@@ -59,6 +60,8 @@ class MulticutEmbeddingsEnv():
                 self.reward_function = LeptinDataRotatedRectRewards()
             else:
                 self.reward_function = LeptinDataReward2DTurning()
+        elif 'colorcircles' in self.cfg.reward_function:
+            self.reward_function = CirclesRewards()
         else:
             assert False
 
@@ -68,7 +71,7 @@ class MulticutEmbeddingsEnv():
 
         self.current_soln = self.get_current_soln(self.current_edge_weights)
 
-        if 'artificial_cells' in self.cfg.reward_function or 'leptin_data' in self.cfg.reward_function:
+        if not 'sub_graph_dice' in self.cfg.reward_function:
             reward = []
             # sp_reward = self.reward_function(self.current_soln.long(), self.init_sp_seg.long(), dir_edges=self.dir_edge_ids,
             #                                  res=100)
@@ -153,7 +156,7 @@ class MulticutEmbeddingsEnv():
         self.gt_seg, self.init_sp_seg = gt.squeeze(1), sp_seg.squeeze(1)
         self.raw = raw
 
-        if (self.cfg.backbone['in_channels'] == 4):
+        if (self.cfg.backbone['in_channels'] == 4) and raw.shape[1] == 3:
             edge_img = get_contour_from_2d_binary(sp_seg)
             raw_input = torch.cat([raw, edge_img], dim=1)
 

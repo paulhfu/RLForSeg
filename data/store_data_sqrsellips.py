@@ -25,7 +25,7 @@ def get_pix_data(shape=(256, 256)):
 
     rsign = lambda: (-1)**np.random.randint(0, 2)
     edge_offsets = [[0, -1], [-1, 0], [-3, 0], [0, -3], [-5, 0], [0, -5]]  # offsets defining the edges for pixel affinities
-    overseg_factor = 2.5
+    overseg_factor = 3.0
     sep_chnl = 2  # channel separating attractive from repulsive edges
     n_circles = 20  # number of ellipses in image
     n_polys = 10  # number of rand polys in image
@@ -153,7 +153,8 @@ def get_pix_data(shape=(256, 256)):
 
     img = np.clip(img, 0, 1)  # clip to valid range
     # get affinities and calc superpixels with mutex watershed
-    affinities = get_naive_affinities(gaussian(img, sigma=.2), edge_offsets)
+    raw_affinities = get_naive_affinities(gaussian(img, sigma=.2), edge_offsets)
+    affinities = raw_affinities.copy()
     affinities[:sep_chnl] *= -1
     affinities[:sep_chnl] += +1
     # scale affinities in order to get an oversegmentation
@@ -178,12 +179,12 @@ def get_pix_data(shape=(256, 256)):
     gt_seg = get_current_soln(gt_edge_weights, node_labeling, edges)
     # show result (uncomment for testing)
 
-    fig, (ax1, ax2, ax3, ax4) = plt.subplots(1, 4)
-    ax1.imshow(cm.prism(gt/gt.max()));ax1.set_title('gt')
-    ax2.imshow(cm.prism(node_labeling / node_labeling.max()));ax2.set_title('sp')
-    ax3.imshow(cm.prism(gt_seg / gt_seg.max()));ax3.set_title('mc')
-    ax4.imshow(img);ax4.set_title('raw')
-    plt.show()
+    # fig, (ax1, ax2, ax3, ax4) = plt.subplots(1, 4)
+    # ax1.imshow(cm.prism(gt/gt.max()));ax1.set_title('gt')
+    # ax2.imshow(cm.prism(node_labeling / node_labeling.max()));ax2.set_title('sp')
+    # ax3.imshow(cm.prism(gt_seg / gt_seg.max()));ax3.set_title('mc')
+    # ax4.imshow(img);ax4.set_title('raw')
+    # plt.show()
 
     affinities = affinities.astype(np.float32)
     edge_feat = edge_feat.astype(np.float32)
@@ -194,7 +195,7 @@ def get_pix_data(shape=(256, 256)):
     edges = np.sort(edges, axis=-1)
     edges = edges.T
 
-    return img, gt, edges, edge_feat, gt_edge_weights, node_labeling, nodes, affinities, edge_offsets
+    return img, gt, edges, edge_feat, gt_edge_weights, node_labeling, nodes, raw_affinities, edge_offsets
 
 
 def get_current_soln(edge_weights, sp_seg, edge_ids):
@@ -228,7 +229,7 @@ def store_all(base_dir, n_samples, fnames):
 
         edge_img = F.pad(get_contour_from_2d_binary(torch.from_numpy(node_labeling)[None, None]), (2, 2, 2, 2), mode='constant')
         edge_img = gauss_kernel(edge_img.float())
-        img = np.concatenate([raw.transpose((2, 0, 1)), edge_img[0].numpy()], dim=0)
+        img = np.concatenate([raw.transpose((2, 0, 1)), edge_img[0].numpy()], 0)
 
         graph_file = h5py.File(os.path.join(graph_dir, "graph_" + str(i) + ".h5"), 'w')
         pix_file = h5py.File(os.path.join(pix_dir, "pix_" + str(i) + ".h5"), 'w')
@@ -296,7 +297,7 @@ def get_graphs(img, gt, sigma, edge_offsets):
 
 
 if __name__ == "__main__":
-    dir = "/g/kreshuk/hilt/projects/data/color_circles"
+    dir = "/g/kreshuk/hilt/projects/data/color_circles/val"
     fnames = sorted(glob('/g/kreshuk/kaziakhm/circles_s025_gs0035_ps04_alln/pix_data/*.h5'))
     store_all(dir, 10, fnames)
     # for i in range(10):

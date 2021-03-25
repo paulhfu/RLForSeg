@@ -119,8 +119,8 @@ def write_slurm_template_sweep_std(script, out_path, env_name,
 
 #V100 2080Ti 3090 A100
 def submit_slurm(script, input_, n_threads=2, n_gpus=1,
-                 gpu_type='3090', mem_limit='64G',
-                 time_limit=3*DAYS, qos='normal',
+                 gpu_type='2080Ti', mem_limit='64G',
+                 time_limit=4*DAYS, qos='normal',
                  base_dir='/g/kreshuk/hilt/projects/RLForSeg', is_sweep=False):
     """ Submit python script that needs gpus with given inputs on a slurm node.
     """

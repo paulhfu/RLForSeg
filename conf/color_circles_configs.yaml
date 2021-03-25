@@ -13,14 +13,14 @@ agent_model_name:
   value: '' # agent_model_svpfe.pth
 data_dir:
   desc: train data dir
-  value: /g/kreshuk/hilt/projects/data/leptin_fused_tp1_ch_0/train
+  value: /g/kreshuk/hilt/projects/data/color_circles/train
 val_data_dir:
   desc: validation data dir
-  value: /g/kreshuk/hilt/projects/data/leptin_fused_tp1_ch_0/true_val
+  value: /g/kreshuk/hilt/projects/data/color_circles/val
 data_keys:
   desc: keys for data in h5 file
   value:
-    raw: "raw_2chnl"  # raw_2chnl
+    raw: "raw_4chnl"  # raw_2chnl
     gt: "gt"
     node_labeling: "node_labeling"
     gt_edge_weights: "gt_edge_weights"
@@ -35,7 +35,7 @@ patch_manager:
 # embedding network config
 fe_model_name:
   desc: path to state dict of trained model
-  value: /g/kreshuk/hilt/storage/leptin_data_nets/fe_cosine_ls_bn_2chnl.pth # fe_cosine_ls_bn_gtval, fe_cosine_ls_bn_2chnl
+  value: /g/kreshuk/hilt/storage/color_circles/fe_cosine.pth # fe_cosine_ls_bn_gtval, fe_cosine_ls_bn_2chnl
 dim_embeddings:
   desc: number of embedding feature channels
   value: 16
@@ -46,23 +46,23 @@ backbone:
   desc: config for the embedding network
   value:
     name: UNet2D
-    in_channels: 2
+    in_channels: 4
     out_channels: 16
     # use Groupnorm instead of Batchnorm for DSB; Batchnorm introduces artifacts around nuclei due to the difference
     # in intensity distribution between images with large and small cells
     layer_order: bcr
     num_groups: 8
-    f_maps: [32, 64, 128, 256]
+    f_maps: [32, 64, 128]
     #conv_padding: 0
     final_sigmoid: false
     is_segmentation: false
 
 gnn_n_hl:
   desc: number of hidden layers in graph conv blocks
-  value: 0
+  value: 1
 gnn_size_hl:
   desc: factor by which feature size of hidden featuremaps in gnn increases/decreases
-  value: 512
+  value: 1028
 gnn_act_depth:
   desc: num of graph convs (1, 2, 3)
   value: 1
@@ -82,7 +82,7 @@ T_max:
   value: 50000
 mem_size:
   desc: Mem size in replay memory buffer
-  value: 5
+  value: 40
 data_update_frequency:
   desc: update env data after n steps
   value: 50
@@ -91,7 +91,7 @@ post_stats_frequency:
   value: 10
 validatoin_freq:
   desc: validate after n steps
-  value: 5
+  value: 100
 store_amount:
   desc: validate after n steps
   value: 0
@@ -103,7 +103,7 @@ n_explorers:
   value: 1
 batch_size:
   desc: num samples in minibatch
-  value: 1
+  value: 2
 
 # conf for lr scheduling
 lr_sched:
@@ -114,15 +114,15 @@ lr_sched:
     step_frequency: 10
     mov_avg_offset: 0.0
     torch_sched:  # conf for torch reduceOnPlateau scheduler
-      patience: 1000
-      min_lr: 0.0001
+      patience: 20
+      min_lr: 0.000001
       factor: 0.05
       threshold: 0.01
 
 # specific configs for the sac algorithm
 reward_function:
   desc: one of sub_graph_dice, leptin_dataTurningFunc, leptin_dataEllipticFit, leptin_dataTurningWithEllipses
-  value: leptin_dataRectFit
+  value: colorcircles
 gt_edge_overlap_thresh:
   desc: if using gt edges this is the overlap thresh of the underlying gt for a gt edge to be 1
   value: 0.5
