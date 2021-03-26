@@ -99,7 +99,7 @@ class AgentSacTrainer(object):
             Prepare storages for validation and training sets
         '''
 
-        run_dir = '/'.join(wandb.run.dir.split('/')[:-3])
+        run_dir = wandb.run.dir
         base_dir = os.path.join(run_dir, self.cfg.run_id)
         valid_img_dir = os.path.join(base_dir, "valid_gif")
         train_img_dir = os.path.join(base_dir, "train_gif")
@@ -308,11 +308,11 @@ class AgentSacTrainer(object):
 
         return critic_loss.item(), mean_reward / len(self.cfg.s_subgraph)
 
-    def update_actor_and_alpha(self, obs, reward):
+    def update_actor_and_alpha(self, obs, reward, expl_action):
         self.optimizers.actor.zero_grad()
         self.optimizers.temperature.zero_grad()
         with torch.cuda.amp.autocast(enabled=True):
-            distribution, actor_Q, action, side_loss = self.forwarder.forward(self.model, obs, State, self.device, policy_opt=True)
+            distribution, actor_Q, action, side_loss = self.forwarder.forward(self.model, obs, State, self.device, expl_action=expl_action, policy_opt=True)
 
             log_prob = distribution.log_prob(action)
             actor_loss = torch.tensor([0.0], device=actor_Q[0].device)
@@ -358,7 +358,7 @@ class AgentSacTrainer(object):
         wandb.log({"loss/critic": critic_loss})
 
         if self.cfg.actor_update_after < step and step % self.cfg.actor_update_frequency == 0:
-            actor_loss, alpha_loss, min_entropy, loc_mean = self.update_actor_and_alpha(obs, reward)
+            actor_loss, alpha_loss, min_entropy, loc_mean = self.update_actor_and_alpha(obs, reward, action)
             self.mov_sum_losses.actor.apply(actor_loss)
             self.mov_sum_losses.temperature.apply(alpha_loss)
             wandb.log({"loss/actor": actor_loss})

@@ -30,7 +30,7 @@ patch_manager:
   desc: if training should happen on patches, this is the config for the patch manager
   value:
     name: none # rotated, no_cross, none
-    reorder_sp: false
+    reorder_sp: true
 
 # embedding network config
 fe_model_name:

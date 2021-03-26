@@ -52,7 +52,11 @@ class Agent(torch.nn.Module):
                 mu = self.mu_bounds[0] + 0.5 * (self.mu_bounds[1] - self.mu_bounds[0]) * (torch.tanh(mu) + 1)
 
                 dist = SigmNorm(mu, std)
-                actions = dist.rsample()
+                if expl_action is None:
+                    actions = dist.rsample()
+                else:
+                    z = ((expl_action - mu) / std).detach()
+                    actions = mu + z * std
 
             q, sl = self.critic_tgt(node_features, actions, edge_index, state.edge_feats, state.subgraph_indices,
                                          state.sep_subgraphs, state.gt_edge_weights, post_data)

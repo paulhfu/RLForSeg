@@ -76,14 +76,14 @@ class LeptinDataRotatedRectRewards(RewardFunctionAbc):
         self.masses = [np.array(m1).mean(), np.array(m2).mean(), np.array(m3 + m4 + m5).mean()]
         self.fg_shape_descriptors = self.celltype_1_ds + self.celltype_2_ds + self.celltype_3_ds
         self.circle_center = np.array([390, 340])
-        self.circle_rads = [210, 280, 100, 340]
+        self.circle_rads = [210, 260, 100, 340]
         self.side_lens = [28, 125]
 
     def __call__(self, prediction_segmentation, superpixel_segmentation, dir_edges, edge_score, sp_cmrads, actions,
                  *args, **kwargs):
         dev = prediction_segmentation.device
         return_scores = []
-        exp_factor = 6
+        exp_factor = 2
 
         for single_pred, single_sp_seg, s_dir_edges, s_actions, s_sp_cmrads in zip(prediction_segmentation,
                                                                                    superpixel_segmentation,
@@ -163,16 +163,35 @@ class LeptinDataRotatedRectRewards(RewardFunctionAbc):
                 long_side_ind = dsts.argmax()
                 long_side = dsts[long_side_ind]
                 short_side = dsts.min()
+
                 u = np.array([rect[long_side_ind], rect[(long_side_ind + 1) % 4]]) - self.circle_center
                 u = u[0] - u[1]
                 v = cm - self.circle_center
                 u = u / (np.linalg.norm(u) + 1e-10)
                 v = v / (np.linalg.norm(v) + 1e-10)
-                shape_score = abs(np.dot(u, v)) * 0.5
-                shape_score += ((1 - (abs(self.side_lens[0] - short_side) / max(self.side_lens[0], short_side))) +
-                                (1 - (abs(self.side_lens[1] - long_side) / max(self.side_lens[1], long_side)))) / 4
+                orientation_score = abs(np.dot(u, v))
 
-                score = torch.tensor([0.3 * position_score + 0.7 * shape_score], device=dev)
+                shape_score = 0
+                diffs, diffl = abs(self.side_lens[0] - short_side), abs(self.side_lens[1] - long_side)
+                if diffs < (self.side_lens[0] / 6):
+                    shape_score += 0.5
+                elif diffs < (self.side_lens[0] / 3):
+                    shape_score += 0.3
+                elif diffs < (self.side_lens[0] / 2):
+                    shape_score += 0.2
+                elif diffs < self.side_lens[0]:
+                    shape_score += 0.1
+
+                if diffl < (self.side_lens[1] / 6):
+                    shape_score += 0.5
+                elif diffl < (self.side_lens[1] / 5):
+                    shape_score += 0.3
+                elif diffl < (self.side_lens[1] / 3):
+                    shape_score += 0.2
+                elif diffl < self.side_lens[1]:
+                    shape_score += 0.1
+
+                score = torch.tensor([0.1 * position_score + 0.8 * shape_score + 0.2 * orientation_score], device=dev)
                 score = (score * exp_factor).exp() / (torch.ones_like(score) * exp_factor).exp()
                 scores[sp_ids] += score
 
@@ -237,36 +256,36 @@ class LeptinDataRotatedRectRewards(RewardFunctionAbc):
             if torch.isnan(scores).any() or torch.isinf(scores).any():
                 print(Warning("NaN or inf in scores this should not happen"))
             if edge_score:
+                s1 = .12
+                s2 = 0.105
+                s3 = .13
+                w1 = 1.8
+                w2 = 0.3
+                w3 = 0.3
+                n = math.sqrt((single_sp_seg.shape[0] / 2) ** 2 + (single_sp_seg.shape[1] / 2) ** 2)
                 edges = s_dir_edges[:, :int(s_dir_edges.shape[1] / 2)]
                 edge_scores = scores[edges].max(dim=0).values
                 # identify wrong edges
                 edge_cmrads = s_sp_cmrads[edges]
 
-                bg_sp_2 = torch.arange(len(s_sp_cmrads), device=dev)[s_sp_cmrads > self.circle_rads[1]]
-                bg_sp_1 = torch.arange(len(s_sp_cmrads), device=dev)[s_sp_cmrads < self.circle_rads[0]]
+                bg_sp_1 = torch.arange(len(s_sp_cmrads), device=dev)[s_sp_cmrads > self.circle_rads[1]]
+                bg_sp_2 = torch.arange(len(s_sp_cmrads), device=dev)[s_sp_cmrads < self.circle_rads[0]]
 
-                edge_mask_2 = (edges[None] == bg_sp_2[:, None, None]).sum(0).sum(0) == 2
                 edge_mask_1 = (edges[None] == bg_sp_1[:, None, None]).sum(0).sum(0) == 2
+                edge_mask_2 = (edges[None] == bg_sp_2[:, None, None]).sum(0).sum(0) == 2
 
-                normalizer2 = abs(np.linalg.norm(self.circle_center) - self.circle_rads[1]) / 1.5
-                normalizer1 = self.circle_rads[0] / 1.5
+                dst1 = 1 - ((edge_cmrads[:, edge_mask_1].mean(0) - self.circle_rads[1]) / n)
+                dst2 = (edge_cmrads[:, edge_mask_2].mean(0)) / n
+                dst3 = (edge_cmrads[:, edge_mask_1].mean(0) - ((self.circle_rads[1] + self.circle_rads[0]) / 2)) / n
+                dst4 = (edge_cmrads[:, edge_mask_2].mean(0) - ((self.circle_rads[1] + self.circle_rads[0]) / 2)) / n
 
-                dst2 = 0.5 / ((edge_cmrads[:, edge_mask_2].mean(0) - self.circle_rads[1]) / normalizer2)
-                dst1 = ((edge_cmrads[:, edge_mask_1].mean(0)) / normalizer1)
+                bg_prob1 = torch.exp(-dst1 ** 2 / (2 * s1 ** 2)) / (math.sqrt(2 * np.pi) * s1) * w1
+                bg_prob2 = torch.exp(-dst2 ** 2 / (2 * s2 ** 2)) / (math.sqrt(2 * np.pi) * s2) * w2
+                fg_prob1 = torch.exp(-dst3 ** 2 / (2 * s3 ** 2)) / (math.sqrt(2 * np.pi) * s3) * w3
+                fg_prob2 = torch.exp(-dst4 ** 2 / (2 * s3 ** 2)) / (math.sqrt(2 * np.pi) * s3) * w3
 
-                dst3 = ((edge_cmrads[:, edge_mask_2].mean(0) - (
-                    (self.circle_rads[1] + self.circle_rads[0]) / 2)) / normalizer2)
-                dst4 = ((edge_cmrads[:, edge_mask_1].mean(0) - (
-                    (self.circle_rads[1] + self.circle_rads[0]) / 2)) / normalizer1)
-
-                bg_prob2 = (-dst2 ** 2 / (2 * 1.0 ** 2)).exp() / (math.sqrt(2 * np.pi) * 1.0) * 2
-                bg_prob1 = (-dst1 ** 2 / (2 * 1.0 ** 2)).exp() / (math.sqrt(2 * np.pi) * 1.0) * 2
-
-                fg_prob2 = (-dst3 ** 2 / (2 * 1.0 ** 2)).exp() / (math.sqrt(2 * np.pi) * 1.0) * 2
-                fg_prob1 = (-dst4 ** 2 / (2 * 1.0 ** 2)).exp() / (math.sqrt(2 * np.pi) * 1.0) * 2
-
-                edge_scores[edge_mask_2] = fg_prob2 * edge_scores[edge_mask_2] + (1 - s_actions[edge_mask_2]) * bg_prob2
                 edge_scores[edge_mask_1] = fg_prob1 * edge_scores[edge_mask_1] + (1 - s_actions[edge_mask_1]) * bg_prob1
+                edge_scores[edge_mask_2] = fg_prob2 * edge_scores[edge_mask_2] + (1 - s_actions[edge_mask_2]) * bg_prob2
 
                 if bg1_shape_score > 0.6:
                     edge_mask = (edges[None] == bg2_sp_ids[:, None, None]).sum(0).sum(0) == 2
@@ -287,17 +306,23 @@ class LeptinDataRotatedRectRewards(RewardFunctionAbc):
         return_scores = torch.cat(return_scores)
         return return_scores
 
-    def get_gaussians(self):
+    def get_gaussians(self, s1, s2, s3, w1, w2, w3):
+        # (.13, 0.105, .13, 1.2, 0.3, .3)
         from mpl_toolkits.mplot3d import Axes3D
         from matplotlib import cm
         xx, yy = np.meshgrid(np.arange(0, 749), np.arange(0, 692))
-        pix_rads = np.sqrt((xx - self.circle_center[0])**2 + (yy - self.circle_center[1])**2)
+        pix_rads = np.sqrt((xx - self.circle_center[1])**2 + (yy - self.circle_center[0])**2)
         bg_2_mask = pix_rads > self.circle_rads[1]
         bg_1_mask = pix_rads < self.circle_rads[0]
         fg_mask = (pix_rads > self.circle_rads[2]) & (pix_rads < self.circle_rads[3])
 
-        normalizer2 = abs(np.linalg.norm(self.circle_center) - self.circle_rads[1]) / 1.5
-        normalizer1 = self.circle_rads[0] / 1.5
+        # normalizer3 = abs(np.linalg.norm(self.circle_center) - ((self.circle_rads[2] + self.circle_rads[3]) / 2)) / 0.5
+        # normalizer2 = abs(np.linalg.norm(self.circle_center) - self.circle_rads[1]) / 0.5
+        # normalizer1 = self.circle_rads[0] / 0.5
+
+        # n3 = 30
+        # n2 = 60
+        # n1 = 40
 
         dst2 = np.zeros_like(pix_rads)
         dst1 = np.zeros_like(pix_rads)
@@ -305,23 +330,39 @@ class LeptinDataRotatedRectRewards(RewardFunctionAbc):
         bg_prob2 = np.zeros_like(pix_rads)
         bg_prob1 = np.zeros_like(pix_rads)
         fg_prob = np.zeros_like(pix_rads)
+        n =math.sqrt((749/2)**2 + (692/2)**2)
 
-        dst2[bg_2_mask] = 0.5 / ((pix_rads[bg_2_mask] - self.circle_rads[1]) / normalizer2)
-        dst1[bg_1_mask] = ((pix_rads[bg_1_mask]) / normalizer1)
+        dst1 = 1 - (pix_rads / n)
+        dst2 = (pix_rads / n)
+        dst3 = ((pix_rads - ((self.circle_rads[0] + self.circle_rads[1]) / 2)) / n)
 
-        dst3[fg_mask] = ((pix_rads[fg_mask] - ((self.circle_rads[2] + self.circle_rads[3]) / 2)) / normalizer2)
-
-        bg_prob2[bg_2_mask] = np.exp(-dst2[bg_2_mask] ** 2 / (2 * 1.0 ** 2)) / (math.sqrt(2 * np.pi) * 1.0) * 2
-        bg_prob1[bg_1_mask] = np.exp(-dst1[bg_1_mask] ** 2 / (2 * 1.0 ** 2)) / (math.sqrt(2 * np.pi) * 1.0) * 2
-        fg_prob[fg_mask] = np.exp(-dst3[fg_mask] ** 2 / (2 * 1.0 ** 2)) / (math.sqrt(2 * np.pi) * 1.0) * 2
+        bg_prob1 = np.exp(-dst1 ** 2 / (2 * s1 ** 2)) / (math.sqrt(2 * np.pi) * s1) * w1
+        plt.imshow(bg_prob1);
+        plt.show()
+        bg_prob2 = np.exp(-dst2 ** 2 / (2 * s2 ** 2)) / (math.sqrt(2 * np.pi) * s2) * w2
+        plt.imshow(bg_prob2);
+        plt.show()
+        fg_prob = np.exp(-dst3 ** 2 / (2 * s3 ** 2)) / (math.sqrt(2 * np.pi) * s3) * w3
+        plt.imshow(fg_prob);
+        plt.show()
 
         zz = bg_prob2 + bg_prob1 + fg_prob
+        print(f"z(210):{zz[375, self.circle_center[1] - 210]}  z(260):{zz[375, self.circle_center[1] - 260]}  fgn(210): {fg_prob[375,self.circle_center[1] -  210]}  fgn(260): {fg_prob[375, self.circle_center[1] - 260]}  bgn1(260): {bg_prob1[375, self.circle_center[1] - 260]}  bgn2(210): {bg_prob2[375, self.circle_center[1] - 210]}")
 
-        fig = plt.figure(0)
-        ax = Axes3D(fig)
-        ax.plot_surface(xx, yy, zz, rstride=1, cstride=1, cmap=cm.magma,
-                               linewidth=0, antialiased=False)
+        # fig = plt.figure(0)
+        # ax = Axes3D(fig)
+        # ax.plot_surface(xx, yy, zz, rstride=1, cstride=1, cmap=cm.magma, linewidth=0, antialiased=False)
+        plt.plot(zz[375])
         plt.show()
+        # fig = plt.figure(0)
+        # ax = Axes3D(fig)
+        # ax.plot_surface(xx, yy, bg_prob1, rstride=1, cstride=1, cmap=cm.magma, linewidth=0, antialiased=False)
+        # plt.show()
+        # fig = plt.figure(0)
+        # ax = Axes3D(fig)
+        # ax.plot_surface(xx, yy, fg_prob, rstride=1, cstride=1, cmap=cm.magma, linewidth=0, antialiased=False)
+        # plt.show()
+        a = 1
 
 
 class LeptinDataReward2DTurningWithEllipses(RewardFunctionAbc):
@@ -1021,7 +1062,8 @@ if __name__ == "__main__":
             mc_seg = mc_seg[None]
 
             f = LeptinDataRotatedRectRewards()
-            f.get_gaussians()
+            f.get_gaussians(.12, 0.105, .13, 1.8, 0.3, .3)
+            plt.imshow(pix_file['raw'][:]);plt.show()
             # rewards2 = f(gt_seg.long(), superpixel_seg.long(), dir_edges=[dir_edges], res=100)
             edge_angles, sp_feat, sp_rads = get_angles_smass_in_rag(edges, superpixel_seg.long())
             edge_rewards = f(mc_seg.long(), superpixel_seg[None].long(), dir_edges=[dir_edges], res=50, edge_score=True,

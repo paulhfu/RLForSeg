@@ -48,9 +48,9 @@ class CirclesRewards(RewardFunctionAbc):
         for single_pred, single_sp_seg, s_dir_edges, s_actions, s_sp_cmrads in zip(prediction_segmentation,
                                                                                    superpixel_segmentation,
                                                                                    dir_edges, actions, sp_cmrads):
-            scores = torch.zeros(int((single_sp_seg.max()) + 1, ), device=dev)
+            scores = torch.ones(int((single_sp_seg.max()) + 1, ), device=dev) * 0.5
             if single_pred.max() == 0:  # image is empty
-                return_scores.append(scores)
+                return_scores.append(scores - 0.5)
                 continue
             # get one-hot representation
             one_hot = torch.zeros((int(single_pred.max()) + 1,) + single_pred.size(), device=dev, dtype=torch.long) \
@@ -58,52 +58,40 @@ class CirclesRewards(RewardFunctionAbc):
 
             # need masses to determine what objects can be considered background
             label_masses = one_hot.flatten(1).sum(-1)
-            bg1_mask = torch.zeros_like(label_masses).bool()
-            bg1_id = label_masses.argmax()
-            bg1_mass = label_masses[bg1_id].item()
-            bg1_mask[bg1_id] = True
-            bg2_mask = torch.zeros_like(label_masses).bool()
-            label_masses[bg1_id] = -1
-            bg2_id = label_masses.argmax()
-            label_masses[bg1_id] = bg1_mass
-            bg2_mask[bg2_id] = True
-            # get the objects that are torching the patch boarder as for them we cannot compute a relieable sim shape_score
-            false_obj_mask = label_masses < 20
-            false_obj_mask[bg1_id] = False
-            false_obj_mask[bg2_id] = False
             # everything else are potential objects
-            potenial_obj_mask = (false_obj_mask == False)
-            potenial_obj_mask[bg1_id] = False
-            potenial_obj_mask[bg2_id] = False
+            potenial_obj_mask = torch.ones_like(label_masses)
             potential_object_ids = torch.nonzero(potenial_obj_mask).squeeze(1)  # object label IDs
 
             objects = one_hot[potential_object_ids]  # get object masks
-            false_obj_sp_ids = torch.unique((single_sp_seg[None] + 1) * one_hot[false_obj_mask])[1:] - 1
             object_sp_ids = [torch.unique((single_sp_seg[None] + 1) * obj)[1:] - 1 for obj in objects]
 
             # get shape descriptors for objects and get a shape_score by comparing to self.descriptors
 
             for object, obj_id, sp_ids in zip(objects, potential_object_ids, object_sp_ids):
                 try:
-                    contour = find_contours(object.cpu().numpy(), level=0)
-                    if len(contour) > 1:
-                        continue
-                    contour = contour[0]
+                    contours = find_contours(object.cpu().numpy(), level=0)
+                    if len(contours) == 0:
+                        raise Exception()
                 except:
+                    scores[sp_ids] -= 0.5
                     continue
 
-                poly_chain = torch.from_numpy(approximate_polygon(contour, tolerance=0.0)).to(dev)
-                cm = poly_chain.mean(dim=0).cpu().numpy()
-                dsts = np.linalg.norm(poly_chain.cpu().numpy() - cm, axis=1)
-                dsts -= dsts.min()
-                if dsts.max() > 1:
-                    dsts /= dsts.max()
-                score = 1 - (np.std(dsts) * 2)
+                std = 0
+                for contour in contours:
+                    poly_chain = torch.from_numpy(approximate_polygon(contour, tolerance=0.0)).to(dev)
+                    cm = poly_chain.mean(dim=0).cpu().numpy()
+                    dsts = np.linalg.norm(poly_chain.cpu().numpy() - cm, axis=1)
+                    dsts -= dsts.min()
+                    max = dsts.max()
+                    if max > 1:
+                        dsts /= max
+                    std += (np.std(dsts) * 2)
 
-                # score = (score * exp_factor).exp() / (torch.ones_like(score) * exp_factor).exp()
-                scores[sp_ids] = score
+                score = -((std / len(contours)) - 0.5)
 
-            scores[false_obj_sp_ids] = 0.0
+                score = np.exp((score * exp_factor)) / np.exp(np.array([exp_factor]))
+                scores[sp_ids] += score.item()
+
             if torch.isnan(scores).any() or torch.isinf(scores).any():
                 print(Warning("NaN or inf in scores this should not happen"))
             if edge_score:
