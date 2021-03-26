@@ -239,13 +239,12 @@ class AgentSacTrainer(object):
         axs[1].set_xlabel(r'IoU threshold $\tau$')
 
         #wandb.log({"validation/metrics": [wandb.Image(fig, caption="metrics")]})
-        wandb.log({"validation_reward": acc_reward})
-        wandb.log({"validation/map": np.mean(map_scores)})
 
         plt.close('all')
         '''
 
         vi, are, arp, arr = self.clst_metric.dump()
+        wandb.log({"validation/reward": acc_reward})
         wandb.log({"validation/mAP" : np.mean(map_scores)}, step=self.global_counter)
         wandb.log({"validation/VI"  : vi}, step=self.global_counter)
         wandb.log({"validation/ARE" : are}, step=self.global_counter)
