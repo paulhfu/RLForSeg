@@ -212,7 +212,7 @@ def get_colored_edges_in_sseg(sseg: torch.Tensor, edges: torch.Tensor, scores: t
     sseg = sseg - 1
     edges = edges - 1
     bnd_mask = bnds[0] != 0
-    return torch.stack([(0.5 + scored_bnds) * (bnd_mask & (scored_bnds < 0.5)), scored_bnds * (scored_bnds > 0.5), torch.zeros_like(scored_bnds)], -1), bnd_mask
+    return torch.stack([(0.5 + scored_bnds) * (bnd_mask & (scored_bnds < 0.5)), scored_bnds * (scored_bnds > 0.5), torch.zeros_like(scored_bnds)], -1), scored_bnds, bnd_mask
 
 def sync_segmentations(seg_base, seg_var, sync_bg_as_id0=False):
     ids = torch.unique(seg_base)

@@ -62,10 +62,10 @@ gnn_n_hl:
   value: 1
 gnn_size_hl:
   desc: factor by which feature size of hidden featuremaps in gnn increases/decreases
-  value: 2048
+  value: 1048
 gnn_act_depth:
   desc: num of graph convs (1, 2, 3)
-  value: 2
+  value: 1
 gnn_act_norm_inp:
   desc: put hidden features on unit sphere and scale by sim
   value: false

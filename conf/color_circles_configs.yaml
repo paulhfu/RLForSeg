@@ -62,7 +62,7 @@ gnn_n_hl:
   value: 1
 gnn_size_hl:
   desc: factor by which feature size of hidden featuremaps in gnn increases/decreases
-  value: 2028
+  value: 1028
 gnn_act_depth:
   desc: num of graph convs (1, 2, 3)
   value: 1
@@ -91,7 +91,7 @@ post_stats_frequency:
   value: 10
 validatoin_freq:
   desc: validate after n steps
-  value: 100
+  value: 1
 store_amount:
   desc: validate after n steps
   value: 0

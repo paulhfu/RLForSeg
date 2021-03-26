@@ -102,6 +102,8 @@ class MulticutEmbeddingsEnv():
                 # assert self.subgraph_indices[i].max() == len(edge_reward) - 1
                 reward.append(edge_reward[self.subgraph_indices[i].view(-1, sz)].mean(1))
             reward.append(self.last_final_reward)
+            if not train:
+                reward.append(edge_reward)
             if hasattr(self, 'reward_function_sgd') and tau > 0.0:
                 self.sg_current_edge_weights = []
                 for i, sz in enumerate(self.cfg.s_subgraph):

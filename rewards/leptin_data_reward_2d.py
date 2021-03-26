@@ -263,12 +263,13 @@ class LeptinDataRotatedRectRewards(RewardFunctionAbc):
             if torch.isnan(scores).any() or torch.isinf(scores).any():
                 print(Warning("NaN or inf in scores this should not happen"))
             if edge_score:
-                s1 = .12
-                s2 = 0.105
-                s3 = .13
-                w1 = 1.8
-                w2 = 0.3
-                w3 = 0.3
+                .5, 0.16, .1, 1, 0.4, .2
+                s1 = 0.5
+                s2 = 0.16
+                s3 = .1
+                w1 = 1.
+                w2 = 0.4
+                w3 = 0.2
                 n = math.sqrt((single_sp_seg.shape[0] / 2) ** 2 + (single_sp_seg.shape[1] / 2) ** 2)
                 edges = s_dir_edges[:, :int(s_dir_edges.shape[1] / 2)]
                 edge_scores = scores[edges].max(dim=0).values
@@ -281,7 +282,7 @@ class LeptinDataRotatedRectRewards(RewardFunctionAbc):
                 edge_mask_1 = (edges[None] == bg_sp_1[:, None, None]).sum(0).sum(0) == 2
                 edge_mask_2 = (edges[None] == bg_sp_2[:, None, None]).sum(0).sum(0) == 2
 
-                dst1 = 1 - ((edge_cmrads[:, edge_mask_1].mean(0) - self.circle_rads[1]) / n)
+                dst1 = 1 - ((edge_cmrads[:, edge_mask_1].mean(0) - self.circle_rads[1]) / (n - self.circle_rads[1]))
                 dst2 = (edge_cmrads[:, edge_mask_2].mean(0)) / n
                 dst3 = (edge_cmrads[:, edge_mask_1].mean(0) - ((self.circle_rads[1] + self.circle_rads[0]) / 2)) / n
                 dst4 = (edge_cmrads[:, edge_mask_2].mean(0) - ((self.circle_rads[1] + self.circle_rads[0]) / 2)) / n
@@ -314,7 +315,6 @@ class LeptinDataRotatedRectRewards(RewardFunctionAbc):
         return return_scores
 
     def get_gaussians(self, s1, s2, s3, w1, w2, w3):
-        # (.13, 0.105, .13, 1.2, 0.3, .3)
         from mpl_toolkits.mplot3d import Axes3D
         from matplotlib import cm
         xx, yy = np.meshgrid(np.arange(0, 749), np.arange(0, 692))
@@ -339,7 +339,7 @@ class LeptinDataRotatedRectRewards(RewardFunctionAbc):
         fg_prob = np.zeros_like(pix_rads)
         n =math.sqrt((749/2)**2 + (692/2)**2)
 
-        dst1 = 1 - (pix_rads / n)
+        dst1 = 1 - ((pix_rads - self.circle_rads[1]) / (n - self.circle_rads[1]))
         dst2 = (pix_rads / n)
         dst3 = ((pix_rads - ((self.circle_rads[0] + self.circle_rads[1]) / 2)) / n)
 
@@ -1005,6 +1005,7 @@ if __name__ == "__main__":
     import h5py
     import numpy as np
     import matplotlib.pyplot as plt
+    from matplotlib import cm
     from utils.general import multicut_from_probas, calculate_gt_edge_costs
     from glob import glob
     import os
@@ -1012,6 +1013,8 @@ if __name__ == "__main__":
 
     label_cm = random_label_cmap(zeroth=1.0)
     label_cm.set_bad(alpha=0)
+    edge_cmap = cm.get_cmap(name="cool")
+    edge_cmap.set_bad(alpha=0)
     dev = "cuda:0"
     # get a few images and extract some gt objects used ase shape descriptors that we want to compare against
     dir = "/g/kreshuk/hilt/projects/data/leptin_fused_tp1_ch_0/train"
@@ -1069,23 +1072,29 @@ if __name__ == "__main__":
             mc_seg = mc_seg[None]
 
             f = LeptinDataRotatedRectRewards()
-            f.get_gaussians(.12, 0.105, .13, 1.8, 0.3, .3)
-            plt.imshow(pix_file['raw'][:]);plt.show()
+            # f.get_gaussians(.5, 0.16, .1, 1, 0.4, .2)
+            # plt.imshow(pix_file['raw'][:]);plt.show()
             # rewards2 = f(gt_seg.long(), superpixel_seg.long(), dir_edges=[dir_edges], res=100)
             edge_angles, sp_feat, sp_rads = get_angles_smass_in_rag(edges, superpixel_seg.long())
             edge_rewards = f(mc_seg.long(), superpixel_seg[None].long(), dir_edges=[dir_edges], res=50, edge_score=True,
                              sp_cmrads=[sp_rads], actions=[actions])
 
             fig, (ax1, ax2) = plt.subplots(1, 2)
-            frame_rew, bnd_mask = get_colored_edges_in_sseg(superpixel_seg[None].float(), edges, edge_rewards)
-            frame_act, _ = get_colored_edges_in_sseg(superpixel_seg[None].float(), edges, 1 - actions.squeeze())
+            frame_rew, scores_rew, bnd_mask = get_colored_edges_in_sseg(superpixel_seg[None].float(), edges, edge_rewards)
+            frame_act, scores_act, _ = get_colored_edges_in_sseg(superpixel_seg[None].float(), edges, 1 - actions.squeeze())
+
             bnd_mask = torch.from_numpy(dilation(bnd_mask.cpu().numpy()))
+
             mc_seg = sync_segmentations(mc_seg_old, mc_seg) if mc_seg_old is not None else mc_seg
             mc_seg_old = mc_seg.clone()
             mc_seg = mc_seg.squeeze().float()
             mc_seg[bnd_mask] = np.nan
+
             frame_rew = np.stack([dilation(frame_rew.cpu().numpy()[..., i]) for i in range(3)], -1)
             frame_act = np.stack([dilation(frame_act.cpu().numpy()[..., i]) for i in range(3)], -1)
+            scores_rew = np.stack([dilation(scores_rew.cpu().numpy()[..., i]) for i in range(3)], -1)
+            scores_act = np.stack([dilation(scores_act.cpu().numpy()[..., i]) for i in range(3)], -1)
+
             ax1.imshow(frame_rew, interpolation="none")
             ax1.imshow(mc_seg.cpu(), cmap=label_cm, alpha=0.8, interpolation="none")
             ax1.set_title("rewards 1:g, 0:r")

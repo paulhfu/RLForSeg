@@ -13,14 +13,14 @@ from matplotlib import cm
 from multiprocessing import Process, Lock
 import threading
 import shutil
-import imageio
+from skimage.morphology import dilation
 
 from environments.multicut import MulticutEmbeddingsEnv, State
 from data.spg_dset import SpgDset
 from models.agent_model import Agent
 from models.feature_extractor import FeExtractor
 from utils.exploration_functions import RunningAverage
-from utils.general import soft_update_params, set_seed_everywhere, cluster_embeddings, pca_project, random_label_cmap
+from utils.general import soft_update_params, set_seed_everywhere, get_colored_edges_in_sseg, pca_project, random_label_cmap
 from utils.replay_memory import TransitionData_ts
 from utils.graphs import get_joint_sg_logprobs_edges
 from utils.distances import CosineDistance, L2Distance
@@ -147,14 +147,13 @@ class AgentSacTrainer(object):
         if self.cfg.verbose:
             print("\n\n###### start validate ######", end='')
         self.model.eval()
-        n_examples = 3 #len(self.val_dset)
+        n_examples = len(self.val_dset)
         taus = [0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8, 0.9]
         rl_scores, keys = [], None
 
         self.clst_metric.reset()
         map_scores = []
-
-        ex_raws, ex_sps, ex_gts, ex_mc_gts, ex_embeds, ex_rl = [], [], [], [], [], []
+        ex_raws, ex_sps, ex_gts, ex_mc_gts, ex_embeds, ex_rl, edge_ids, rewards, actions = [], [], [], [], [], [], [], [], []
         dloader = iter(DataLoader(self.val_dset, batch_size=1, shuffle=True, pin_memory=True, num_workers=0))
         acc_reward = 0
 
@@ -170,9 +169,9 @@ class AgentSacTrainer(object):
                 self.model_mtx.release()
             action = torch.sigmoid(distr.loc)
             reward = env.execute_action(action, tau=0.0, train=False)
-            acc_reward += reward[-1].item()
+            acc_reward += reward[-2].item()
             if self.cfg.verbose:
-                print(f"\nstep: {it}; mean_loc: {round(distr.loc.mean().item(), 5)}; mean reward: {round(reward[-1].item(), 5)}", end='')
+                print(f"\nstep: {it}; mean_loc: {round(distr.loc.mean().item(), 5)}; mean reward: {round(reward[-2].item(), 5)}", end='')
 
             embeddings = env.embeddings[0].cpu().numpy()
             gt_seg = env.gt_seg[0].cpu().numpy()
@@ -185,6 +184,9 @@ class AgentSacTrainer(object):
             ex_mc_gts.append(gt_mc)
             ex_gts.append(gt_seg)
             ex_rl.append(rl_labels)
+            edge_ids.append(env.edge_ids)
+            rewards.append(reward[-1])
+            actions.append(action)
 
             map_scores.append(self.segm_metric(rl_labels, gt_seg))
             self.clst_metric(rl_labels, gt_seg)
@@ -261,22 +263,35 @@ class AgentSacTrainer(object):
         if self.cfg.verbose:
             print("\n###### finish validate ######\n", end='')
 
+        label_cm = random_label_cmap(zeroth=1.0)
+        label_cm.set_bad(alpha=0)
         for i in range(n_examples):
-            fig, axs = plt.subplots(2, 3, sharex='col', sharey='row', gridspec_kw={'hspace': 0, 'wspace': 0})
+            frame_rew, scores_rew, bnd_mask = get_colored_edges_in_sseg(ex_sps[i][None].float(), edge_ids[i].cpu(), rewards[i].cpu())
+            frame_act, scores_act, _ = get_colored_edges_in_sseg(ex_sps[i][None].float(), edge_ids[i].cpu(), 1 - actions[i].cpu().squeeze())
+
+            bnd_mask = torch.from_numpy(dilation(bnd_mask.cpu().numpy()))
+
+            ex_rl[i] = ex_rl[i].squeeze().astype(np.float)
+            ex_rl[i][bnd_mask] = np.nan
+
+            frame_rew = np.stack([dilation(frame_rew.cpu().numpy()[..., i]) for i in range(3)], -1)
+            frame_act = np.stack([dilation(frame_act.cpu().numpy()[..., i]) for i in range(3)], -1)
+
+            fig, axs = plt.subplots(2, 4, sharex='col', figsize=(30, 10), sharey='row', gridspec_kw={'hspace': 0, 'wspace': 0})
             axs[0, 0].imshow(ex_gts[i], cmap=random_label_cmap(), interpolation="none")
-            axs[0, 0].set_title('gt')
+            axs[0, 0].set_title('gt', y=0.15)
             axs[0, 0].axis('off')
             if ex_raws[i].ndim == 3:
                 axs[0, 1].imshow(ex_raws[i][..., 0], cmap="gray")
             else:
                 axs[0, 1].imshow(ex_raws[i], cmap="gray")
-            axs[0, 1].set_title('raw image')
+            axs[0, 1].set_title('raw image', y=0.35)
             axs[0, 1].axis('off')
             axs[0, 2].imshow(ex_sps[i], cmap=random_label_cmap(), interpolation="none")
-            axs[0, 2].set_title('superpixels')
+            axs[0, 2].set_title('superpixels', y=0.45)
             axs[0, 2].axis('off')
             axs[1, 0].imshow(ex_embeds[i])
-            axs[1, 0].set_title('pc proj 1-3', y=-0.15)
+            axs[1, 0].set_title('pc proj 1-3', y=-0.2)
             axs[1, 0].axis('off')
             if ex_raws[i].ndim == 3:
                 if ex_raws[i].shape[-1] > 1:
@@ -285,11 +300,22 @@ class AgentSacTrainer(object):
                     axs[1, 1].imshow(ex_raws[i][..., 0], cmap="gray")
             else:
                 axs[1, 1].imshow(ex_raws[i], cmap="gray")
-            axs[1, 1].set_title('sp edge', y=-0.15)
+            axs[1, 1].set_title('sp edge', y=-0.2)
             axs[1, 1].axis('off')
             axs[1, 2].imshow(ex_rl[i], cmap=random_label_cmap(), interpolation="none")
-            axs[1, 2].set_title('prediction', y=-0.15)
+            axs[1, 2].set_title('prediction', y=-0.2)
             axs[1, 2].axis('off')
+
+            axs[1, 3].imshow(frame_rew, interpolation="none")
+            axs[1, 3].imshow(ex_rl[i], cmap=label_cm, alpha=0.8, interpolation="none")
+            axs[1, 3].set_title("rewards 1:g, 0:r", y=-0.2)
+            axs[1, 3].axis('off')
+
+            axs[0, 3].imshow(frame_act, interpolation="none")
+            axs[0, 3].imshow(ex_rl[i], cmap=label_cm, alpha=0.8, interpolation="none")
+            axs[0, 3].set_title("actions 0:g, 1:r", y=0.25)
+            axs[0, 3].axis('off')
+
             wandb.log({"validation/samples": [wandb.Image(fig, caption="sample images")]},
                       step=self.global_counter)
             plt.close('all')
@@ -450,7 +476,6 @@ class AgentSacTrainer(object):
         trainer.start()
 
         trainer.join()
-        print("###############################Trainer Failed First")
         self.global_count.set(self.cfg.T_max + self.cfg.mem_size + 4)
         [explorer.join() for explorer in explorers]
         self.memory.clear()
