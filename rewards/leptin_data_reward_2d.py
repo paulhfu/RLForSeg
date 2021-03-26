@@ -90,7 +90,12 @@ class LeptinDataRotatedRectRewards(RewardFunctionAbc):
                                                                                    dir_edges, actions, sp_cmrads):
             scores = torch.zeros(int((single_sp_seg.max()) + 1, ), device=dev)
             if single_pred.max() == 0:  # image is empty
-                return_scores.append(scores)
+                if edge_score:
+                    edges = s_dir_edges[:, :int(s_dir_edges.shape[1] / 2)]
+                    edge_scores = scores[edges].max(dim=0).values
+                    return_scores.append(edge_scores)
+                else:
+                    return_scores.append(scores)
                 continue
             # get one-hot representation
             one_hot = torch.zeros((int(single_pred.max()) + 1,) + single_pred.size(), device=dev, dtype=torch.long) \
@@ -139,6 +144,8 @@ class LeptinDataRotatedRectRewards(RewardFunctionAbc):
                     if len(contour) > 1:
                         continue
                     contour = contour[0]
+                    if len(contour) < 4:
+                        continue
                 except:
                     continue
 

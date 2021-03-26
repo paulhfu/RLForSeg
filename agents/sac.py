@@ -162,7 +162,7 @@ class AgentSacTrainer(object):
             finally:
                 self.model_mtx.release()
             action = torch.sigmoid(distr.loc)
-            reward = env.execute_action(action, None, post_images=True, tau=0.0, train=False)
+            reward = env.execute_action(action, tau=0.0, train=False)
             acc_reward += reward[-1].item()
             if self.cfg.verbose:
                 print(f"\nstep: {it}; mean_loc: {round(distr.loc.mean().item(), 5)}; mean reward: {round(reward[-1].item(), 5)}", end='')
@@ -426,11 +426,12 @@ class AgentSacTrainer(object):
         trainer.start()
 
         trainer.join()
+        print("###############################Trainer Failed First")
         self.global_count.set(self.cfg.T_max + self.cfg.mem_size + 4)
         [explorer.join() for explorer in explorers]
         self.memory.clear()
         del self.memory
-        torch.save(self.model.state_dict(), os.path.join(wandb.run.dir, "last_checkpoint_agent.pth"))
+        # torch.save(self.model.state_dict(), os.path.join(wandb.run.dir, "last_checkpoint_agent.pth"))
         if self.cfg.verbose:
             print('\n\n###### training finished ######')
         return

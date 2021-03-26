@@ -81,6 +81,8 @@ class MulticutEmbeddingsEnv():
                                                sp_cmrads=self.sp_rads, actions=split_actions)
             for i, sz in enumerate(self.cfg.s_subgraph):
                 # reward.append((sp_reward[self.edge_ids][:, self.subgraph_indices[i].view(-1, sz)].sum(0) / 2).mean(1))
+                # assert self.subgraph_indices[i].max() == self.edge_ids.shape[1] - 1
+                # assert self.subgraph_indices[i].max() == len(edge_reward) - 1
                 reward.append(edge_reward[self.subgraph_indices[i].view(-1, sz)].mean(1))
             reward.append(self.last_final_reward)
             if hasattr(self, 'reward_function_sgd') and tau > 0.0:
@@ -152,6 +154,9 @@ class MulticutEmbeddingsEnv():
     def update_data(self, raw, gt, edge_ids, gt_edges, sp_seg, fe_grad, rags, edge_features, *args, **kwargs):
         bs = raw.shape[0]
         dev = raw.device
+        for _sp_seg in sp_seg:
+            assert all(_sp_seg.unique() == torch.arange(_sp_seg.max() + 1, device=dev))
+            assert _sp_seg.max() > 60
         self.rags = rags
         self.gt_seg, self.init_sp_seg = gt.squeeze(1), sp_seg.squeeze(1)
         self.raw = raw
@@ -189,6 +194,10 @@ class MulticutEmbeddingsEnv():
         self.subgraphs = subgraphs
         self.subgraph_indices = get_edge_indices(self.edge_ids, subgraphs)
 
+        # for i, sz in enumerate(self.cfg.s_subgraph):
+        #     if not self.subgraph_indices[i].max() == self.edge_ids.shape[1] - 1:
+        #         pass
+
         self.gt_edge_weights = gt_edges
         if self.gt_edge_weights is not None:
             self.gt_edge_weights = torch.cat(self.gt_edge_weights)
@@ -220,7 +229,12 @@ class MulticutEmbeddingsEnv():
             costs = (torch.log((1. - costs) / costs)).detach().cpu().numpy()
             node_labels = elf.segmentation.multicut.multicut_decomposition(self.rags[i-1], costs, internal_solver='greedy-additive', n_threads=4)
             mc_seg = project_node_labels_to_pixels(self.rags[i-1], node_labels).squeeze()
-            segmentations.append(torch.from_numpy(mc_seg.astype(np.long)).to(self.device))
+
+            mc_seg = torch.from_numpy(mc_seg.astype(np.long)).to(self.device)
+            # mask = mc_seg[None] == torch.unique(mc_seg)[:, None, None]
+            # mc_seg = (mask * (torch.arange(len(torch.unique(mc_seg)), device=mc_seg.device)[:, None, None] + 1)).sum(0) - 1
+
+            segmentations.append(mc_seg)
         return torch.stack(segmentations, dim=0)
 
     def get_node_gt(self):

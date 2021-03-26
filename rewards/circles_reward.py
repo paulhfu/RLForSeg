@@ -1,4 +1,5 @@
 import matplotlib
+import sys
 # matplotlib.use('TkAgg')
 from rewards.reward_abc import RewardFunctionAbc
 from skimage.measure import approximate_polygon, find_contours
@@ -43,14 +44,23 @@ class CirclesRewards(RewardFunctionAbc):
                  *args, **kwargs):
         dev = prediction_segmentation.device
         return_scores = []
-        exp_factor = 6
+        exp_factor = 2
 
         for single_pred, single_sp_seg, s_dir_edges, s_actions, s_sp_cmrads in zip(prediction_segmentation,
                                                                                    superpixel_segmentation,
                                                                                    dir_edges, actions, sp_cmrads):
+            # assert single_sp_seg.max() == s_dir_edges.max()
+            # assert s_dir_edges.shape[1] > 60
+            # assert single_sp_seg.max() > 20
             scores = torch.ones(int((single_sp_seg.max()) + 1, ), device=dev) * 0.5
             if single_pred.max() == 0:  # image is empty
-                return_scores.append(scores - 0.5)
+                scores -= 0.5
+                if edge_score:
+                    edges = s_dir_edges[:, :int(s_dir_edges.shape[1] / 2)]
+                    edge_scores = scores[edges].max(dim=0).values
+                    return_scores.append(edge_scores)
+                else:
+                    return_scores.append(scores)
                 continue
             # get one-hot representation
             one_hot = torch.zeros((int(single_pred.max()) + 1,) + single_pred.size(), device=dev, dtype=torch.long) \
@@ -78,6 +88,12 @@ class CirclesRewards(RewardFunctionAbc):
 
                 std = 0
                 for contour in contours:
+                    if len(contour) < 4:
+                        std += 1
+                        continue
+                    if (contour[0] == contour[-1]).sum() != 2:
+                        std += 1
+                        continue
                     poly_chain = torch.from_numpy(approximate_polygon(contour, tolerance=0.0)).to(dev)
                     cm = poly_chain.mean(dim=0).cpu().numpy()
                     dsts = np.linalg.norm(poly_chain.cpu().numpy() - cm, axis=1)
@@ -88,12 +104,14 @@ class CirclesRewards(RewardFunctionAbc):
                     std += (np.std(dsts) * 2)
 
                 score = -((std / len(contours)) - 0.5)
-
+                assert score < 20
                 score = np.exp((score * exp_factor)) / np.exp(np.array([exp_factor]))
                 scores[sp_ids] += score.item()
 
             if torch.isnan(scores).any() or torch.isinf(scores).any():
                 print(Warning("NaN or inf in scores this should not happen"))
+                sys.stdout.flush()
+                assert False
             if edge_score:
                 edges = s_dir_edges[:, :int(s_dir_edges.shape[1] / 2)]
                 edge_scores = scores[edges].max(dim=0).values

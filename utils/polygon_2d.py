@@ -39,7 +39,7 @@ class Polygon2d(object):
         self.angles_bwd = angles[1]
         self.all_tfs = None
         if torch.isnan(self.angles_fwd).any() or torch.isinf(self.angles_fwd).any():
-            a = 1
+            assert False
 
     def get_turning_functions(self, n, res):
         """

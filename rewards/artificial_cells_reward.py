@@ -48,7 +48,13 @@ class ArtificialCellsReward(RewardFunctionAbc):
         for single_pred, single_sp_seg, s_dir_edges in zip(prediction_segmentation, superpixel_segmentation, dir_edges):
             scores = torch.ones(int((single_sp_seg.max()) + 1,), device=dev) * 0.5
             if single_pred.max() == 0:  # image is empty
-                return_scores.append(scores - 0.5)
+                scores -= 0.5
+                if edge_score:
+                    edges = s_dir_edges[:, :int(s_dir_edges.shape[1] / 2)]
+                    edge_scores = scores[edges].max(dim=0).values
+                    return_scores.append(edge_scores)
+                else:
+                    return_scores.append(scores)
                 continue
             # get one-hot representation
             one_hot = torch.zeros((int(single_pred.max()) + 1, ) + single_pred.size(), device=dev, dtype=torch.long) \
