@@ -1,5 +1,6 @@
 import numpy as np
 from skimage.metrics import contingency_table
+from skimage.metrics import variation_of_information, adapted_rand_error
 
 def precision(tp, fp, fn):
     return tp / (tp + fp) if tp > 0 else 0
@@ -108,11 +109,40 @@ class AveragePrecision:
         # return the average
         return np.mean(acc)
 
+class ClusterMetrics:
+    def __init__(self):
+        self.vi_scores = []
+        self.are_score = []
+        self.arp_score = []
+        self.arr_score = []
+
+    def reset(self):
+        self.vi_scores = []
+        self.are_score = []
+        self.arp_score = []
+        self.arr_score = []
+
+    def __call__(self, input_seg, gt_seg):
+        h1, h2 = variation_of_information(input_seg, gt_seg)
+        self.vi_scores.append(h1 + h2)
+        are, arp, arr = adapted_rand_error(gt_seg, input_seg)
+        self.are_score.append(are)
+        self.arp_score.append(arp)
+        self.arr_score.append(arr)
+
+    def dump(self):
+        return np.mean(self.vi_scores), np.mean(self.are_score),\
+               np.mean(self.arp_score), np.mean(self.arr_score)
+
 if __name__ == "__main__":
     metric = AveragePrecision()
+    cluster_metrics = ClusterMetrics()
     y_true = np.zeros((100,100), np.uint16)
     y_true[10:20,10:20] = 1
-    y_pred = np.roll(y_true, 2, axis = 0)
+    y_pred = np.roll(y_true, 10, axis = 0) * 2
     score = metric(y_pred, y_true)
+    cluster_metrics(y_pred, y_true)
+    cl_scores = cluster_metrics.dump()
 
     print(score)
+    print(*cl_scores)

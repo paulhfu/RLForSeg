@@ -27,7 +27,7 @@ from utils.distances import CosineDistance, L2Distance
 from utils.matching import matching
 from utils.yaml_conv_parser import dict_to_attrdict
 from utils.training_helpers import update_env_data, supervised_policy_pretraining, state_to_cpu, Forwarder
-from utils.metrics import AveragePrecision
+from utils.metrics import AveragePrecision, ClusterMetrics
 # from timeit import default_timer as timer
 
 
@@ -105,7 +105,9 @@ class AgentSacTrainer(object):
         train_img_dir = os.path.join(base_dir, "train_gif")
 
         self.dump_number = 0
-        self.valid_metric = AveragePrecision()
+        self.segm_metric = AveragePrecision()
+        self.clst_metric = ClusterMetrics()
+        self.global_counter = 0
 
         if (self.cfg.store_amount == 0):
             return
@@ -145,12 +147,15 @@ class AgentSacTrainer(object):
         if self.cfg.verbose:
             print("\n\n###### start validate ######", end='')
         self.model.eval()
-        n_examples = 2 #len(self.val_dset)
+        n_examples = 3 #len(self.val_dset)
         taus = [0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8, 0.9]
         rl_scores, keys = [], None
+
+        self.clst_metric.reset()
         map_scores = []
+
         ex_raws, ex_sps, ex_gts, ex_mc_gts, ex_embeds, ex_rl = [], [], [], [], [], []
-        dloader = iter(DataLoader(self.val_dset, batch_size=1, shuffle=False, pin_memory=True, num_workers=0))
+        dloader = iter(DataLoader(self.val_dset, batch_size=1, shuffle=True, pin_memory=True, num_workers=0))
         acc_reward = 0
 
         for it in range(n_examples):
@@ -181,17 +186,21 @@ class AgentSacTrainer(object):
             ex_gts.append(gt_seg)
             ex_rl.append(rl_labels)
 
-            _rl_scores = matching(gt_seg, rl_labels, thresh=taus, criterion='iou', report_matches=False)
-            map_scores.append(self.valid_metric(rl_labels, gt_seg))
+            map_scores.append(self.segm_metric(rl_labels, gt_seg))
+            self.clst_metric(rl_labels, gt_seg)
 
+            '''
+            _rl_scores = matching(gt_seg, rl_labels, thresh=taus, criterion='iou', report_matches=False)
             if it == 0:
                 for tau_it in range(len(_rl_scores)):
                     rl_scores.append(np.array(list(map(float, list(_rl_scores[tau_it]._asdict().values())[1:]))))
                 keys = list(_rl_scores[0]._asdict().keys())[1:]
             else:
                 for tau_it in range(len(_rl_scores)):
-                    rl_scores[tau_it] += np.array(list(map(float, list(_rl_scores[tau_it]._asdict().values())[1:])))
+                    rl_scores[tau_it] += np.array(list(map(float, list(_rl_scores[tau_it]._asdict().values())[1:]))
+            '''
 
+        '''
         div = np.ones_like(rl_scores[0])
         for i, key in enumerate(keys):
             if key not in ('fp', 'tp', 'fn'):
@@ -229,9 +238,17 @@ class AgentSacTrainer(object):
 
         #wandb.log({"validation/metrics": [wandb.Image(fig, caption="metrics")]})
         wandb.log({"validation_reward": acc_reward})
-        wandb.log({"validation_map": np.mean(map_scores)})
+        wandb.log({"validation/map": np.mean(map_scores)})
 
         plt.close('all')
+        '''
+
+        vi, are, arp, arr = self.clst_metric.dump()
+        wandb.log({"validation/mAP" : np.mean(map_scores)}, step=self.global_counter)
+        wandb.log({"validation/VI"  : vi}, step=self.global_counter)
+        wandb.log({"validation/ARE" : are}, step=self.global_counter)
+        wandb.log({"validation/ARP" : arp}, step=self.global_counter)
+        wandb.log({"validation/ARR" : arr}, step=self.global_counter)
 
         # do the lr sheduling
         self.optimizers.critic_shed.step(acc_reward)
@@ -250,9 +267,9 @@ class AgentSacTrainer(object):
             axs[0, 0].set_title('gt')
             axs[0, 0].axis('off')
             if ex_raws[i].ndim == 3:
-                axs[0, 1].imshow(ex_raws[i][..., 0])
+                axs[0, 1].imshow(ex_raws[i][..., 0], cmap="gray")
             else:
-                axs[0, 1].imshow(ex_raws[i])
+                axs[0, 1].imshow(ex_raws[i], cmap="gray")
             axs[0, 1].set_title('raw image')
             axs[0, 1].axis('off')
             axs[0, 2].imshow(ex_sps[i], cmap=random_label_cmap(), interpolation="none")
@@ -263,21 +280,22 @@ class AgentSacTrainer(object):
             axs[1, 0].axis('off')
             if ex_raws[i].ndim == 3:
                 if ex_raws[i].shape[-1] > 1:
-                    axs[1, 1].imshow(ex_raws[i][..., 1])
+                    axs[1, 1].imshow(ex_raws[i][..., 1], cmap="gray")
                 else:
-                    axs[1, 1].imshow(ex_raws[i][..., 0])
+                    axs[1, 1].imshow(ex_raws[i][..., 0], cmap="gray")
             else:
-                axs[1, 1].imshow(ex_raws[i])
+                axs[1, 1].imshow(ex_raws[i], cmap="gray")
             axs[1, 1].set_title('sp edge', y=-0.15)
             axs[1, 1].axis('off')
             axs[1, 2].imshow(ex_rl[i], cmap=random_label_cmap(), interpolation="none")
             axs[1, 2].set_title('prediction', y=-0.15)
             axs[1, 2].axis('off')
-            wandb.log({"validation/samples": [wandb.Image(fig, caption="sample images")]})
+            wandb.log({"validation/samples": [wandb.Image(fig, caption="sample images")]},
+                      step=self.global_counter)
             plt.close('all')
 
         '''
-        Dump validation images to directories
+        Dump validation images to directories if needed
         '''
         if (self.cfg.store_amount != 0):
             for index in self.valid_indices:
@@ -359,24 +377,26 @@ class AgentSacTrainer(object):
         critic_loss, mean_reward = self.update_critic(obs, action, reward)
         self.memory.report_sample_loss(critic_loss + mean_reward, sample_idx)
         self.mov_sum_losses.critic.apply(critic_loss)
-        wandb.log({"loss/critic": critic_loss})
+        wandb.log({"loss/critic": critic_loss}, step=self.global_counter)
 
         if self.cfg.actor_update_after < step and step % self.cfg.actor_update_frequency == 0:
             actor_loss, alpha_loss, min_entropy, loc_mean = self.update_actor_and_alpha(obs, reward, action)
             self.mov_sum_losses.actor.apply(actor_loss)
             self.mov_sum_losses.temperature.apply(alpha_loss)
-            wandb.log({"loss/actor": actor_loss})
-            wandb.log({"loss/alpha": alpha_loss})
+            wandb.log({"loss/actor": actor_loss}, step=self.global_counter)
+            wandb.log({"loss/alpha": alpha_loss}, step=self.global_counter)
 
         if step % self.cfg.post_stats_frequency == 0:
             if min_entropy != "nl":
-                wandb.log({"min_entropy": min_entropy})
-            wandb.log({"mov_avg/critic": self.mov_sum_losses.critic.avg})
-            wandb.log({"mov_avg/actor": self.mov_sum_losses.actor.avg})
-            wandb.log({"mov_avg/temperature": self.mov_sum_losses.temperature.avg})
-            wandb.log({"lr/critic": self.optimizers.critic_shed.optimizer.param_groups[0]['lr']})
-            wandb.log({"lr/actor": self.optimizers.actor_shed.optimizer.param_groups[0]['lr']})
-            wandb.log({"lr/temperature": self.optimizers.temp_shed.optimizer.param_groups[0]['lr']})
+                wandb.log({"min_entropy": min_entropy}, step=self.global_counter)
+            wandb.log({"mov_avg/critic": self.mov_sum_losses.critic.avg}, step=self.global_counter)
+            wandb.log({"mov_avg/actor": self.mov_sum_losses.actor.avg}, step=self.global_counter)
+            wandb.log({"mov_avg/temperature": self.mov_sum_losses.temperature.avg}, step=self.global_counter)
+            wandb.log({"lr/critic": self.optimizers.critic_shed.optimizer.param_groups[0]['lr']}, step=self.global_counter)
+            wandb.log({"lr/actor": self.optimizers.actor_shed.optimizer.param_groups[0]['lr']}, step=self.global_counter)
+            wandb.log({"lr/temperature": self.optimizers.temp_shed.optimizer.param_groups[0]['lr']}, step=self.global_counter)
+
+        self.global_counter = self.global_counter + 1
 
         if step % self.cfg.critic_target_update_frequency == 0:
             soft_update_params(self.model.critic, self.model.critic_tgt, self.cfg.critic_tau)

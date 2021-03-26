@@ -56,7 +56,7 @@ class HoneycombReward(RewardFunctionAbc):
             scores = torch.ones(int((single_sp_seg.max()) + 1,), device=dev) * self.default_reward
 
             if single_pred.max() == 0:  # image is empty
-                scores -= 0.5
+                scores -= self.default_reward
                 if edge_score:
                     edges = s_dir_edges[:, :int(s_dir_edges.shape[1] / 2)]
                     edge_scores = scores[edges].max(dim=0).values
