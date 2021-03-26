@@ -14,17 +14,18 @@ if __name__ == '__main__':
     project = "tlo_agent"
     entity = "rl_segmentation"
     config = "conf/tlo_configs.yaml"
+    name = ""
 
     try:
-        opts, args = getopt.getopt(sys.argv[1:], "d:p:e:c:",
-                                   ["dir=", "project=", "entity=", "config="])
+        opts, args = getopt.getopt(sys.argv[1:], "d:p:e:c:n:",
+                                   ["dir=", "project=", "entity=", "config=", "name="])
     except getopt.GetoptError:
-        print('help: run.py -d <base_dir> -p <wandb_project> -e <wandb_entity> -c <config_path>')
+        print('help: run.py -d <base_dir> -p <wandb_project> -e <wandb_entity> -c <config_path> -n <run_name>')
         sys.exit(2)
 
     for opt, arg in opts:
         if opt == '-h':
-            print('help: run.py -d <base_dir> -p <wandb_project> -e <wandb_entity> -c <config>')
+            print('help: run.py -d <base_dir> -p <wandb_project> -e <wandb_entity> -c <config> -n <run_name>')
             sys.exit(0)
         elif opt in ("-d", "--dir"):
             base_dir = arg
@@ -34,9 +35,14 @@ if __name__ == '__main__':
             entity = arg
         elif opt in ("-c", "--config"):
             config = arg
+        elif opt in ("-n", "--name"):
+            name = arg
     # os.nice(15)
     # project name: "RL for Segmentation"
     #print(base_dir, project, entity, config)
     #sys.exit(0)
-    wandb.init(dir=base_dir, project=project, entity=entity, config=config)
+    if (name != ""):
+        wandb.init(dir=base_dir, project=project, entity=entity, config=config, name=name)
+    else:
+        wandb.init(dir=base_dir, project=project, entity=entity, config=config)
     main(wandb.config)
