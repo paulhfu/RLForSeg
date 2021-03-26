@@ -104,6 +104,12 @@ class AgentSacTrainer(object):
         valid_img_dir = os.path.join(base_dir, "valid_gif")
         train_img_dir = os.path.join(base_dir, "train_gif")
 
+        self.dump_number = 0
+        self.valid_metric = AveragePrecision()
+
+        if (self.cfg.store_amount == 0):
+            return
+
         try:
             shutil.rmtree(valid_img_dir)
             shutil.rmtree(train_img_dir)
@@ -133,22 +139,18 @@ class AgentSacTrainer(object):
             os.makedirs(dirname, exist_ok=True)
             self.train_pred_dir[index] = dirname
 
-        self.dump_number = 0
-
-        self.valid_metric = AveragePrecision()
-
     def validate(self):
         """validates the prediction against the method of clustering the embedding space"""
         env = MulticutEmbeddingsEnv(self.fe_ext, self.cfg, self.device)
         if self.cfg.verbose:
             print("\n\n###### start validate ######", end='')
         self.model.eval()
-        n_examples = len(self.val_dset)
+        n_examples = 2 #len(self.val_dset)
         taus = [0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8, 0.9]
         rl_scores, keys = [], None
         map_scores = []
         ex_raws, ex_sps, ex_gts, ex_mc_gts, ex_embeds, ex_rl = [], [], [], [], [], []
-        dloader = iter(DataLoader(self.val_dset, batch_size=1, shuffle=True, pin_memory=True, num_workers=0))
+        dloader = iter(DataLoader(self.val_dset, batch_size=1, shuffle=False, pin_memory=True, num_workers=0))
         acc_reward = 0
 
         for it in range(n_examples):
@@ -277,13 +279,15 @@ class AgentSacTrainer(object):
         '''
         Dump validation images to directories
         '''
-        for index in self.valid_indices:
-            dirname = self.valid_pred_dir[index]
-            img = ex_rl[index]
-            plt.imshow(img, cmap=random_label_cmap(), interpolation="none")
-            plt.axis(False)
-            plt.grid(False)
-            plt.savefig(os.path.join(dirname, str(self.dump_number) + ".jpg"))
+        if (self.cfg.store_amount != 0):
+            for index in self.valid_indices:
+                dirname = self.valid_pred_dir[index]
+                img = ex_rl[index]
+                plt.imshow(img, cmap=random_label_cmap(), interpolation="none")
+                plt.axis(False)
+                plt.grid(False)
+                plt.savefig(os.path.join(dirname, str(self.dump_number) + ".jpg"))
+
         self.dump_number = self.dump_number + 1
 
     def update_critic(self, obs, action, reward):

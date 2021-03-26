@@ -11,7 +11,9 @@ from glob import glob
 from elf.segmentation.multicut import multicut_kernighan_lin
 from elf.segmentation.features import project_node_labels_to_pixels
 from rag_utils import find_dense_subgraphs
+import sys
 
+from rewards.hc_reward import HoneycombReward
 from rewards.artificial_cells_reward import ArtificialCellsReward, ArtificialCellsReward2DEllipticFit
 from rewards.circles_reward import CirclesRewards
 from rewards.leptin_data_reward_2d import LeptinDataReward2DTurning, LeptinDataReward2DEllipticFit, LeptinDataRotatedRectRewards, LeptinDataReward2DTurningWithEllipses
@@ -62,6 +64,20 @@ class MulticutEmbeddingsEnv():
                 self.reward_function = LeptinDataReward2DTurning()
         elif 'colorcircles' in self.cfg.reward_function:
             self.reward_function = CirclesRewards()
+        elif 'honeycomb_template' in self.cfg.reward_function:
+            fnames_pix = sorted(glob(os.path.join(self.cfg.data_dir, 'pix_data/*.h5')))
+            gts = [torch.from_numpy(h5py.File(fnames_pix[42], 'r')['gt'][:]).to(device)]
+            # gts.append(torch.from_numpy(h5py.File(fnames_pix[3], 'r')['gt'][:]).to(device))
+            sample_shapes = []
+            for gt in gts:
+                # set gt to consecutive integer labels
+                _gt = torch.zeros_like(gt).long()
+                for _lbl, lbl in enumerate(torch.unique(gt)):
+                    _gt += (gt == lbl).long() * _lbl
+                gt = _gt
+                sample_shapes.append(torch.zeros((int(gt.max()) + 1,) + gt.size(), device=device).scatter_(0, gt[None], 1)[
+                                     1:])  # 0 should be background
+            self.reward_function = HoneycombReward(torch.cat(sample_shapes)[5:6,...])
         else:
             assert False
 
@@ -79,6 +95,7 @@ class MulticutEmbeddingsEnv():
             edge_reward = self.reward_function(self.current_soln.long(), self.init_sp_seg.long(),
                                                dir_edges=self.dir_edge_ids, edge_score=True, res=50,
                                                sp_cmrads=self.sp_rads, actions=split_actions)
+
             for i, sz in enumerate(self.cfg.s_subgraph):
                 # reward.append((sp_reward[self.edge_ids][:, self.subgraph_indices[i].view(-1, sz)].sum(0) / 2).mean(1))
                 # assert self.subgraph_indices[i].max() == self.edge_ids.shape[1] - 1
