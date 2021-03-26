@@ -147,7 +147,7 @@ class AgentSacTrainer(object):
         if self.cfg.verbose:
             print("\n\n###### start validate ######", end='')
         self.model.eval()
-        n_examples = len(self.val_dset)
+        n_examples = 2#len(self.val_dset)
         taus = [0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8, 0.9]
         rl_scores, keys = [], None
 
@@ -270,32 +270,28 @@ class AgentSacTrainer(object):
             frame_act, scores_act, _ = get_colored_edges_in_sseg(ex_sps[i][None].float(), edge_ids[i].cpu(), 1 - actions[i].cpu().squeeze())
 
             bnd_mask = torch.from_numpy(dilation(bnd_mask.cpu().numpy()))
-
-            ex_rl[i] = ex_rl[i].squeeze().astype(np.float)
-            ex_rl[i][bnd_mask] = np.nan
-
             frame_rew = np.stack([dilation(frame_rew.cpu().numpy()[..., i]) for i in range(3)], -1)
             frame_act = np.stack([dilation(frame_act.cpu().numpy()[..., i]) for i in range(3)], -1)
 
-            fig, axs = plt.subplots(2, 4, sharex='col', figsize=(30, 10), sharey='row', gridspec_kw={'hspace': 0, 'wspace': 0})
+            fig, axs = plt.subplots(2, 4, sharex='col', figsize=(20, 10), sharey='row', gridspec_kw={'hspace': 0, 'wspace': 0})
             axs[0, 0].imshow(ex_gts[i], cmap=random_label_cmap(), interpolation="none")
-            axs[0, 0].set_title('gt', y=0.15)
+            axs[0, 0].set_title('gt', y=0.015)
             axs[0, 0].axis('off')
-            if ex_raws[i].ndim == 3:
+            if ex_raws[i].ndim == 2:
                 axs[0, 1].imshow(ex_raws[i][..., 0], cmap="gray")
             else:
-                axs[0, 1].imshow(ex_raws[i], cmap="gray")
-            axs[0, 1].set_title('raw image', y=0.35)
+                axs[0, 1].imshow(ex_raws[i][..., :3], cmap="gray")
+            axs[0, 1].set_title('raw image', y=0.15)
             axs[0, 1].axis('off')
             axs[0, 2].imshow(ex_sps[i], cmap=random_label_cmap(), interpolation="none")
-            axs[0, 2].set_title('superpixels', y=0.45)
+            axs[0, 2].set_title('superpixels', y=0.05)
             axs[0, 2].axis('off')
             axs[1, 0].imshow(ex_embeds[i])
             axs[1, 0].set_title('pc proj 1-3', y=-0.2)
             axs[1, 0].axis('off')
             if ex_raws[i].ndim == 3:
                 if ex_raws[i].shape[-1] > 1:
-                    axs[1, 1].imshow(ex_raws[i][..., 1], cmap="gray")
+                    axs[1, 1].imshow(ex_raws[i][..., -1], cmap="gray")
                 else:
                     axs[1, 1].imshow(ex_raws[i][..., 0], cmap="gray")
             else:
@@ -305,6 +301,9 @@ class AgentSacTrainer(object):
             axs[1, 2].imshow(ex_rl[i], cmap=random_label_cmap(), interpolation="none")
             axs[1, 2].set_title('prediction', y=-0.2)
             axs[1, 2].axis('off')
+
+            ex_rl[i] = ex_rl[i].squeeze().astype(np.float)
+            ex_rl[i][bnd_mask] = np.nan
 
             axs[1, 3].imshow(frame_rew, interpolation="none")
             axs[1, 3].imshow(ex_rl[i], cmap=label_cm, alpha=0.8, interpolation="none")
