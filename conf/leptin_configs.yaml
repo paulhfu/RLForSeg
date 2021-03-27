@@ -94,7 +94,7 @@ validatoin_freq:
   value: 100
 store_amount:
   desc: validate after n steps
-  value: 0
+  value: 2
 n_updates_per_step:
   desc: perform n optim steps per env step
   value: 10

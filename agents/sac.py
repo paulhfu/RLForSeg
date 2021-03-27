@@ -109,9 +109,6 @@ class AgentSacTrainer(object):
         self.clst_metric = ClusterMetrics()
         self.global_counter = 0
 
-        if (self.cfg.store_amount == 0):
-            return
-
         val_dset_numbers = np.array(list(range(len(self.val_dset))))
         train_dset_numbers = np.array(list(range(len(self.train_dset))))
         np.random.shuffle(val_dset_numbers)
@@ -125,7 +122,7 @@ class AgentSacTrainer(object):
         if self.cfg.verbose:
             print("\n\n###### start validate ######", end='')
         self.model.eval()
-        n_examples = 2#len(self.val_dset)
+        n_examples = len(self.val_dset)
         taus = [0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8, 0.9]
         rl_scores, keys = [], None
 
@@ -268,7 +265,7 @@ class AgentSacTrainer(object):
             axs[0, 1].set_title('raw image', y=1.05, size=10)
             axs[0, 1].axis('off')
             axs[0, 2].imshow(ex_sps[i], cmap=random_label_cmap(), interpolation="none")
-            axs[0, 2].set_title('superpixels', y=0.05, size=10)
+            axs[0, 2].set_title('superpixels', y=1.05, size=10)
             axs[0, 2].axis('off')
 
             axs[1, 0].imshow(ex_embeds[i])
