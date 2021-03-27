@@ -112,34 +112,12 @@ class AgentSacTrainer(object):
         if (self.cfg.store_amount == 0):
             return
 
-        try:
-            shutil.rmtree(valid_img_dir)
-            shutil.rmtree(train_img_dir)
-        except:
-            pass
-
-        os.makedirs(valid_img_dir, exist_ok=True)
-        os.makedirs(train_img_dir, exist_ok=True)
-
-        self.valid_pred_dir = {}
-        self.train_pred_dir = {}
-
         val_dset_numbers = np.array(list(range(len(self.val_dset))))
         train_dset_numbers = np.array(list(range(len(self.train_dset))))
         np.random.shuffle(val_dset_numbers)
         np.random.shuffle(train_dset_numbers)
         self.valid_indices = val_dset_numbers[:self.cfg.store_amount]
         self.train_indices = train_dset_numbers[:self.cfg.store_amount]
-
-        for index in self.valid_indices:
-            dirname = os.path.join(valid_img_dir, "img" + str(index))
-            os.makedirs(dirname, exist_ok=True)
-            self.valid_pred_dir[index] = dirname
-
-        for index in self.train_indices:
-            dirname = os.path.join(train_img_dir, "img" + str(index))
-            os.makedirs(dirname, exist_ok=True)
-            self.train_pred_dir[index] = dirname
 
     def validate(self):
         """validates the prediction against the method of clustering the embedding space"""
@@ -154,7 +132,7 @@ class AgentSacTrainer(object):
         self.clst_metric.reset()
         map_scores = []
         ex_raws, ex_sps, ex_gts, ex_mc_gts, ex_embeds, ex_rl, edge_ids, rewards, actions = [], [], [], [], [], [], [], [], []
-        dloader = iter(DataLoader(self.val_dset, batch_size=1, shuffle=True, pin_memory=True, num_workers=0))
+        dloader = iter(DataLoader(self.val_dset, batch_size=1, shuffle=False, pin_memory=True, num_workers=0))
         acc_reward = 0
 
         for it in range(n_examples):
@@ -239,13 +217,12 @@ class AgentSacTrainer(object):
         axs[1].set_xlabel(r'IoU threshold $\tau$')
 
         #wandb.log({"validation/metrics": [wandb.Image(fig, caption="metrics")]})
-        wandb.log({"validation_reward": acc_reward})
-        wandb.log({"validation/map": np.mean(map_scores)})
 
         plt.close('all')
         '''
 
         vi, are, arp, arr = self.clst_metric.dump()
+        wandb.log({"validation/acc_reward": acc_reward})
         wandb.log({"validation/mAP" : np.mean(map_scores)}, step=self.global_counter)
         wandb.log({"validation/VI"  : vi}, step=self.global_counter)
         wandb.log({"validation/ARE" : are}, step=self.global_counter)
@@ -265,7 +242,9 @@ class AgentSacTrainer(object):
 
         label_cm = random_label_cmap(zeroth=1.0)
         label_cm.set_bad(alpha=0)
-        for i in range(n_examples):
+
+        for i in self.valid_indices:
+
             frame_rew, scores_rew, bnd_mask = get_colored_edges_in_sseg(ex_sps[i][None].float(), edge_ids[i].cpu(), rewards[i].cpu())
             frame_act, scores_act, _ = get_colored_edges_in_sseg(ex_sps[i][None].float(), edge_ids[i].cpu(), 1 - actions[i].cpu().squeeze())
 
@@ -273,21 +252,27 @@ class AgentSacTrainer(object):
             frame_rew = np.stack([dilation(frame_rew.cpu().numpy()[..., i]) for i in range(3)], -1)
             frame_act = np.stack([dilation(frame_act.cpu().numpy()[..., i]) for i in range(3)], -1)
 
-            fig, axs = plt.subplots(2, 4, sharex='col', figsize=(20, 10), sharey='row', gridspec_kw={'hspace': 0, 'wspace': 0})
+            fig, axs = plt.subplots(2, 4, sharex='col', figsize=(9, 5),
+                                    sharey='row', gridspec_kw={'hspace': 0, 'wspace': 0})
             axs[0, 0].imshow(ex_gts[i], cmap=random_label_cmap(), interpolation="none")
-            axs[0, 0].set_title('gt', y=0.015)
+            axs[0, 0].set_title('gt', y=1.05, size=10)
             axs[0, 0].axis('off')
-            if ex_raws[i].ndim == 2:
-                axs[0, 1].imshow(ex_raws[i][..., 0], cmap="gray")
+            if ex_raws[i].ndim == 3:
+                if ex_raws[i].shape[-1] > 2:
+                    axs[0, 1].imshow(ex_raws[i][..., :3], cmap="gray")
+                else:
+                    axs[0, 1].imshow(ex_raws[i][..., 0], cmap="gray")
             else:
-                axs[0, 1].imshow(ex_raws[i][..., :3], cmap="gray")
-            axs[0, 1].set_title('raw image', y=0.15)
+                axs[1, 1].imshow(ex_raws[i], cmap="gray")
+
+            axs[0, 1].set_title('raw image', y=1.05, size=10)
             axs[0, 1].axis('off')
             axs[0, 2].imshow(ex_sps[i], cmap=random_label_cmap(), interpolation="none")
-            axs[0, 2].set_title('superpixels', y=0.05)
+            axs[0, 2].set_title('superpixels', y=0.05, size=10)
             axs[0, 2].axis('off')
+
             axs[1, 0].imshow(ex_embeds[i])
-            axs[1, 0].set_title('pc proj 1-3', y=-0.2)
+            axs[1, 0].set_title('pc proj 1-3', y=-0.15, size=10)
             axs[1, 0].axis('off')
             if ex_raws[i].ndim == 3:
                 if ex_raws[i].shape[-1] > 1:
@@ -296,10 +281,10 @@ class AgentSacTrainer(object):
                     axs[1, 1].imshow(ex_raws[i][..., 0], cmap="gray")
             else:
                 axs[1, 1].imshow(ex_raws[i], cmap="gray")
-            axs[1, 1].set_title('sp edge', y=-0.2)
+            axs[1, 1].set_title('sp edge', y=-0.15, size=10)
             axs[1, 1].axis('off')
             axs[1, 2].imshow(ex_rl[i], cmap=random_label_cmap(), interpolation="none")
-            axs[1, 2].set_title('prediction', y=-0.2)
+            axs[1, 2].set_title('prediction', y=-0.15, size=10)
             axs[1, 2].axis('off')
 
             ex_rl[i] = ex_rl[i].squeeze().astype(np.float)
@@ -312,26 +297,17 @@ class AgentSacTrainer(object):
 
             axs[0, 3].imshow(frame_act, interpolation="none")
             axs[0, 3].imshow(ex_rl[i], cmap=label_cm, alpha=0.8, interpolation="none")
-            axs[0, 3].set_title("actions 0:g, 1:r", y=0.25)
+            axs[0, 3].set_title("actions 0:g, 1:r", y=1.05, size=10)
             axs[0, 3].axis('off')
 
-            wandb.log({"validation/samples": [wandb.Image(fig, caption="sample images")]},
+            axs[1, 3].imshow(frame_rew, interpolation="none")
+            axs[1, 3].imshow(ex_rl[i], cmap=label_cm, alpha=0.8, interpolation="none")
+            axs[1, 3].set_title("rewards 1:g, 0:r", y=-0.15, size=10)
+            axs[1, 3].axis('off')
+
+            wandb.log({"validation/sample_" + str(i): [wandb.Image(fig, caption="sample images")]},
                       step=self.global_counter)
             plt.close('all')
-
-        '''
-        Dump validation images to directories if needed
-        '''
-        if (self.cfg.store_amount != 0):
-            for index in self.valid_indices:
-                dirname = self.valid_pred_dir[index]
-                img = ex_rl[index]
-                plt.imshow(img, cmap=random_label_cmap(), interpolation="none")
-                plt.axis(False)
-                plt.grid(False)
-                plt.savefig(os.path.join(dirname, str(self.dump_number) + ".jpg"))
-
-        self.dump_number = self.dump_number + 1
 
     def update_critic(self, obs, action, reward):
         self.optimizers.critic.zero_grad()
