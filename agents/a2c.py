@@ -33,10 +33,10 @@ from utils.metrics import AveragePrecision, ClusterMetrics
 
 
 
-class AgentSacTrainer(object):
+class AgentA2CTrainer(object):
 
     def __init__(self, cfg, global_count):
-        super(AgentSacTrainer, self).__init__()
+        super(AgentA2CTrainer, self).__init__()
         assert torch.cuda.device_count() == 1
         self.device = torch.device("cuda:0")
         torch.cuda.set_device(self.device)
@@ -55,18 +55,17 @@ class AgentSacTrainer(object):
         self.fe_ext.embed_model.load_state_dict(torch.load(self.cfg.fe_model_name))
         self.fe_ext.cuda(self.device)
 
-        self.model = Agent(self.cfg, State, self.distance, self.device)
+        self.model = Agent(self.cfg, State, self.distance, self.device, with_temp=False)
         wandb.watch(self.model)
         self.model.cuda(self.device)
         self.model_mtx = Lock()
 
-        MovSumLosses = namedtuple('mov_avg_losses', ('actor', 'critic', 'temperature'))
+        MovSumLosses = namedtuple('mov_avg_losses', ('actor', 'critic'))
         Scalers = namedtuple('Scalers', ('critic', 'actor'))
         OptimizerContainer = namedtuple('OptimizerContainer',
-                                        ('actor', 'critic', 'temperature', 'actor_shed', 'critic_shed', 'temp_shed'))
+                                        ('actor', 'critic', 'actor_shed', 'critic_shed'))
         actor_optimizer = torch.optim.Adam(self.model.actor.parameters(), lr=self.cfg.actor_lr)
         critic_optimizer = torch.optim.Adam(self.model.critic.parameters(), lr=self.cfg.critic_lr)
-        temp_optimizer = torch.optim.Adam([self.model.log_alpha], lr=self.cfg.alpha_lr)
 
         lr_sched_cfg = dict_to_attrdict(self.cfg.lr_sched)
         bw = lr_sched_cfg.mov_avg_bandwidth
@@ -76,13 +75,12 @@ class AgentSacTrainer(object):
         shed = lr_sched_cfg.torch_sched
 
         self.mov_sum_losses = MovSumLosses(RunningAverage(weights, band_width=bw, offset=off),
-                                           RunningAverage(weights, band_width=bw, offset=off),
                                            RunningAverage(weights, band_width=bw, offset=off))
-        self.optimizers = OptimizerContainer(actor_optimizer, critic_optimizer, temp_optimizer,
+        self.optimizers = OptimizerContainer(actor_optimizer, critic_optimizer,
                                              *[ReduceLROnPlateau(opt, patience=shed.patience,
                                                                  threshold=shed.threshold, min_lr=shed.min_lr,
                                                                  factor=shed.factor) for opt in
-                                               (actor_optimizer, critic_optimizer, temp_optimizer)])
+                                               (actor_optimizer, critic_optimizer)])
         self.scalers = Scalers(torch.cuda.amp.GradScaler(), torch.cuda.amp.GradScaler())
         self.forwarder = Forwarder()
 
@@ -325,48 +323,45 @@ class AgentSacTrainer(object):
 
         return critic_loss.item(), mean_reward / len(self.cfg.s_subgraph)
 
-    def update_actor_and_alpha(self, obs, reward, expl_action):
+    def update_actor(self, obs, reward, expl_action):
         self.optimizers.actor.zero_grad()
-        self.optimizers.temperature.zero_grad()
         with torch.cuda.amp.autocast(enabled=True):
             expl_action = None
-            distribution, actor_Q, action, side_loss = self.forwarder.forward(self.model, obs, State, self.device, expl_action=expl_action, policy_opt=True)
+            distribution, actor_Q, action, side_loss = self.forwarder.forward(self.model, obs, State, self.device,
+                                                                              expl_action=expl_action, policy_opt=True)
 
             log_prob = distribution.log_prob(action)
             actor_loss = torch.tensor([0.0], device=actor_Q[0].device)
-            alpha_loss = torch.tensor([0.0], device=actor_Q[0].device)
+            entropy_loss = torch.tensor([0.0], device=actor_Q[0].device)
             _log_prob, sg_entropy = [], []
             for i, sz in enumerate(self.cfg.s_subgraph):
                 ret = get_joint_sg_logprobs_edges(log_prob, distribution.scale, obs, i, sz)
                 _log_prob.append(ret[0])
                 sg_entropy.append(ret[1])
-
-                loss = (self.model.alpha[i].detach() * _log_prob[i] - actor_Q[i]).mean()
-                actor_loss = actor_loss + loss
+                # actor_loss = actor_loss + -(_log_prob[i] * actor_Q[i]).mean()
+                actor_loss = actor_loss - actor_Q[i].mean()
 
             actor_loss = actor_loss / len(self.cfg.s_subgraph) + self.cfg.side_loss_weight * side_loss
 
-            min_entropy = (self.cfg.entropy_range[1] - self.cfg.entropy_range[0]) * ((1.5 - reward[-1]) / 1.5) + \
-                          self.cfg.entropy_range[0]
-            min_entropy = torch.ones_like(min_entropy)
+            min_entropy = (self.cfg.entropy_range[1] - self.cfg.entropy_range[0]) * (1 - reward[-1]) + self.cfg.entropy_range[0]
 
             for i, sz in enumerate(self.cfg.s_subgraph):
-                min_entropy = min_entropy.to(self.model.alpha[i].device).squeeze()
-                entropy = sg_entropy[i].detach() if self.cfg.use_closed_form_entropy else -_log_prob[i].detach()
-                alpha_loss = alpha_loss + (self.model.alpha[i] * (entropy - (self.cfg.s_subgraph[i] * min_entropy))).mean()
+                min_entropy = min_entropy.to(_log_prob[i].device).squeeze()
+                entropy = sg_entropy[i] if self.cfg.use_closed_form_entropy else -_log_prob[i]
+                entropy_loss = entropy_loss + ((entropy - (self.cfg.s_subgraph[i] * min_entropy))**2).mean()
 
-            alpha_loss = alpha_loss / len(self.cfg.s_subgraph)
+            entropy_loss = entropy_loss / len(self.cfg.s_subgraph)
+
+            actor_loss = actor_loss + 0.001 * entropy_loss
 
         self.scalers.actor.scale(actor_loss).backward()
-        self.scalers.actor.scale(alpha_loss).backward()
         self.scalers.actor.step(self.optimizers.actor)
-        self.scalers.actor.step(self.optimizers.temperature)
         self.scalers.actor.update()
 
-        return actor_loss.item(), alpha_loss.item(), min_entropy, distribution.loc.mean().item()
+        return actor_loss.item(), min_entropy, distribution.loc.mean().item()
 
     def _step(self, step):
-        actor_loss, alpha_loss, min_entropy, loc_mean = None, None, None, None
+        actor_loss, min_entropy, loc_mean = None, None, None
 
         (obs, action, reward), sample_idx = self.memory.sample()
 
@@ -376,34 +371,30 @@ class AgentSacTrainer(object):
         wandb.log({"loss/critic": critic_loss}, step=self.global_counter)
 
         if self.cfg.actor_update_after < step and step % self.cfg.actor_update_frequency == 0:
-            actor_loss, alpha_loss, min_entropy, loc_mean = self.update_actor_and_alpha(obs, reward, action)
+            actor_loss, min_entropy, loc_mean = self.update_actor(obs, reward, action)
             self.mov_sum_losses.actor.apply(actor_loss)
-            self.mov_sum_losses.temperature.apply(alpha_loss)
             wandb.log({"loss/actor": actor_loss}, step=self.global_counter)
-            wandb.log({"loss/alpha": alpha_loss}, step=self.global_counter)
 
         if step % self.cfg.post_stats_frequency == 0:
             if min_entropy != "nl":
                 wandb.log({"min_entropy": min_entropy}, step=self.global_counter)
             wandb.log({"mov_avg/critic": self.mov_sum_losses.critic.avg}, step=self.global_counter)
             wandb.log({"mov_avg/actor": self.mov_sum_losses.actor.avg}, step=self.global_counter)
-            wandb.log({"mov_avg/temperature": self.mov_sum_losses.temperature.avg}, step=self.global_counter)
             wandb.log({"lr/critic": self.optimizers.critic_shed.optimizer.param_groups[0]['lr']}, step=self.global_counter)
             wandb.log({"lr/actor": self.optimizers.actor_shed.optimizer.param_groups[0]['lr']}, step=self.global_counter)
-            wandb.log({"lr/temperature": self.optimizers.temp_shed.optimizer.param_groups[0]['lr']}, step=self.global_counter)
 
         self.global_counter = self.global_counter + 1
 
         if step % self.cfg.critic_target_update_frequency == 0:
             soft_update_params(self.model.critic, self.model.critic_tgt, self.cfg.critic_tau)
 
-        return critic_loss, actor_loss, alpha_loss, loc_mean
+        return critic_loss, actor_loss, loc_mean
 
     def train_until_finished(self):
         while self.global_count.value() <= self.cfg.T_max + self.cfg.mem_size:
             self.model_mtx.acquire()
             try:
-                stats = [[], [], [], []]
+                stats = [[], [], []]
                 for i in range(self.cfg.n_updates_per_step):
                     _stats = self._step(self.global_count.value())
                     [s.append(_s) for s, _s in zip(stats, _stats)]
@@ -415,7 +406,7 @@ class AgentSacTrainer(object):
 
                 if self.cfg.verbose:
                     print(f"step: {self.global_count.value()}; mean_loc: {stats[-1]}; n_explorer_steps {self.memory.push_count}", end="")
-                    print(f"; cl: {stats[0]}; acl: {stats[1]}; al: {stats[3]}")
+                    print(f"; cl: {stats[0]}; acl: {stats[1]}")
             finally:
                 self.model_mtx.release()
                 self.global_count.increment()

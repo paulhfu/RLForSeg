@@ -7,7 +7,7 @@ from utils.distances import CosineDistance
 from utils.sigmoid_normal import SigmNorm
 
 class Agent(torch.nn.Module):
-    def __init__(self, cfg, StateClass, distance, device):
+    def __init__(self, cfg, StateClass, distance, device, with_temp=True):
         super(Agent, self).__init__()
         self.cfg = cfg
         self.std_bounds = self.cfg.std_bounds
@@ -22,7 +22,8 @@ class Agent(torch.nn.Module):
         self.critic_tgt = QValueNet(self.cfg.s_subgraph, dim_embed, 1, 1, cfg.gnn_n_hl, cfg.gnn_size_hl, distance, device, False, cfg.gnn_crit_depth, cfg.gnn_crit_norm_inp)
 
         self.log_alpha = torch.tensor([np.log(self.cfg.init_temperature)] * len(self.cfg.s_subgraph)).to(device)
-        self.log_alpha.requires_grad = True
+        if with_temp:
+            self.log_alpha.requires_grad = True
 
     @property
     def alpha(self):

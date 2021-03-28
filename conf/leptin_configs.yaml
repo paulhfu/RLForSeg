@@ -103,7 +103,7 @@ n_explorers:
   value: 1
 batch_size:
   desc: num samples in minibatch
-  value: 6
+  value: 3
 
 # conf for lr scheduling
 lr_sched:
@@ -128,7 +128,7 @@ gt_edge_overlap_thresh:
   value: 0.5
 s_subgraph:
   desc: subgraph sizes
-  value: [4, 8, 16, 64] # [8, 16, 32, 64]
+  value: [6, 8, 16, 32] # [8, 16, 32, 64]
 entropy_range:
   desc: range of the min entropy constraint
   value: [0.05, 2.0]

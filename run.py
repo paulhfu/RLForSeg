@@ -8,6 +8,7 @@ from utils.general import Counter
 from agents.sac import AgentSacTrainer
 from agents.sa_obj_lvl_rew import AgentSaTrainerObjLvlReward
 from agents.sac_obj_lvl_rew import AgentSacTrainerObjLvlReward
+from agents.a2c import AgentA2CTrainer
 import multiprocessing as mp
 
 def main(cfg):
@@ -21,6 +22,8 @@ def main(cfg):
             trainer = AgentSacTrainerObjLvlReward(cfg, global_count)
     elif cfg.agent == "sa":
         trainer = AgentSaTrainerObjLvlReward(cfg, global_count)
+    elif cfg.agent == "a2c":
+        trainer = AgentA2CTrainer(cfg, global_count)
     else:
         assert False, "agent not known, check config"
     seed = torch.randint(0, 2 ** 32, torch.Size([1])).item()

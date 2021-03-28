@@ -1,7 +1,7 @@
 # general configs
 agent:
   desc: method used for the agent
-  value: sac
+  value: a2c
 verbose:
   desc: prints intermediate results to sdt.out
   value: true
@@ -103,7 +103,7 @@ n_explorers:
   value: 1
 batch_size:
   desc: num samples in minibatch
-  value: 1
+  value: 10
 
 # conf for lr scheduling
 lr_sched:

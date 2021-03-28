@@ -268,7 +268,7 @@ class LeptinDataRotatedRectRewards(RewardFunctionAbc):
                 s3 = .1
                 w1 = 0.2
                 w2 = 0.3
-                w3 = 0.2
+                w3 = 0.3
                 n = math.sqrt((single_sp_seg.shape[0] / 2) ** 2 + (single_sp_seg.shape[1] / 2) ** 2)
                 edges = s_dir_edges[:, :int(s_dir_edges.shape[1] / 2)]
                 edge_scores = scores[edges].max(dim=0).values
