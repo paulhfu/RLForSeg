@@ -144,9 +144,10 @@ class AgentSacTrainer(object):
                 self.model_mtx.release()
             action = torch.sigmoid(distr.loc)
             reward = env.execute_action(action, tau=0.0, train=False)
-            acc_reward += reward[-2].item()
+            rew = reward[-1].item() if self.cfg.reward_function == "sub_graph_dice" else reward[-2].item()
+            acc_reward += rew
             if self.cfg.verbose:
-                print(f"\nstep: {it}; mean_loc: {round(distr.loc.mean().item(), 5)}; mean reward: {round(reward[-2].item(), 5)}", end='')
+                print(f"\nstep: {it}; mean_loc: {round(distr.loc.mean().item(), 5)}; mean reward: {round(rew, 5)}", end='')
 
             embeddings = env.embeddings[0].cpu().numpy()
             gt_seg = env.gt_seg[0].cpu().numpy()
@@ -242,15 +243,9 @@ class AgentSacTrainer(object):
 
         for i in self.valid_indices:
 
-            frame_rew, scores_rew, bnd_mask = get_colored_edges_in_sseg(ex_sps[i][None].float(), edge_ids[i].cpu(), rewards[i].cpu())
-            frame_act, scores_act, _ = get_colored_edges_in_sseg(ex_sps[i][None].float(), edge_ids[i].cpu(), 1 - actions[i].cpu().squeeze())
 
-            bnd_mask = torch.from_numpy(dilation(bnd_mask.cpu().numpy()))
-            frame_rew = np.stack([dilation(frame_rew.cpu().numpy()[..., i]) for i in range(3)], -1)
-            frame_act = np.stack([dilation(frame_act.cpu().numpy()[..., i]) for i in range(3)], -1)
-
-            fig, axs = plt.subplots(2, 4, sharex='col', figsize=(9, 5),
-                                    sharey='row', gridspec_kw={'hspace': 0, 'wspace': 0})
+            fig, axs = plt.subplots(2, 3 if self.cfg.reward_function == "sub_graph_dice" else 4 , sharex='col',
+                                    figsize=(9, 5), sharey='row', gridspec_kw={'hspace': 0, 'wspace': 0})
             axs[0, 0].imshow(ex_gts[i], cmap=random_label_cmap(), interpolation="none")
             axs[0, 0].set_title('gt', y=1.05, size=10)
             axs[0, 0].axis('off')
@@ -284,23 +279,25 @@ class AgentSacTrainer(object):
             axs[1, 2].set_title('prediction', y=-0.15, size=10)
             axs[1, 2].axis('off')
 
-            ex_rl[i] = ex_rl[i].squeeze().astype(np.float)
-            ex_rl[i][bnd_mask] = np.nan
+            if self.cfg.reward_function != "sub_graph_dice":
+                frame_rew, scores_rew, bnd_mask = get_colored_edges_in_sseg(ex_sps[i][None].float(), edge_ids[i].cpu(), rewards[i].cpu())
+                frame_act, scores_act, _ = get_colored_edges_in_sseg(ex_sps[i][None].float(), edge_ids[i].cpu(), 1 - actions[i].cpu().squeeze())
 
-            axs[1, 3].imshow(frame_rew, interpolation="none")
-            axs[1, 3].imshow(ex_rl[i], cmap=label_cm, alpha=0.8, interpolation="none")
-            axs[1, 3].set_title("rewards 1:g, 0:r", y=-0.2)
-            axs[1, 3].axis('off')
+                bnd_mask = torch.from_numpy(dilation(bnd_mask.cpu().numpy()))
+                frame_rew = np.stack([dilation(frame_rew.cpu().numpy()[..., i]) for i in range(3)], -1)
+                frame_act = np.stack([dilation(frame_act.cpu().numpy()[..., i]) for i in range(3)], -1)
+                ex_rl[i] = ex_rl[i].squeeze().astype(np.float)
+                ex_rl[i][bnd_mask] = np.nan
 
-            axs[0, 3].imshow(frame_act, interpolation="none")
-            axs[0, 3].imshow(ex_rl[i], cmap=label_cm, alpha=0.8, interpolation="none")
-            axs[0, 3].set_title("actions 0:g, 1:r", y=1.05, size=10)
-            axs[0, 3].axis('off')
+                axs[1, 3].imshow(frame_rew, interpolation="none")
+                axs[1, 3].imshow(ex_rl[i], cmap=label_cm, alpha=0.8, interpolation="none")
+                axs[1, 3].set_title("rewards 1:g, 0:r", y=-0.2)
+                axs[1, 3].axis('off')
 
-            axs[1, 3].imshow(frame_rew, interpolation="none")
-            axs[1, 3].imshow(ex_rl[i], cmap=label_cm, alpha=0.8, interpolation="none")
-            axs[1, 3].set_title("rewards 1:g, 0:r", y=-0.15, size=10)
-            axs[1, 3].axis('off')
+                axs[0, 3].imshow(frame_act, interpolation="none")
+                axs[0, 3].imshow(ex_rl[i], cmap=label_cm, alpha=0.8, interpolation="none")
+                axs[0, 3].set_title("actions 0:g, 1:r", y=1.05, size=10)
+                axs[0, 3].axis('off')
 
             wandb.log({"validation/sample_" + str(i): [wandb.Image(fig, caption="sample images")]},
                       step=self.global_counter)

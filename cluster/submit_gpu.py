@@ -26,7 +26,9 @@ def write_slurm_template_std(script, out_path, env_name,
                       "\n"
                       "module purge \n"
                       "module load GCC \n"
+                      "source activate \n"
                       "source activate %s\n"
+                      "which python \n"
                       "\n"
                       "export TRAIN_ON_CLUSTER=1\n"  # we set this env variable, so that the script knows we're on slurm
                       "python %s $@ \n") % (n_threads, mem_limit, time_limit,
@@ -118,7 +120,7 @@ def write_slurm_template_sweep_std(script, out_path, env_name,
 
 #V100 2080Ti 3090 A100
 def submit_slurm(script, input_, n_threads=2, n_gpus=1,
-                 gpu_type='3090', mem_limit='64G',
+                 gpu_type='2080Ti', mem_limit='64G',
                  time_limit=4*DAYS, qos='normal',
                  base_dir='/g/kreshuk/hilt/projects/RLForSeg', is_sweep=False):
     """ Submit python script that needs gpus with given inputs on a slurm node.
@@ -129,6 +131,7 @@ def submit_slurm(script, input_, n_threads=2, n_gpus=1,
     assert len(env_lib) == 1
     env_lib = env_lib[0]
     pythonexec = os.path.join("/", *os.path.normpath(env_lib).split(os.sep)[:-3], "bin/python")
+    print(f"exec is :  {pythonexec}")
 
     lib_replacement_script = "./cluster/replace_torch.py"
     tmp_folder = os.path.join(base_dir, 'slurm_logs')
@@ -148,7 +151,7 @@ def submit_slurm(script, input_, n_threads=2, n_gpus=1,
     if env_name is None:
         raise RuntimeError("Could not find conda")
 
-    print(env_name)
+    print(f"found conda env: {env_name}")
     print("Batch script saved at", batch_script)
     print("Log will be written to %s, error log to %s" % (log, err))
     if not is_sweep:

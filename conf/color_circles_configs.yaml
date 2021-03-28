@@ -91,7 +91,7 @@ post_stats_frequency:
   value: 10
 validatoin_freq:
   desc: validate after n steps
-  value: 1
+  value: 100
 store_amount:
   desc: validate after n steps
   value: 2
@@ -103,7 +103,7 @@ n_explorers:
   value: 1
 batch_size:
   desc: num samples in minibatch
-  value: 2
+  value: 1
 
 # conf for lr scheduling
 lr_sched:
@@ -121,8 +121,8 @@ lr_sched:
 
 # specific configs for the sac algorithm
 reward_function:
-  desc: one of sub_graph_dice, leptin_dataTurningFunc, leptin_dataEllipticFit, leptin_dataTurningWithEllipses
-  value: colorcircles
+  desc: one of sub_graph_dice, colorcircles
+  value: sub_graph_dice
 gt_edge_overlap_thresh:
   desc: if using gt edges this is the overlap thresh of the underlying gt for a gt edge to be 1
   value: 0.5

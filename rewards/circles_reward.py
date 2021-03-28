@@ -66,18 +66,25 @@ class CirclesRewards(RewardFunctionAbc):
             one_hot = torch.zeros((int(single_pred.max()) + 1,) + single_pred.size(), device=dev, dtype=torch.long) \
                 .scatter_(0, single_pred[None], 1)
 
-            # need masses to determine what objects can be considered background
+            # need masses to determine what potential_objects can be considered background
             label_masses = one_hot.flatten(1).sum(-1)
-            # everything else are potential objects
-            potenial_obj_mask = torch.ones_like(label_masses)
+            # everything else are potential potential_objects
+            bg_obj_mask = label_masses > 1400
+            potenial_obj_mask = label_masses <= 1400
+            false_obj_mask = label_masses < 200
+            bg_object_ids = torch.nonzero(bg_obj_mask).squeeze(1)  # object label IDs
             potential_object_ids = torch.nonzero(potenial_obj_mask).squeeze(1)  # object label IDs
+            false_object_ids = torch.nonzero(false_obj_mask).squeeze(1)  # object label IDs
 
-            objects = one_hot[potential_object_ids]  # get object masks
-            object_sp_ids = [torch.unique((single_sp_seg[None] + 1) * obj)[1:] - 1 for obj in objects]
+            potential_objects = one_hot[potential_object_ids]  # get object masks
+            bg_sp_ids = torch.unique((single_sp_seg[None] + 1) * one_hot[bg_object_ids])[1:] - 1
+            object_sp_ids = [torch.unique((single_sp_seg[None] + 1) * obj)[1:] - 1 for obj in potential_objects]
+            false_sp_ids = torch.unique((single_sp_seg[None] + 1) * one_hot[false_obj_mask])[1:] - 1
 
-            # get shape descriptors for objects and get a shape_score by comparing to self.descriptors
-
-            for object, obj_id, sp_ids in zip(objects, potential_object_ids, object_sp_ids):
+            # get shape descriptors for potential_objects and get a shape_score by comparing to self.descriptors
+            scores[false_sp_ids] -= 0.5
+            good_obj_cnt = 0
+            for object, obj_id, sp_ids in zip(potential_objects, potential_object_ids, object_sp_ids):
                 try:
                     contours = find_contours(object.cpu().numpy(), level=0)
                     if len(contours) == 0:
@@ -86,28 +93,28 @@ class CirclesRewards(RewardFunctionAbc):
                     scores[sp_ids] -= 0.5
                     continue
 
-                std = 0
-                for contour in contours:
-                    if len(contour) < 4:
-                        std += 1
-                        continue
-                    if (contour[0] == contour[-1]).sum() != 2:
-                        std += 1
-                        continue
-                    poly_chain = torch.from_numpy(approximate_polygon(contour, tolerance=0.0)).to(dev)
-                    cm = poly_chain.mean(dim=0).cpu().numpy()
-                    dsts = np.linalg.norm(poly_chain.cpu().numpy() - cm, axis=1)
-                    dsts -= dsts.min()
-                    max = dsts.max()
-                    if max > 1:
-                        dsts /= max
-                    std += (np.std(dsts) * 2)
+                if len(contours) > 1:
+                    scores[sp_ids] -= 0.5
+                    continue
+                contour = contours[0]
+                if (contour[0] == contour[-1]).sum() != 2:
+                    continue
+                poly_chain = torch.from_numpy(approximate_polygon(contour, tolerance=0.0)).to(dev)
+                cm = poly_chain.mean(dim=0).cpu().numpy()
+                dsts = np.linalg.norm(poly_chain.cpu().numpy() - cm, axis=1)
+                dsts -= dsts.min()
+                max = dsts.max()
+                if max > 1:
+                    dsts /= max
+                std = (np.std(dsts) * 2)
 
-                score = -((std / len(contours)) - 0.5)
-                assert score < 20
+                score = 0.5 - std
+                if score > 0.5:
+                    good_obj_cnt += 1
                 score = np.exp((score * exp_factor)) / np.exp(np.array([exp_factor]))
                 scores[sp_ids] += score.item()
 
+            scores[bg_sp_ids] += (good_obj_cnt / 20) / 2
             if torch.isnan(scores).any() or torch.isinf(scores).any():
                 print(Warning("NaN or inf in scores this should not happen"))
                 sys.stdout.flush()
@@ -121,3 +128,119 @@ class CirclesRewards(RewardFunctionAbc):
 
         return_scores = torch.cat(return_scores)
         return return_scores
+
+if __name__ == "__main__":
+    import h5py
+    import numpy as np
+    import matplotlib.pyplot as plt
+    from matplotlib import cm
+    from utils.general import multicut_from_probas, calculate_gt_edge_costs
+    from glob import glob
+    import os
+
+
+    label_cm = random_label_cmap(zeroth=1.0)
+    label_cm.set_bad(alpha=0)
+    edge_cmap = cm.get_cmap(name="cool")
+    edge_cmap.set_bad(alpha=0)
+    dev = "cuda:0"
+    # get a few images and extract some gt objects used ase shape descriptors that we want to compare against
+    dir = "/g/kreshuk/hilt/projects/data/color_circles/train"
+    fnames_pix = sorted(glob(os.path.join(dir, 'pix_data/*.h5')))
+    fnames_graph = sorted(glob(os.path.join(dir, 'graph_data/*.h5')))
+
+    for i in range(1):
+        g_file = h5py.File(fnames_graph[i], 'r')
+        pix_file = h5py.File(fnames_pix[i], 'r')
+        superpixel_seg = g_file['node_labeling'][:]
+        gt_seg = pix_file['gt'][:]
+        superpixel_seg = torch.from_numpy(superpixel_seg.astype(np.int64)).to(dev)
+        gt_seg = torch.from_numpy(gt_seg.astype(np.int64)).to(dev)
+
+        probas = g_file['edge_feat'][:, 0]  # take initial edge features as weights
+
+        # make sure probas are probas and get a sample prediction
+        probas -= probas.min()
+        probas /= (probas.max() + 1e-6)
+        pred_seg = multicut_from_probas(superpixel_seg.cpu().numpy(), g_file['edges'][:].T, probas)
+        pred_seg = torch.from_numpy(pred_seg.astype(np.int64)).to(dev)
+
+        # relabel to consecutive integers:
+        mask = gt_seg[None] == torch.unique(gt_seg)[:, None, None]
+        gt_seg = (mask * (torch.arange(len(torch.unique(gt_seg)), device=dev)[:, None, None] + 1)).sum(0) - 1
+        mask = superpixel_seg[None] == torch.unique(superpixel_seg)[:, None, None]
+        superpixel_seg = (mask * (torch.arange(len(torch.unique(superpixel_seg)), device=dev)[:, None, None] + 1)).sum(
+            0) - 1
+        mask = pred_seg[None] == torch.unique(pred_seg)[:, None, None]
+        pred_seg = (mask * (torch.arange(len(torch.unique(pred_seg)), device=dev)[:, None, None] + 1)).sum(0) - 1
+        # assert the segmentations are consecutive integers
+        assert pred_seg.max() == len(torch.unique(pred_seg)) - 1
+        assert superpixel_seg.max() == len(torch.unique(superpixel_seg)) - 1
+
+        edges = torch.from_numpy(compute_rag(superpixel_seg.cpu().numpy()).uvIds().astype(np.long)).T.to(dev)
+        dir_edges = torch.stack((torch.cat((edges[0], edges[1])), torch.cat((edges[1], edges[0]))))
+
+        gt_edges = calculate_gt_edge_costs(edges.T, superpixel_seg.squeeze(), gt_seg.squeeze(), thresh=0.5)
+
+        mc_seg_old = None
+        for itr in range(100):
+            actions = gt_edges + torch.randn_like(gt_edges) * (itr / 100)
+            actions = torch.randn_like(gt_edges)
+            actions -= actions.min()
+            actions /= actions.max()
+
+            mc_seg = multicut_from_probas(superpixel_seg.cpu().numpy(), edges.T.cpu().numpy(), actions)
+            mc_seg = torch.from_numpy(mc_seg.astype(np.int64)).to(dev)
+
+            # relabel to consecutive integers:
+            mask = mc_seg[None] == torch.unique(mc_seg)[:, None, None]
+            mc_seg = (mask * (torch.arange(len(torch.unique(mc_seg)), device=dev)[:, None, None] + 1)).sum(0) - 1
+            # add batch dimension
+            pred_seg = pred_seg[None]
+            gt_seg = gt_seg[None]
+            mc_seg = mc_seg[None]
+
+            f = CirclesRewards()
+            # f.get_gaussians(.3, 0.16, .1, 0.2, 0.3, .2)
+            # plt.imshow(pix_file['raw'][:]);plt.show()
+            # rewards2 = f(gt_seg.long(), superpixel_seg.long(), dir_edges=[dir_edges], res=100)
+            edge_angles, sp_feat, sp_rads = get_angles_smass_in_rag(edges, superpixel_seg.long())
+            edge_rewards = f(mc_seg.long(), superpixel_seg[None].long(), dir_edges=[dir_edges], res=50, edge_score=True,
+                             sp_cmrads=[sp_rads], actions=[actions])
+
+            fig, ax = plt.subplots(2, 2)
+            frame_rew, scores_rew, bnd_mask = get_colored_edges_in_sseg(superpixel_seg[None].float(), edges, edge_rewards)
+            frame_act, scores_act, _ = get_colored_edges_in_sseg(superpixel_seg[None].float(), edges, 1 - actions.squeeze())
+
+            bnd_mask = torch.from_numpy(dilation(bnd_mask.cpu().numpy()))
+
+
+            # frame_rew = np.stack([dilation(frame_rew.cpu().numpy()[..., i]) for i in range(3)], -1)
+            # frame_act = np.stack([dilation(frame_act.cpu().numpy()[..., i]) for i in range(3)], -1)
+            # scores_rew = np.stack([dilation(scores_rew.cpu().numpy()[..., i]) for i in range(3)], -1)
+            # scores_act = np.stack([dilation(scores_act.cpu().numpy()[..., i]) for i in range(3)], -1)
+
+            ax[1, 0].imshow(mc_seg.cpu().squeeze(), cmap=label_cm, interpolation="none")
+            ax[1, 0].set_title("mc_seg")
+            ax[1, 0].axis('off')
+            ax[1, 1].imshow(superpixel_seg.cpu().squeeze(), cmap=label_cm, interpolation="none")
+            ax[1, 1].set_title("sp_seg")
+            ax[1, 1].axis('off')
+
+            mc_seg = mc_seg.squeeze().float()
+            mc_seg[bnd_mask] = np.nan
+            ax[0, 0].imshow(frame_rew.cpu().numpy(), interpolation="none")
+            ax[0, 0].imshow(mc_seg.cpu(), cmap=label_cm, alpha=0.8, interpolation="none")
+            ax[0, 0].set_title("rewards 1:g, 0:r")
+            ax[0, 0].axis('off')
+            ax[0, 1].imshow(frame_act.cpu().numpy(), interpolation="none")
+            ax[0, 1].imshow(mc_seg.cpu(), cmap=label_cm, alpha=0.8, interpolation="none")
+            ax[0, 1].set_title("actions 0:g, 1:r")
+            ax[0, 1].axis('off')
+
+
+            # plt.savefig("/g/kreshuk/hilt/projects/RLForSeg/data/test.png", bbox_inches='tight')
+            plt.show()
+
+        # rewards1 = f(pred_seg.long(), superpixel_seg.long(), dir_edges=[dir_edges], res=100)
+    a = 1

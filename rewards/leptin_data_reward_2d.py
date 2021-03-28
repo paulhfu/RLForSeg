@@ -83,7 +83,7 @@ class LeptinDataRotatedRectRewards(RewardFunctionAbc):
                  *args, **kwargs):
         dev = prediction_segmentation.device
         return_scores = []
-        exp_factor = 2
+        exp_factor = 4
 
         for single_pred, single_sp_seg, s_dir_edges, s_actions, s_sp_cmrads in zip(prediction_segmentation,
                                                                                    superpixel_segmentation,
@@ -263,12 +263,11 @@ class LeptinDataRotatedRectRewards(RewardFunctionAbc):
             if torch.isnan(scores).any() or torch.isinf(scores).any():
                 print(Warning("NaN or inf in scores this should not happen"))
             if edge_score:
-                .5, 0.16, .1, 1, 0.4, .2
-                s1 = 0.5
+                s1 = 0.3
                 s2 = 0.16
                 s3 = .1
-                w1 = 1.
-                w2 = 0.4
+                w1 = 0.2
+                w2 = 0.3
                 w3 = 0.2
                 n = math.sqrt((single_sp_seg.shape[0] / 2) ** 2 + (single_sp_seg.shape[1] / 2) ** 2)
                 edges = s_dir_edges[:, :int(s_dir_edges.shape[1] / 2)]
@@ -356,9 +355,10 @@ class LeptinDataRotatedRectRewards(RewardFunctionAbc):
         zz = bg_prob2 + bg_prob1 + fg_prob
         print(f"z(210):{zz[375, self.circle_center[1] - 210]}  z(260):{zz[375, self.circle_center[1] - 260]}  fgn(210): {fg_prob[375,self.circle_center[1] -  210]}  fgn(260): {fg_prob[375, self.circle_center[1] - 260]}  bgn1(260): {bg_prob1[375, self.circle_center[1] - 260]}  bgn2(210): {bg_prob2[375, self.circle_center[1] - 210]}")
 
-        # fig = plt.figure(0)
-        # ax = Axes3D(fig)
-        # ax.plot_surface(xx, yy, zz, rstride=1, cstride=1, cmap=cm.magma, linewidth=0, antialiased=False)
+        fig = plt.figure(0)
+        ax = Axes3D(fig)
+        ax.plot_surface(xx, yy, zz, rstride=1, cstride=1, cmap=cm.magma, linewidth=0, antialiased=False)
+        plt.show()
         plt.plot(zz[375])
         plt.show()
         # fig = plt.figure(0)
@@ -1072,7 +1072,7 @@ if __name__ == "__main__":
             mc_seg = mc_seg[None]
 
             f = LeptinDataRotatedRectRewards()
-            # f.get_gaussians(.5, 0.16, .1, 1, 0.4, .2)
+            # f.get_gaussians(.3, 0.16, .1, 0.2, 0.3, .2)
             # plt.imshow(pix_file['raw'][:]);plt.show()
             # rewards2 = f(gt_seg.long(), superpixel_seg.long(), dir_edges=[dir_edges], res=100)
             edge_angles, sp_feat, sp_rads = get_angles_smass_in_rag(edges, superpixel_seg.long())
