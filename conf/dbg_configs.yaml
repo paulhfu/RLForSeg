@@ -92,9 +92,9 @@ post_stats_frequency:
 validatoin_freq:
   desc: validate after n steps
   value: 5
-store_amount:
+store_indices:
   desc: validate after n steps
-  value: 0
+  value: []
 n_updates_per_step:
   desc: perform n optim steps per env step
   value: 10

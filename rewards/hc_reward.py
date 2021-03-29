@@ -30,7 +30,7 @@ class HoneycombReward(RewardFunctionAbc):
 
         self.samples = []
         self.false_obj_min = 15
-        self.false_obj_max = 70**2
+        self.false_obj_max = 50**2
         self.valid_metric = AveragePrecision()
 
         shape_sample = shape_samples[0]
@@ -39,7 +39,7 @@ class HoneycombReward(RewardFunctionAbc):
         crop = shape_sample[b_box[0].start - 1:b_box[0].stop + 1,
                             b_box[1].start - 1:b_box[1].stop + 1]
         self.samples.append(crop)
-        self.default_reward = 0.1
+        self.default_reward = 0.5
 
     def __call__(self, pred_segm, sp_segm, res, dir_edges,
                  edge_score, *args, **kwargs):
@@ -129,9 +129,10 @@ class HoneycombReward(RewardFunctionAbc):
                     pred_padded = np.roll(pred_padded, (roll_y, roll_x))
 
                     score = self.valid_metric(pred_padded, gt_padded)
-                    scores[sp_ids] = score
+                    scores[sp_ids] += score
                 else:
-                    scores[sp_ids] = 0
+                    pass
+                    #scores[sp_ids] = 0
 
                 #fig, (ax1, ax2) = plt.subplots(1, 2, figsize=(14, 7))
                 #ax1.imshow(gt_padded, interpolation='none')

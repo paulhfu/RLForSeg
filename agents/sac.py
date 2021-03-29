@@ -95,26 +95,9 @@ class AgentSacTrainer(object):
         self.train_dset = SpgDset(self.cfg.data_dir, dict_to_attrdict(self.cfg.patch_manager), dict_to_attrdict(self.cfg.data_keys), max(self.cfg.s_subgraph))
         self.val_dset = SpgDset(self.cfg.val_data_dir, dict_to_attrdict(self.cfg.patch_manager), dict_to_attrdict(self.cfg.data_keys), max(self.cfg.s_subgraph))
 
-        '''
-            Prepare storages for validation and training sets
-        '''
-
-        run_dir = wandb.run.dir
-        base_dir = os.path.join(run_dir, self.cfg.run_id)
-        valid_img_dir = os.path.join(base_dir, "valid_gif")
-        train_img_dir = os.path.join(base_dir, "train_gif")
-
-        self.dump_number = 0
         self.segm_metric = AveragePrecision()
         self.clst_metric = ClusterMetrics()
         self.global_counter = 0
-
-        val_dset_numbers = np.array(list(range(len(self.val_dset))))
-        train_dset_numbers = np.array(list(range(len(self.train_dset))))
-        np.random.shuffle(val_dset_numbers)
-        np.random.shuffle(train_dset_numbers)
-        self.valid_indices = val_dset_numbers[:self.cfg.store_amount]
-        self.train_indices = train_dset_numbers[:self.cfg.store_amount]
 
     def validate(self):
         """validates the prediction against the method of clustering the embedding space"""
@@ -123,8 +106,8 @@ class AgentSacTrainer(object):
             print("\n\n###### start validate ######", end='')
         self.model.eval()
         n_examples = len(self.val_dset)
-        taus = [0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8, 0.9]
-        rl_scores, keys = [], None
+        #taus = [0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8, 0.9]
+        #rl_scores, keys = [], None
 
         self.clst_metric.reset()
         map_scores = []
@@ -241,9 +224,7 @@ class AgentSacTrainer(object):
         label_cm = random_label_cmap(zeroth=1.0)
         label_cm.set_bad(alpha=0)
 
-        for i in self.valid_indices:
-
-
+        for i in self.cfg.store_indices:
             fig, axs = plt.subplots(2, 3 if self.cfg.reward_function == "sub_graph_dice" else 4 , sharex='col',
                                     figsize=(9, 5), sharey='row', gridspec_kw={'hspace': 0, 'wspace': 0})
             axs[0, 0].imshow(ex_gts[i], cmap=random_label_cmap(), interpolation="none")
