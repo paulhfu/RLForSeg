@@ -77,6 +77,7 @@ class LeptinDataRotatedRectRewards(RewardFunctionAbc):
         self.fg_shape_descriptors = self.celltype_1_ds + self.celltype_2_ds + self.celltype_3_ds
         self.circle_center = np.array([390, 340])
         self.circle_rads = [210, 260, 100, 340]
+        self.exact_circle_rads = [345, 353, 603, 611]
         self.side_lens = [28, 125]
 
     def __call__(self, prediction_segmentation, superpixel_segmentation, dir_edges, edge_score, sp_cmrads, actions,
@@ -169,14 +170,12 @@ class LeptinDataRotatedRectRewards(RewardFunctionAbc):
 
                 shape_score = 0
                 diffs, diffl = abs(self.side_lens[0] - short_side), abs(self.side_lens[1] - long_side)
-                if diffs < (self.side_lens[0] / 6):
+                if diffs < (self.side_lens[0] / 4):
                     shape_score += 0.5
-                elif diffs < (self.side_lens[0] / 3):
-                    shape_score += 0.3
                 elif diffs < (self.side_lens[0] / 2):
-                    shape_score += 0.2
+                    shape_score += 0.3
                 elif diffs < self.side_lens[0]:
-                    shape_score += 0.1
+                    shape_score += 0.2
 
                 if diffl < (self.side_lens[1] / 6):
                     shape_score += 0.5
@@ -199,8 +198,6 @@ class LeptinDataRotatedRectRewards(RewardFunctionAbc):
             # penalize size variation
             diff1 = (label_masses[bg1_id] - self.masses[0]).abs()
             diff2 = (label_masses[bg2_id] - self.masses[1]).abs()
-            cm1 = torch.nonzero(bg1).float().mean(0)
-            cm2 = torch.nonzero(bg2).float().mean(0)
             if diff1 > (self.masses[0] / 4):
                 scores[bg1_sp_ids] = 0.0
             else:
@@ -210,20 +207,53 @@ class LeptinDataRotatedRectRewards(RewardFunctionAbc):
                     #     raise Exception()
                     contour = contour[np.array([len(cnt) for cnt in contour]).argmax()]
                     poly_chain = torch.from_numpy(approximate_polygon(contour, tolerance=0.0)).to(dev)
+                    dsts = ((poly_chain.cpu() - self.circle_center)**2).sum(1).sqrt()
                     cm = poly_chain.mean(0)
-                    if (cm.cpu() - self.circle_center).abs().sum() > 100:
+                    if (cm.cpu() - self.circle_center).abs().sum() > 150:
+                        scores[bg1_sp_ids] = 0.0
+                    elif poly_chain.shape[0] <= 3:
+                        scores[bg1_sp_ids] = 0.0
+                    elif ((dsts < self.circle_rads[1]).sum() / len(contour)) > 0.5:
                         scores[bg1_sp_ids] = 0.0
                     else:
-                        if poly_chain.shape[0] <= 3:
-                            raise Exception()
-                        polygon = Polygon2d(poly_chain)
-                        shape_dist_scores = torch.tensor([des.distance(polygon, 200) for des in self.outer_cntr_ds],
-                                                         device=dev)
-                        # shape_score = (torch.sigmoid((((1 - shape_dist_scores.min()) * 6.5).exp() / torch.tensor([6.5], device=dev).exp()) * 6 - 3) * 1.2597) - 0.2
-                        bg1_shape_score = torch.tensor([1 - shape_dist_scores.min()], device=dev)
-                        bg1_shape_score = (bg1_shape_score * exp_factor).exp() / (
-                                    torch.ones_like(bg1_shape_score) * exp_factor).exp()
+                        bg1_shape_score = 0
+                        principal_ax = fitEllipse(contour.astype(np.int))[1]
+                        diff1 = abs(max(principal_ax) - self.exact_circle_rads[3])
+                        diff2 = abs(min(principal_ax) - self.exact_circle_rads[2])
+
+                        if diff2 < 15:
+                            bg1_shape_score += 0.5
+                        elif diff2 < 20:
+                            bg1_shape_score += 0.4
+                        elif diff2 < 30:
+                            bg1_shape_score += 0.3
+                        elif diff2 < 40:
+                            bg1_shape_score += 0.2
+                        elif diff2 < 50:
+                            bg1_shape_score += 0.1
+
+                        if diff1 < 15:
+                            bg1_shape_score += 0.5
+                        elif diff1 < 20:
+                            bg1_shape_score += 0.4
+                        elif diff1 < 30:
+                            bg1_shape_score += 0.3
+                        elif diff1 < 40:
+                            bg1_shape_score += 0.2
+                        elif diff1 < 50:
+                            bg1_shape_score += 0.1
+
                         scores[bg1_sp_ids] = bg1_shape_score
+
+                        scores[bg1_sp_ids][s_sp_cmrads[bg1_sp_ids] < self.circle_rads[1]] = 0
+
+                        # polygon = Polygon2d(poly_chain)
+                        # shape_dist_scores = torch.tensor([des.distance(polygon, 200) for des in self.outer_cntr_ds], device=dev)
+                        # # shape_score = (torch.sigmoid((((1 - shape_dist_scores.min()) * 6.5).exp() / torch.tensor([6.5], device=dev).exp()) * 6 - 3) * 1.2597) - 0.2
+                        # bg1_shape_score = torch.tensor([1 - shape_dist_scores.min()], device=dev)
+
+                        # bg1_shape_score = (bg1_shape_score * exp_factor).exp() / (
+                        #             torch.ones_like(bg1_shape_score) * exp_factor).exp()
 
                         rads = np.linalg.norm(poly_chain.cpu().numpy() - self.circle_center[np.newaxis], axis=1)
                         dists = abs(rads.mean() - rads)
@@ -239,20 +269,54 @@ class LeptinDataRotatedRectRewards(RewardFunctionAbc):
                     #     raise Exception
                     contour = contour[np.array([len(cnt) for cnt in contour]).argmax()]
                     poly_chain = torch.from_numpy(approximate_polygon(contour, tolerance=0.0)).to(dev)
+                    dsts = ((poly_chain.cpu() - self.circle_center) ** 2).sum(1).sqrt()
                     cm = poly_chain.mean(0)
-                    if (cm.cpu() - self.circle_center).abs().sum() > 100:
+                    if (cm.cpu() - self.circle_center).abs().sum() > 150:
+                        scores[bg2_sp_ids] = 0.0
+                    elif poly_chain.shape[0] <= 3:
+                        scores[bg2_sp_ids] = 0.0
+                    elif ((dsts > self.circle_rads[0]).sum() / len(contour)) > 0.5:
                         scores[bg1_sp_ids] = 0.0
                     else:
-                        if poly_chain.shape[0] <= 3:
-                            raise Exception()
-                        polygon = Polygon2d(poly_chain)
-                        shape_dist_scores = torch.tensor([des.distance(polygon, 200) for des in self.inner_cntr_ds],
-                                                         device=dev)
-                        # shape_score = (torch.sigmoid((((1 - shape_dist_scores.min()) * 6.5).exp() / torch.tensor([6.5], device=dev).exp()) * 6 - 3) * 1.2597) - 0.2
-                        bg2_shape_score = torch.tensor([1 - shape_dist_scores.min()], device=dev)
-                        bg2_shape_score = (bg2_shape_score * exp_factor).exp() / (
-                                    torch.ones_like(bg2_shape_score) * exp_factor).exp()
+
+                        bg2_shape_score = 0
+                        principal_ax = fitEllipse(contour.astype(np.int))[1]
+                        diff1 = abs(max(principal_ax) - self.exact_circle_rads[1])
+                        diff2 = abs(min(principal_ax) - self.exact_circle_rads[0])
+
+                        if diff2 < 15:
+                            bg2_shape_score += 0.5
+                        elif diff2 < 20:
+                            bg2_shape_score += 0.4
+                        elif diff2 < 30:
+                            bg2_shape_score += 0.3
+                        elif diff2 < 40:
+                            bg2_shape_score += 0.2
+                        elif diff2 < 50:
+                            bg2_shape_score += 0.1
+
+                        if diff1 < 15:
+                            bg2_shape_score += 0.5
+                        elif diff1 < 20:
+                            bg2_shape_score += 0.4
+                        elif diff1 < 30:
+                            bg2_shape_score += 0.3
+                        elif diff1 < 40:
+                            bg2_shape_score += 0.2
+                        elif diff1 < 50:
+                            bg2_shape_score += 0.1
+
                         scores[bg2_sp_ids] = bg2_shape_score
+
+                        scores[bg2_sp_ids][s_sp_cmrads[bg2_sp_ids] > self.circle_rads[0]] = 0
+
+                        # polygon = Polygon2d(poly_chain)
+                        # shape_dist_scores = torch.tensor([des.distance(polygon, 200) for des in self.inner_cntr_ds],
+                        #                                  device=dev)
+                        # # shape_score = (torch.sigmoid((((1 - shape_dist_scores.min()) * 6.5).exp() / torch.tensor([6.5], device=dev).exp()) * 6 - 3) * 1.2597) - 0.2
+                        # bg2_shape_score = torch.tensor([1 - shape_dist_scores.min()], device=dev)
+                        # bg2_shape_score = (bg2_shape_score * exp_factor).exp() / (
+                        #             torch.ones_like(bg2_shape_score) * exp_factor).exp()
 
                         rads = np.linalg.norm(poly_chain.cpu().numpy() - self.circle_center[np.newaxis], axis=1)
                         dists = abs(rads.mean() - rads)
@@ -264,7 +328,7 @@ class LeptinDataRotatedRectRewards(RewardFunctionAbc):
             if torch.isnan(scores).any() or torch.isinf(scores).any():
                 print(Warning("NaN or inf in scores this should not happen"))
             if edge_score:
-                s1 = .05
+                s1 = .1
                 s2 = .16
                 s3 = .4
                 w1 = .2
