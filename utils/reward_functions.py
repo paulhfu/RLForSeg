@@ -73,7 +73,7 @@ class ObjectLevelReward(object):
 
     def get(self, diff=None, actions=None, res_seg=None):
         res_seg += 1
-        gt = self.env.gt_seg + 1
+        gt = self.env.noisy_gt_seg + 1
         edge_ids = self.env.edge_ids[:, :self.env.edge_ids.shape[1]//2]
         reward = torch.zeros(edge_ids.shape[1])
         for obj in torch.unique(res_seg):

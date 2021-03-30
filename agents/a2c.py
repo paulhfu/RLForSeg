@@ -268,6 +268,7 @@ class AgentA2CTrainer(object):
                 ex_rl[i] = ex_rl[i].squeeze().astype(np.float)
                 ex_rl[i][bnd_mask] = np.nan
 
+
                 axs[1, 3].imshow(frame_rew, interpolation="none")
                 axs[1, 3].imshow(ex_rl[i], cmap=label_cm, alpha=0.8, interpolation="none")
                 axs[1, 3].set_title("rewards 1:g, 0:r", y=-0.2)
@@ -319,8 +320,8 @@ class AgentA2CTrainer(object):
                 ret = get_joint_sg_logprobs_edges(log_prob, distribution.scale, obs, i, sz)
                 _log_prob.append(ret[0])
                 sg_entropy.append(ret[1])
-                # actor_loss = actor_loss + -(_log_prob[i] * actor_Q[i]).mean()
-                actor_loss = actor_loss - actor_Q[i].mean()
+                actor_loss = actor_loss + (-(_log_prob[i] * actor_Q[i]).mean())
+                # actor_loss = actor_loss - actor_Q[i].mean()
 
             actor_loss = actor_loss / len(self.cfg.s_subgraph) + self.cfg.side_loss_weight * side_loss
 

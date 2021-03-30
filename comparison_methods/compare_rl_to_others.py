@@ -51,7 +51,7 @@ def validate_and_compare_to_clustering(model, env, dset, device, cfg):
         embeddings = env.embeddings[0].cpu().numpy()
         node_features = env.current_node_embeddings.cpu().numpy()
         rag = env.rags[0]
-        gt_seg = env.gt_seg[0].cpu().numpy()
+        gt_seg = env.noisy_gt_seg[0].cpu().numpy()
         gt_mc = cm.prism(
             env.gt_soln[0].cpu() / env.gt_soln[0].max().item()) if env.gt_edge_weights is not None else torch.zeros(
             env.raw.shape[-2:])

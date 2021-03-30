@@ -113,7 +113,7 @@ class LeptinDataRotatedRectRewards(RewardFunctionAbc):
             label_masses[bg1_id] = bg1_mass
             bg2_mask[bg2_id] = True
             # get the objects that are torching the patch boarder as for them we cannot compute a relieable sim shape_score
-            false_obj_mask = label_masses < 4
+            false_obj_mask = (label_masses < (self.masses[2] / 3)) | (label_masses > (self.masses[2] * 3))
             false_obj_mask[bg1_id] = False
             false_obj_mask[bg2_id] = False
             # everything else are potential objects
@@ -126,19 +126,13 @@ class LeptinDataRotatedRectRewards(RewardFunctionAbc):
             bg2 = one_hot[bg2_id]  # get background masks
             objects = one_hot[potential_object_ids]  # get object masks
             false_obj_sp_ids = torch.unique((single_sp_seg[None] + 1) * one_hot[false_obj_mask])[1:] - 1
-            bg1_sp_ids = torch.unique((single_sp_seg[None] + 1) * bg1)[
-                         1:] - 1  # mask out the covered superpixels (need to add 1 because the single_sp_seg start from 0)
-            bg2_sp_ids = torch.unique((single_sp_seg[None] + 1) * bg2)[
-                         1:] - 1  # mask out the covered superpixels (need to add 1 because the single_sp_seg start from 0)
+            bg1_sp_ids = torch.unique((single_sp_seg[None] + 1) * bg1)[1:] - 1
+            bg2_sp_ids = torch.unique((single_sp_seg[None] + 1) * bg2)[1:] - 1
             object_sp_ids = [torch.unique((single_sp_seg[None] + 1) * obj)[1:] - 1 for obj in objects]
 
             # get shape descriptors for objects and get a shape_score by comparing to self.descriptors
 
             for object, obj_id, sp_ids in zip(objects, potential_object_ids, object_sp_ids):
-                diff = label_masses[obj_id] - self.masses[2]
-                if diff > 0 and label_masses[obj_id] > self.masses[2] * 2 or diff < 0 and label_masses[obj_id] < \
-                        self.masses[2] / 2:
-                    continue
                 try:
                     contour = find_contours(object.cpu().numpy(), level=0)
                     if len(contour) > 1:
@@ -150,16 +144,11 @@ class LeptinDataRotatedRectRewards(RewardFunctionAbc):
                     continue
 
                 poly_chain = torch.from_numpy(approximate_polygon(contour, tolerance=0.0)).to(dev)
-                cm = poly_chain.mean(dim=0).cpu().numpy()
-                position_score = math.sqrt((cm[0] - self.circle_center[0]) ** 2 + (cm[1] - self.circle_center[1]) ** 2)
-                dt1 = self.circle_rads[0] - position_score
-                dt2 = self.circle_rads[1] - position_score
-                dist_normalizer = math.sqrt(object.shape[-1] ** 2 + object.shape[-2] ** 2)
-                if dt2 < 0:
-                    position_score = 1 - dt2 / dist_normalizer  # norm to (0, 0.5)
-                elif dt1 > 0:
-                    position_score = 1 - dt1 / dist_normalizer
-                else:
+                cm = poly_chain.mean(dim=0).cpu()
+                position = ((cm - self.circle_center) ** 2).sum().sqrt()
+                dt = abs(self.circle_rads[0] - position)
+                position_score = 0
+                if dt < 100:
                     position_score = 1
 
                 rect = cv2.minAreaRect(contour.astype(np.int))
@@ -200,15 +189,20 @@ class LeptinDataRotatedRectRewards(RewardFunctionAbc):
 
                 score = torch.tensor([0.1 * position_score + 0.8 * shape_score + 0.2 * orientation_score], device=dev)
                 score = (score * exp_factor).exp() / (torch.ones_like(score) * exp_factor).exp()
-                scores[sp_ids] += score
+
+                if shape_score < 0.2 or orientation_score < 0.3:
+                    scores[sp_ids] = 0
+                else:
+                    scores[sp_ids] = score.item()
 
             bg1_shape_score, bg2_shape_score = 0, 0
             # penalize size variation
-            diff1 = label_masses[bg1_id] - self.masses[0]
-            diff2 = label_masses[bg2_id] - self.masses[1]
-            if diff1 > 0 and label_masses[bg1_id] > self.masses[0] * 3 or diff1 < 0 and label_masses[bg1_id] < \
-                    self.masses[0] / 3:
-                pass
+            diff1 = (label_masses[bg1_id] - self.masses[0]).abs()
+            diff2 = (label_masses[bg2_id] - self.masses[1]).abs()
+            cm1 = torch.nonzero(bg1).float().mean(0)
+            cm2 = torch.nonzero(bg2).float().mean(0)
+            if diff1 > (self.masses[0] / 4):
+                scores[bg1_sp_ids] = 0.0
             else:
                 try:
                     contour = find_contours(bg1.cpu().numpy(), level=0)
@@ -216,25 +210,28 @@ class LeptinDataRotatedRectRewards(RewardFunctionAbc):
                     #     raise Exception()
                     contour = contour[np.array([len(cnt) for cnt in contour]).argmax()]
                     poly_chain = torch.from_numpy(approximate_polygon(contour, tolerance=0.0)).to(dev)
-                    if poly_chain.shape[0] <= 3:
-                        raise Exception()
-                    polygon = Polygon2d(poly_chain)
-                    shape_dist_scores = torch.tensor([des.distance(polygon, 200) for des in self.outer_cntr_ds],
-                                                     device=dev)
-                    # shape_score = (torch.sigmoid((((1 - shape_dist_scores.min()) * 6.5).exp() / torch.tensor([6.5], device=dev).exp()) * 6 - 3) * 1.2597) - 0.2
-                    bg1_shape_score = torch.tensor([1 - shape_dist_scores.min()], device=dev)
-                    bg1_shape_score = (bg1_shape_score * exp_factor).exp() / (
-                                torch.ones_like(bg1_shape_score) * exp_factor).exp()
-                    scores[bg1_sp_ids] += bg1_shape_score
+                    cm = poly_chain.mean(0)
+                    if (cm.cpu() - self.circle_center).abs().sum() > 100:
+                        scores[bg1_sp_ids] = 0.0
+                    else:
+                        if poly_chain.shape[0] <= 3:
+                            raise Exception()
+                        polygon = Polygon2d(poly_chain)
+                        shape_dist_scores = torch.tensor([des.distance(polygon, 200) for des in self.outer_cntr_ds],
+                                                         device=dev)
+                        # shape_score = (torch.sigmoid((((1 - shape_dist_scores.min()) * 6.5).exp() / torch.tensor([6.5], device=dev).exp()) * 6 - 3) * 1.2597) - 0.2
+                        bg1_shape_score = torch.tensor([1 - shape_dist_scores.min()], device=dev)
+                        bg1_shape_score = (bg1_shape_score * exp_factor).exp() / (
+                                    torch.ones_like(bg1_shape_score) * exp_factor).exp()
+                        scores[bg1_sp_ids] = bg1_shape_score
 
-                    rads = np.linalg.norm(poly_chain.cpu().numpy() - self.circle_center[np.newaxis], axis=1)
-                    dists = abs(rads.mean() - rads)
-                    bg1_rad = rads[dists < 10].mean() - 5
+                        rads = np.linalg.norm(poly_chain.cpu().numpy() - self.circle_center[np.newaxis], axis=1)
+                        dists = abs(rads.mean() - rads)
+                        bg1_rad = rads[dists < 10].mean() - 5
                 except Exception as e:
                     print(e)
-            if diff2 > 0 and label_masses[bg2_id] > self.masses[1] * 3 or diff2 < 0 and label_masses[bg2_id] < \
-                    self.masses[1] / 3:
-                pass
+            if diff2 > (self.masses[1] / 4):
+                scores[bg2_sp_ids] = 0.0
             else:
                 try:
                     contour = find_contours(bg2.cpu().numpy(), level=0)
@@ -242,20 +239,24 @@ class LeptinDataRotatedRectRewards(RewardFunctionAbc):
                     #     raise Exception
                     contour = contour[np.array([len(cnt) for cnt in contour]).argmax()]
                     poly_chain = torch.from_numpy(approximate_polygon(contour, tolerance=0.0)).to(dev)
-                    if poly_chain.shape[0] <= 3:
-                        raise Exception()
-                    polygon = Polygon2d(poly_chain)
-                    shape_dist_scores = torch.tensor([des.distance(polygon, 200) for des in self.inner_cntr_ds],
-                                                     device=dev)
-                    # shape_score = (torch.sigmoid((((1 - shape_dist_scores.min()) * 6.5).exp() / torch.tensor([6.5], device=dev).exp()) * 6 - 3) * 1.2597) - 0.2
-                    bg2_shape_score = torch.tensor([1 - shape_dist_scores.min()], device=dev)
-                    bg2_shape_score = (bg2_shape_score * exp_factor).exp() / (
-                                torch.ones_like(bg2_shape_score) * exp_factor).exp()
-                    scores[bg2_sp_ids] += bg2_shape_score
+                    cm = poly_chain.mean(0)
+                    if (cm.cpu() - self.circle_center).abs().sum() > 100:
+                        scores[bg1_sp_ids] = 0.0
+                    else:
+                        if poly_chain.shape[0] <= 3:
+                            raise Exception()
+                        polygon = Polygon2d(poly_chain)
+                        shape_dist_scores = torch.tensor([des.distance(polygon, 200) for des in self.inner_cntr_ds],
+                                                         device=dev)
+                        # shape_score = (torch.sigmoid((((1 - shape_dist_scores.min()) * 6.5).exp() / torch.tensor([6.5], device=dev).exp()) * 6 - 3) * 1.2597) - 0.2
+                        bg2_shape_score = torch.tensor([1 - shape_dist_scores.min()], device=dev)
+                        bg2_shape_score = (bg2_shape_score * exp_factor).exp() / (
+                                    torch.ones_like(bg2_shape_score) * exp_factor).exp()
+                        scores[bg2_sp_ids] = bg2_shape_score
 
-                    rads = np.linalg.norm(poly_chain.cpu().numpy() - self.circle_center[np.newaxis], axis=1)
-                    dists = abs(rads.mean() - rads)
-                    bg2_rad = rads[dists < 10].mean() + 5
+                        rads = np.linalg.norm(poly_chain.cpu().numpy() - self.circle_center[np.newaxis], axis=1)
+                        dists = abs(rads.mean() - rads)
+                        bg2_rad = rads[dists < 10].mean() + 5
                 except Exception as e:
                     print(e)
 
@@ -263,12 +264,12 @@ class LeptinDataRotatedRectRewards(RewardFunctionAbc):
             if torch.isnan(scores).any() or torch.isinf(scores).any():
                 print(Warning("NaN or inf in scores this should not happen"))
             if edge_score:
-                s1 = 0.3
-                s2 = 0.16
-                s3 = .1
-                w1 = 0.2
-                w2 = 0.3
-                w3 = 0.3
+                s1 = .05
+                s2 = .16
+                s3 = .4
+                w1 = .2
+                w2 = .3
+                w3 = .7
                 n = math.sqrt((single_sp_seg.shape[0] / 2) ** 2 + (single_sp_seg.shape[1] / 2) ** 2)
                 edges = s_dir_edges[:, :int(s_dir_edges.shape[1] / 2)]
                 edge_scores = scores[edges].max(dim=0).values
@@ -281,7 +282,8 @@ class LeptinDataRotatedRectRewards(RewardFunctionAbc):
                 edge_mask_1 = (edges[None] == bg_sp_1[:, None, None]).sum(0).sum(0) == 2
                 edge_mask_2 = (edges[None] == bg_sp_2[:, None, None]).sum(0).sum(0) == 2
 
-                dst1 = 1 - ((edge_cmrads[:, edge_mask_1].mean(0) - self.circle_rads[1]) / (n - self.circle_rads[1]))
+                mdst1 = self.circle_rads[3] - edge_cmrads[:, edge_mask_1].mean(0)
+                dst1 = torch.clamp(mdst1 / self.circle_rads[3], min=0)
                 dst2 = (edge_cmrads[:, edge_mask_2].mean(0)) / n
                 dst3 = (edge_cmrads[:, edge_mask_1].mean(0) - ((self.circle_rads[1] + self.circle_rads[0]) / 2)) / n
                 dst4 = (edge_cmrads[:, edge_mask_2].mean(0) - ((self.circle_rads[1] + self.circle_rads[0]) / 2)) / n
@@ -290,6 +292,11 @@ class LeptinDataRotatedRectRewards(RewardFunctionAbc):
                 bg_prob2 = torch.exp(-dst2 ** 2 / (2 * s2 ** 2)) / (math.sqrt(2 * np.pi) * s2) * w2
                 fg_prob1 = torch.exp(-dst3 ** 2 / (2 * s3 ** 2)) / (math.sqrt(2 * np.pi) * s3) * w3
                 fg_prob2 = torch.exp(-dst4 ** 2 / (2 * s3 ** 2)) / (math.sqrt(2 * np.pi) * s3) * w3
+
+                bg_prob1 = torch.clamp(bg_prob1, max=1)
+                bg_prob2 = torch.clamp(bg_prob2, max=1)
+                fg_prob1 = torch.clamp(fg_prob1, max=1)
+                fg_prob2 = torch.clamp(fg_prob2, max=1)
 
                 edge_scores[edge_mask_1] = fg_prob1 * edge_scores[edge_mask_1] + (1 - s_actions[edge_mask_1]) * bg_prob1
                 edge_scores[edge_mask_2] = fg_prob2 * edge_scores[edge_mask_2] + (1 - s_actions[edge_mask_2]) * bg_prob2
@@ -338,27 +345,29 @@ class LeptinDataRotatedRectRewards(RewardFunctionAbc):
         fg_prob = np.zeros_like(pix_rads)
         n =math.sqrt((749/2)**2 + (692/2)**2)
 
-        dst1 = 1 - ((pix_rads - self.circle_rads[1]) / (n - self.circle_rads[1]))
+        mdst1 = self.circle_rads[3] - pix_rads
+        dst1 = np.clip(mdst1 / self.circle_rads[3], a_min=0, a_max=np.inf)
         dst2 = (pix_rads / n)
         dst3 = ((pix_rads - ((self.circle_rads[0] + self.circle_rads[1]) / 2)) / n)
 
         bg_prob1 = np.exp(-dst1 ** 2 / (2 * s1 ** 2)) / (math.sqrt(2 * np.pi) * s1) * w1
-        plt.imshow(bg_prob1);
-        plt.show()
+        bg_prob1 = np.clip(bg_prob1, a_min=0, a_max=1)
+        # plt.imshow(bg_prob1);
+        # plt.show()
         bg_prob2 = np.exp(-dst2 ** 2 / (2 * s2 ** 2)) / (math.sqrt(2 * np.pi) * s2) * w2
-        plt.imshow(bg_prob2);
-        plt.show()
+        # plt.imshow(bg_prob2);
+        # plt.show()
         fg_prob = np.exp(-dst3 ** 2 / (2 * s3 ** 2)) / (math.sqrt(2 * np.pi) * s3) * w3
-        plt.imshow(fg_prob);
-        plt.show()
+        # plt.imshow(fg_prob);
+        # plt.show()
 
         zz = bg_prob2 + bg_prob1 + fg_prob
         print(f"z(210):{zz[375, self.circle_center[1] - 210]}  z(260):{zz[375, self.circle_center[1] - 260]}  fgn(210): {fg_prob[375,self.circle_center[1] -  210]}  fgn(260): {fg_prob[375, self.circle_center[1] - 260]}  bgn1(260): {bg_prob1[375, self.circle_center[1] - 260]}  bgn2(210): {bg_prob2[375, self.circle_center[1] - 210]}")
 
-        fig = plt.figure(0)
-        ax = Axes3D(fig)
-        ax.plot_surface(xx, yy, zz, rstride=1, cstride=1, cmap=cm.magma, linewidth=0, antialiased=False)
-        plt.show()
+        # fig = plt.figure(0)
+        # ax = Axes3D(fig)
+        # ax.plot_surface(xx, yy, zz, rstride=1, cstride=1, cmap=cm.magma, linewidth=0, antialiased=False)
+        # plt.show()
         plt.plot(zz[375])
         plt.show()
         # fig = plt.figure(0)
@@ -1017,10 +1026,25 @@ if __name__ == "__main__":
     edge_cmap.set_bad(alpha=0)
     dev = "cuda:0"
     # get a few images and extract some gt objects used ase shape descriptors that we want to compare against
-    dir = "/g/kreshuk/hilt/projects/data/leptin_fused_tp1_ch_0/train"
+    dir = "/g/kreshuk/hilt/projects/data/leptin_fused_tp1_ch_0/true_val"
     fnames_pix = sorted(glob(os.path.join(dir, 'pix_data/*.h5')))
     fnames_graph = sorted(glob(os.path.join(dir, 'graph_data/*.h5')))
 
+    id_set1 = [97, 99, 100, 104, 105, 111, 110, 113]
+    bg_ids = [0, 31]
+
+
+    def merge_sp_ids(seg, ids):
+        lbl = min(ids)
+        for id in ids:
+            seg[seg == id] = lbl
+
+        mask = seg[None] == torch.unique(seg)[:, None, None]
+        seg = (mask * (torch.arange(len(torch.unique(seg)), device=seg.device)[:, None, None] + 1)).sum(0) - 1
+        return seg
+
+    fnames_graph = ['/g/kreshuk/hilt/projects/data/leptin_fused_tp1_ch_0/true_val/graph_data/graph_125.h5']
+    fnames_pix= ['/g/kreshuk/hilt/projects/data/leptin_fused_tp1_ch_0/true_val/pix_data/pix_125.h5']
     for i in range(1):
         g_file = h5py.File(fnames_graph[i], 'r')
         pix_file = h5py.File(fnames_pix[i], 'r')
@@ -1028,6 +1052,10 @@ if __name__ == "__main__":
         gt_seg = pix_file['gt'][:]
         superpixel_seg = torch.from_numpy(superpixel_seg.astype(np.int64)).to(dev)
         gt_seg = torch.from_numpy(gt_seg.astype(np.int64)).to(dev)
+
+        all_ids = torch.unique(gt_seg)
+        all_ids = all_ids[all_ids != bg_ids[0]]
+        all_ids = all_ids[all_ids != bg_ids[1]]
 
         probas = g_file['edge_feat'][:, 0]  # take initial edge features as weights
 
@@ -1038,7 +1066,7 @@ if __name__ == "__main__":
         pred_seg = torch.from_numpy(pred_seg.astype(np.int64)).to(dev)
 
         # relabel to consecutive integers:
-        mask = gt_seg[None] == torch.unique(gt_seg)[:, None, None]
+        mask =gt_seg[None] == torch.unique(gt_seg)[:, None, None]
         gt_seg = (mask * (torch.arange(len(torch.unique(gt_seg)), device=dev)[:, None, None] + 1)).sum(0) - 1
         mask = superpixel_seg[None] == torch.unique(superpixel_seg)[:, None, None]
         superpixel_seg = (mask * (torch.arange(len(torch.unique(superpixel_seg)), device=dev)[:, None, None] + 1)).sum(
@@ -1052,15 +1080,19 @@ if __name__ == "__main__":
         edges = torch.from_numpy(compute_rag(superpixel_seg.cpu().numpy()).uvIds().astype(np.long)).T.to(dev)
         dir_edges = torch.stack((torch.cat((edges[0], edges[1])), torch.cat((edges[1], edges[0]))))
 
-        gt_edges = calculate_gt_edge_costs(edges.T, superpixel_seg.squeeze(), gt_seg.squeeze(), thresh=0.5)
+        noisy_gt_seg = merge_sp_ids(gt_seg.squeeze().clone(), all_ids[:int(all_ids.shape[0] / 2)].tolist())
+        gt_edges = calculate_gt_edge_costs(edges.T, superpixel_seg.squeeze(), noisy_gt_seg.squeeze(), thresh=0.5)
 
         mc_seg_old = None
         for itr in range(100):
-            actions = gt_edges + torch.randn_like(gt_edges) * (itr / 100)
-            actions -= actions.min()
-            actions /= actions.max()
+            # actions = gt_edges + torch.randn_like(gt_edges) * (itr / 100)
+            # actions -= actions.min()
+            # actions /= actions.max()
+            actions = gt_edges
+            # actions = torch.zeros_like(gt_edges)
+            # actions[:20] = 1.0
 
-            mc_seg = multicut_from_probas(superpixel_seg.cpu().numpy(), edges.T.cpu().numpy(), gt_edges)
+            mc_seg = multicut_from_probas(superpixel_seg.cpu().numpy(), edges.T.cpu().numpy(), actions)
             mc_seg = torch.from_numpy(mc_seg.astype(np.int64)).to(dev)
 
             # relabel to consecutive integers:
@@ -1068,18 +1100,18 @@ if __name__ == "__main__":
             mc_seg = (mask * (torch.arange(len(torch.unique(mc_seg)), device=dev)[:, None, None] + 1)).sum(0) - 1
             # add batch dimension
             pred_seg = pred_seg[None]
-            gt_seg = gt_seg[None]
+            noisy_gt_seg = noisy_gt_seg[None]
             mc_seg = mc_seg[None]
 
             f = LeptinDataRotatedRectRewards()
-            # f.get_gaussians(.3, 0.16, .1, 0.2, 0.3, .2)
+            # f.get_gaussians(.01, 0.16, .05, 0.2, 0.3, .2)
             # plt.imshow(pix_file['raw'][:]);plt.show()
             # rewards2 = f(gt_seg.long(), superpixel_seg.long(), dir_edges=[dir_edges], res=100)
             edge_angles, sp_feat, sp_rads = get_angles_smass_in_rag(edges, superpixel_seg.long())
             edge_rewards = f(mc_seg.long(), superpixel_seg[None].long(), dir_edges=[dir_edges], res=50, edge_score=True,
                              sp_cmrads=[sp_rads], actions=[actions])
 
-            fig, (ax1, ax2) = plt.subplots(1, 2)
+            fig, ax = plt.subplots(2, 2, figsize=(10, 10))
             frame_rew, scores_rew, bnd_mask = get_colored_edges_in_sseg(superpixel_seg[None].float(), edges, edge_rewards)
             frame_act, scores_act, _ = get_colored_edges_in_sseg(superpixel_seg[None].float(), edges, 1 - actions.squeeze())
 
@@ -1087,25 +1119,33 @@ if __name__ == "__main__":
 
             mc_seg = sync_segmentations(mc_seg_old, mc_seg) if mc_seg_old is not None else mc_seg
             mc_seg_old = mc_seg.clone()
-            mc_seg = mc_seg.squeeze().float()
-            mc_seg[bnd_mask] = np.nan
+            masked_mc_seg = mc_seg.squeeze().float().clone()
+            masked_mc_seg[bnd_mask] = np.nan
 
             frame_rew = np.stack([dilation(frame_rew.cpu().numpy()[..., i]) for i in range(3)], -1)
             frame_act = np.stack([dilation(frame_act.cpu().numpy()[..., i]) for i in range(3)], -1)
             scores_rew = np.stack([dilation(scores_rew.cpu().numpy()[..., i]) for i in range(3)], -1)
             scores_act = np.stack([dilation(scores_act.cpu().numpy()[..., i]) for i in range(3)], -1)
 
-            ax1.imshow(frame_rew, interpolation="none")
-            ax1.imshow(mc_seg.cpu(), cmap=label_cm, alpha=0.8, interpolation="none")
-            ax1.set_title("rewards 1:g, 0:r")
-            ax1.axis('off')
-            ax2.imshow(frame_act, interpolation="none")
-            ax2.imshow(mc_seg.cpu(), cmap=label_cm, alpha=0.8, interpolation="none")
-            ax2.set_title("actions 0:g, 1:r")
-            ax2.axis('off')
+            ax[0, 0].imshow(frame_rew, interpolation="none")
+            ax[0, 0].imshow(masked_mc_seg.cpu(), cmap=label_cm, alpha=0.8, interpolation="none")
+            ax[0, 0].set_title("rewards 1:g, 0:r")
+            ax[0, 0].axis('off')
+            ax[0, 1].imshow(frame_act, interpolation="none")
+            ax[0, 1].imshow(masked_mc_seg.cpu(), cmap=label_cm, alpha=0.8, interpolation="none")
+            ax[0, 1].set_title("actions 0:g, 1:r")
+            ax[0, 1].axis('off')
+
+            ax[1, 0].imshow(mc_seg.cpu().squeeze(), cmap=random_label_cmap(), interpolation="none")
+            ax[1, 0].set_title("pred")
+            ax[1, 0].axis('off')
+            ax[1, 1].imshow(gt_seg.cpu().squeeze(), cmap=random_label_cmap(), interpolation="none")
+            ax[1, 1].set_title("gt")
+            ax[1, 1].axis('off')
+
 
             # plt.savefig("/g/kreshuk/hilt/projects/RLForSeg/data/test.png", bbox_inches='tight')
             plt.show()
+            a = 1
 
         # rewards1 = f(pred_seg.long(), superpixel_seg.long(), dir_edges=[dir_edges], res=100)
-    a = 1

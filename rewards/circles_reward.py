@@ -44,7 +44,7 @@ class CirclesRewards(RewardFunctionAbc):
                  *args, **kwargs):
         dev = prediction_segmentation.device
         return_scores = []
-        exp_factor = 2
+        exp_factor = 4
 
         for single_pred, single_sp_seg, s_dir_edges, s_actions, s_sp_cmrads in zip(prediction_segmentation,
                                                                                    superpixel_segmentation,
@@ -74,7 +74,6 @@ class CirclesRewards(RewardFunctionAbc):
             false_obj_mask = label_masses < 200
             bg_object_ids = torch.nonzero(bg_obj_mask).squeeze(1)  # object label IDs
             potential_object_ids = torch.nonzero(potenial_obj_mask).squeeze(1)  # object label IDs
-            false_object_ids = torch.nonzero(false_obj_mask).squeeze(1)  # object label IDs
 
             potential_objects = one_hot[potential_object_ids]  # get object masks
             bg_sp_ids = torch.unique((single_sp_seg[None] + 1) * one_hot[bg_object_ids])[1:] - 1
@@ -106,9 +105,8 @@ class CirclesRewards(RewardFunctionAbc):
                 max = dsts.max()
                 if max > 1:
                     dsts /= max
-                std = (np.std(dsts) * 2)
+                score = 1 - (np.std(dsts) * 2)
 
-                score = 0.5 - std
                 if score > 0.5:
                     good_obj_cnt += 1
                 score = np.exp((score * exp_factor)) / np.exp(np.array([exp_factor]))

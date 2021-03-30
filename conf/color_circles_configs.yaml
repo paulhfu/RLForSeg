@@ -1,7 +1,7 @@
 # general configs
 agent:
   desc: method used for the agent
-  value: a2c
+  value: sac
 verbose:
   desc: prints intermediate results to sdt.out
   value: true
@@ -59,7 +59,7 @@ backbone:
 
 gnn_n_hl:
   desc: number of hidden layers in graph conv blocks
-  value: 1
+  value: 0
 gnn_size_hl:
   desc: factor by which feature size of hidden featuremaps in gnn increases/decreases
   value: 1028
@@ -103,7 +103,7 @@ n_explorers:
   value: 1
 batch_size:
   desc: num samples in minibatch
-  value: 10
+  value: 5
 
 # conf for lr scheduling
 lr_sched:
@@ -122,13 +122,13 @@ lr_sched:
 # specific configs for the sac algorithm
 reward_function:
   desc: one of sub_graph_dice, colorcircles
-  value: sub_graph_dice
+  value: colorcircles
 gt_edge_overlap_thresh:
   desc: if using gt edges this is the overlap thresh of the underlying gt for a gt edge to be 1
   value: 0.5
 s_subgraph:
   desc: subgraph sizes
-  value: [4, 8, 16, 32] # [8, 16, 32, 64]
+  value: [4, 8, 32] # [8, 16, 32, 64]
 entropy_range:
   desc: range of the min entropy constraint
   value: [0.05, 2.0]

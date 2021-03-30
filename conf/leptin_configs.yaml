@@ -59,13 +59,13 @@ backbone:
 
 gnn_n_hl:
   desc: number of hidden layers in graph conv blocks
-  value: 0
+  value: 1
 gnn_size_hl:
   desc: factor by which feature size of hidden featuremaps in gnn increases/decreases
-  value: 1024
+  value: 2024
 gnn_act_depth:
   desc: num of graph convs (1, 2, 3)
-  value: 1
+  value: 2
 gnn_act_norm_inp:
   desc: put hidden features on unit sphere and scale by sim
   value: false
@@ -103,7 +103,7 @@ n_explorers:
   value: 1
 batch_size:
   desc: num samples in minibatch
-  value: 3
+  value: 4
 
 # conf for lr scheduling
 lr_sched:
@@ -121,17 +121,17 @@ lr_sched:
 
 # specific configs for the sac algorithm
 reward_function:
-  desc: one of sub_graph_dice, leptin_dataTurningFunc, leptin_dataEllipticFit, leptin_dataTurningWithEllipses
+  desc: one of sub_graph_dice, leptin_dataTurningFunc, leptin_dataRectFit, leptin_dataTurningWithEllipses
   value: leptin_dataRectFit
 gt_edge_overlap_thresh:
   desc: if using gt edges this is the overlap thresh of the underlying gt for a gt edge to be 1
   value: 0.5
 s_subgraph:
   desc: subgraph sizes
-  value: [6, 8, 16, 32] # [8, 16, 32, 64]
+  value: [6, 8, 16, 64, 128] # [8, 16, 32, 64]
 entropy_range:
   desc: range of the min entropy constraint
-  value: [0.05, 2.0]
+  value: [0.05, 1.0]
 init_temperature:
   desc: initial temperature in Gibbs distribution
   value: 0.1
