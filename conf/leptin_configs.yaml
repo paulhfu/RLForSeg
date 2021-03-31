@@ -35,7 +35,7 @@ patch_manager:
 # embedding network config
 fe_model_name:
   desc: path to state dict of trained model
-  value: /g/kreshuk/hilt/storage/leptin_data_nets/fe_cosine_ls_bn_2chnl.pth # fe_cosine_ls_bn_gtval, fe_cosine_ls_bn_2chnl
+  value: /g/kreshuk/hilt/storage/leptin_data_nets/fe_cosine_small.pth # fe_cosine_ls_bn_gtval, fe_cosine_ls_bn_2chnl
 dim_embeddings:
   desc: number of embedding feature channels
   value: 16
@@ -52,7 +52,7 @@ backbone:
     # in intensity distribution between images with large and small cells
     layer_order: bcr
     num_groups: 8
-    f_maps: [32, 64, 128, 256]
+    f_maps: [32, 64, 128]
     #conv_padding: 0
     final_sigmoid: false
     is_segmentation: false
@@ -62,7 +62,7 @@ gnn_n_hl:
   value: 1
 gnn_size_hl:
   desc: factor by which feature size of hidden featuremaps in gnn increases/decreases
-  value: 2024
+  value: 1024
 gnn_act_depth:
   desc: num of graph convs (1, 2, 3)
   value: 1
@@ -85,7 +85,7 @@ mem_size:
   value: 50
 data_update_frequency:
   desc: update env data after n steps
-  value: 50
+  value: 10
 post_stats_frequency:
   desc: post logs after n steps
   value: 10
@@ -97,13 +97,13 @@ store_indices:
   value: [1, 5, 9]
 n_updates_per_step:
   desc: perform n optim steps per env step
-  value: 10
+  value: 4
 n_explorers:
   desc: n experience explorer threads
   value: 1
 batch_size:
   desc: num samples in minibatch
-  value: 4
+  value: 1
 
 # conf for lr scheduling
 lr_sched:
@@ -146,7 +146,7 @@ critic_lr:
   value: 0.0001
 actor_update_frequency:
   desc: optim every n-th step
-  value: 1
+  value: 10
 actor_update_after:
   desc: update actor after critic has been warmed up
   value: 1

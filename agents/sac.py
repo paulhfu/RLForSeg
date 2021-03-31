@@ -17,8 +17,7 @@ from skimage.morphology import dilation
 
 from environments.multicut import MulticutEmbeddingsEnv, State
 from data.spg_dset import SpgDset
-from models.agent_model import Agent
-from models.feature_extractor import FeExtractor
+from models.agent_model_fe import Agent
 from utils.exploration_functions import RunningAverage
 from utils.general import soft_update_params, set_seed_everywhere, get_colored_edges_in_sseg, pca_project, random_label_cmap
 from utils.replay_memory import TransitionData_ts
@@ -29,8 +28,6 @@ from utils.yaml_conv_parser import dict_to_attrdict
 from utils.training_helpers import update_env_data, supervised_policy_pretraining, state_to_cpu, Forwarder
 from utils.metrics import AveragePrecision, ClusterMetrics
 # from timeit import default_timer as timer
-
-
 
 
 class AgentSacTrainer(object):
@@ -50,10 +47,6 @@ class AgentSacTrainer(object):
             self.distance = CosineDistance()
         else:
             self.distance = L2Distance()
-
-        self.fe_ext = FeExtractor(dict_to_attrdict(self.cfg.backbone), self.distance, self.device)
-        self.fe_ext.embed_model.load_state_dict(torch.load(self.cfg.fe_model_name))
-        self.fe_ext.cuda(self.device)
 
         self.model = Agent(self.cfg, State, self.distance, self.device)
         wandb.watch(self.model)
@@ -89,8 +82,6 @@ class AgentSacTrainer(object):
         if self.cfg.agent_model_name != "":
             self.model.load_state_dict(torch.load(self.cfg.agent_model_name))
         # finished with prepping
-        for param in self.fe_ext.parameters():
-            param.requires_grad = False
 
         self.train_dset = SpgDset(self.cfg.data_dir, dict_to_attrdict(self.cfg.patch_manager), dict_to_attrdict(self.cfg.data_keys), max(self.cfg.s_subgraph))
         self.val_dset = SpgDset(self.cfg.val_data_dir, dict_to_attrdict(self.cfg.patch_manager), dict_to_attrdict(self.cfg.data_keys), max(self.cfg.s_subgraph))
@@ -101,7 +92,7 @@ class AgentSacTrainer(object):
 
     def validate(self):
         """validates the prediction against the method of clustering the embedding space"""
-        env = MulticutEmbeddingsEnv(self.fe_ext, self.cfg, self.device)
+        env = MulticutEmbeddingsEnv(self.cfg, self.device)
         if self.cfg.verbose:
             print("\n\n###### start validate ######", end='')
         self.model.eval()
@@ -122,7 +113,8 @@ class AgentSacTrainer(object):
 
             self.model_mtx.acquire()
             try:
-                distr, _, _, _, _ = self.forwarder.forward(self.model, state, State, self.device, grad=False, post_data=False)
+                distr, _, _, _, _, embeddings = self.forwarder.forward(self.model, state, State, self.device, grad=False,
+                                                           post_data=False, get_embeddings=True)
             finally:
                 self.model_mtx.release()
             action = torch.sigmoid(distr.loc)
@@ -132,7 +124,7 @@ class AgentSacTrainer(object):
             if self.cfg.verbose:
                 print(f"\nstep: {it}; mean_loc: {round(distr.loc.mean().item(), 5)}; mean reward: {round(rew, 5)}", end='')
 
-            embeddings = env.embeddings[0].cpu().numpy()
+            embeddings = embeddings[0].cpu().numpy()
             gt_seg = env.gt_seg[0].cpu().numpy()
             gt_mc = cm.prism(env.gt_soln[0].cpu()/env.gt_soln[0].max().item()) if env.gt_edge_weights is not None else torch.zeros(env.raw.shape[-2:])
             rl_labels = env.current_soln.cpu().numpy()[0]
@@ -437,7 +429,7 @@ class AgentSacTrainer(object):
         return
 
     def explore(self):
-        env = MulticutEmbeddingsEnv(self.fe_ext, self.cfg, self.device)
+        env = MulticutEmbeddingsEnv(self.cfg, self.device)
         tau = 1
         while self.global_count.value() <= self.cfg.T_max + self.cfg.mem_size:
             dloader = iter(DataLoader(self.train_dset, batch_size=self.cfg.batch_size, shuffle=True, pin_memory=True, num_workers=0))

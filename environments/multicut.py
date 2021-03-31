@@ -21,13 +21,12 @@ from utils.reward_functions import UnSupervisedReward, SubGraphDiceReward
 from utils.graphs import collate_edges, get_edge_indices, get_angles_smass_in_rag
 from utils.general import get_angles, pca_project, random_label_cmap, get_contour_from_2d_binary
 
-State = collections.namedtuple("State", ["node_embeddings", "edge_ids", "edge_feats", "sp_feat", "subgraph_indices", "sep_subgraphs", "round_n", "gt_edge_weights"])
+State = collections.namedtuple("State", ["raw", "sp_seg", "edge_ids", "edge_feats", "sp_feat", "subgraph_indices", "sep_subgraphs", "round_n", "gt_edge_weights"])
 class MulticutEmbeddingsEnv():
 
-    def __init__(self, embedding_net, cfg, device):
+    def __init__(self, cfg, device):
         super(MulticutEmbeddingsEnv, self).__init__()
 
-        self.embedding_net = embedding_net
         self.reset()
         self.cfg = cfg
         self.device = device
@@ -77,7 +76,7 @@ class MulticutEmbeddingsEnv():
                 gt = _gt
                 sample_shapes.append(torch.zeros((int(gt.max()) + 1,) + gt.size(), device=device).scatter_(0, gt[None], 1)[
                                      1:])  # 0 should be background
-            self.reward_function = HoneycombReward(torch.cat(sample_shapes)[5:6,...])
+            self.reward_function = HoneycombReward(torch.cat(sample_shapes)[5:6, ...])
         else:
             assert False
 
@@ -154,8 +153,8 @@ class MulticutEmbeddingsEnv():
                 axes[1, 0].imshow(mc_soln, cmap=random_label_cmap(), interpolation="none")
                 axes[1, 0].set_title('mc_gt')
                 # axes[1, 1].imshow(pca_project(get_angles(self.embeddings)[0].detach().cpu().numpy()))
-                axes[1, 1].imshow(pca_project(self.embeddings[-1].detach().cpu()))
-                axes[1, 1].set_title('embed')
+                axes[1, 1].imshow(self.init_sp_seg[-1].cpu(), cmap=random_label_cmap(), interpolation="none")
+                axes[1, 1].set_title('superpixels')
                 axes[1, 2].imshow(self.current_soln[-1].cpu(), cmap=random_label_cmap(), interpolation="none")
                 axes[1, 2].set_title('prediction')
                 wandb.log({tag: [wandb.Image(fig, caption="state")]})
@@ -168,7 +167,8 @@ class MulticutEmbeddingsEnv():
         return reward
 
     def get_state(self):
-        return State(self.current_node_embeddings, self.edge_ids, self.edge_features, self.sp_feat, self.subgraph_indices, self.sep_subgraphs, self.counter, self.gt_edge_weights)
+        return State(self.raw, self.init_sp_seg, self.edge_ids, self.edge_features, self.sp_feat, self.subgraph_indices,
+                     self.sep_subgraphs, self.counter, self.gt_edge_weights)
 
     def update_data(self, raw, gt, edge_ids, gt_edges, sp_seg, fe_grad, rags, edge_features, *args, **kwargs):
         bs = raw.shape[0]
@@ -179,21 +179,6 @@ class MulticutEmbeddingsEnv():
         self.rags = rags
         self.gt_seg, self.init_sp_seg = gt.squeeze(1), sp_seg.squeeze(1)
         self.raw = raw
-
-        if (self.cfg.backbone['in_channels'] == 4) and raw.shape[1] == 3:
-            edge_img = get_contour_from_2d_binary(sp_seg)
-            raw_input = torch.cat([raw, edge_img], dim=1)
-
-            with torch.set_grad_enabled(False):
-                #print(raw_input.shape)
-                self.embeddings = self.embedding_net(raw_input)
-        else:
-            with torch.set_grad_enabled(False):
-                self.embeddings = self.embedding_net(raw)
-
-        # get embedding agglomeration over each superpixel
-        self.current_node_embeddings = torch.cat([self.embedding_net.get_mean_sp_embedding_chunked(embed, sp, chunks=20)
-                                                  for embed, sp in zip(self.embeddings, self.init_sp_seg)], dim=0)
 
         edge_angles, sp_feat, self.sp_rads = zip(*[get_angles_smass_in_rag(edge_ids[i], self.init_sp_seg[i]) for i in range(bs)])
         edge_angles, self.sp_feat = torch.cat(edge_angles).unsqueeze(-1), torch.cat(sp_feat)

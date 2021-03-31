@@ -22,7 +22,7 @@ class FeExtractor(nn.Module):
         finally:
             self.fwd_mtx.release()
         if isinstance(self.distance, CosineDistance):
-            ret = ret / torch.clamp(torch.norm(ret, dim=1, keepdim=True), min=1e-10)
+            ret = ret / (torch.norm(ret, dim=1, keepdim=True) + 1e-10)
         return ret
 
     def get_mean_sp_embedding_chunked(self, embeddings, supix, chunks=1):
