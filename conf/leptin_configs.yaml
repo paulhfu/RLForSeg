@@ -1,7 +1,7 @@
 # general configs
 agent:
   desc: method used for the agent
-  value: a2c
+  value: sac
 verbose:
   desc: prints intermediate results to sdt.out
   value: true
@@ -62,7 +62,7 @@ gnn_n_hl:
   value: 1
 gnn_size_hl:
   desc: factor by which feature size of hidden featuremaps in gnn increases/decreases
-  value: 1024
+  value: 2024
 gnn_act_depth:
   desc: num of graph convs (1, 2, 3)
   value: 1
