@@ -1,7 +1,7 @@
 # general configs
 agent:
   desc: method used for the agent
-  value: sac
+  value: a2c
 verbose:
   desc: prints intermediate results to sdt.out
   value: true
@@ -115,7 +115,7 @@ lr_sched:
     mov_avg_offset: 0.0
     torch_sched:  # conf for torch reduceOnPlateau scheduler
       patience: 40
-      min_lr: 0.0001
+      min_lr: 0.000001
       factor: 0.05
       threshold: 0.01
 

@@ -76,9 +76,10 @@ class LeptinDataRotatedRectRewards(RewardFunctionAbc):
         self.masses = [np.array(m1).mean(), np.array(m2).mean(), np.array(m3 + m4 + m5).mean()]
         self.fg_shape_descriptors = self.celltype_1_ds + self.celltype_2_ds + self.celltype_3_ds
         self.circle_center = np.array([390, 340])
-        self.circle_rads = [210, 260, 100, 340]
+        self.circle_rads = [210, 270, 100, 340]
         self.exact_circle_rads = [345, 353, 603, 611]
         self.side_lens = [28, 125]
+        self.problem_area = [95/275, 355/32]
 
     def __call__(self, prediction_segmentation, superpixel_segmentation, dir_edges, edge_score, sp_cmrads, actions,
                  *args, **kwargs):
@@ -144,8 +145,11 @@ class LeptinDataRotatedRectRewards(RewardFunctionAbc):
                 except:
                     continue
 
-                poly_chain = torch.from_numpy(approximate_polygon(contour, tolerance=0.0)).to(dev)
+                poly_chain = torch.tensor(contour).to(dev)
                 cm = poly_chain.mean(dim=0).cpu()
+                pos = self.circle_center-cm.cpu().tolist()
+                ang = abs(pos[1]) / abs(pos[0]) if (pos > 0).all() else None
+                in_problem_area = False if ang is None else ang > self.problem_area[0] and ang < self.problem_area[1]
                 position = ((cm - self.circle_center) ** 2).sum().sqrt()
                 dt = abs(self.circle_rads[0] - position)
                 position_score = 0
@@ -170,21 +174,39 @@ class LeptinDataRotatedRectRewards(RewardFunctionAbc):
 
                 shape_score = 0
                 diffs, diffl = abs(self.side_lens[0] - short_side), abs(self.side_lens[1] - long_side)
-                if diffs < (self.side_lens[0] / 4):
-                    shape_score += 0.5
-                elif diffs < (self.side_lens[0] / 2):
-                    shape_score += 0.3
-                elif diffs < self.side_lens[0]:
-                    shape_score += 0.2
+                if not in_problem_area:
+                    if diffs < (self.side_lens[0] / 4):
+                        shape_score += 0.5
+                    elif diffs < (self.side_lens[0] / 2):
+                        shape_score += 0.3
+                    elif diffs < self.side_lens[0]:
+                        shape_score += 0.2
 
-                if diffl < (self.side_lens[1] / 6):
-                    shape_score += 0.5
-                elif diffl < (self.side_lens[1] / 5):
-                    shape_score += 0.3
-                elif diffl < (self.side_lens[1] / 3):
-                    shape_score += 0.2
-                elif diffl < self.side_lens[1]:
-                    shape_score += 0.1
+                    if diffl < (self.side_lens[1] / 6):
+                        shape_score += 0.5
+                    elif diffl < (self.side_lens[1] / 5):
+                        shape_score += 0.3
+                    elif diffl < (self.side_lens[1] / 3):
+                        shape_score += 0.2
+                    elif diffl < self.side_lens[1]:
+                        shape_score += 0.1
+                else:
+                    orientation_score = 1.0
+                    if diffs < (self.side_lens[0] / 1.5):
+                        shape_score += 0.5
+                    elif diffs < (self.side_lens[0] * 2):
+                        shape_score += 0.3
+                    elif diffs < self.side_lens[0] * 3:
+                        shape_score += 0.2
+
+                    if diffl < (self.side_lens[1] / 4):
+                        shape_score += 0.5
+                    elif diffl < (self.side_lens[1] / 2):
+                        shape_score += 0.3
+                    elif diffl < (self.side_lens[1] / 1):
+                        shape_score += 0.2
+                    elif diffl < self.side_lens[1]:
+                        shape_score += 0.1
 
                 score = torch.tensor([0.1 * position_score + 0.8 * shape_score + 0.2 * orientation_score], device=dev)
                 score = (score * exp_factor).exp() / (torch.ones_like(score) * exp_factor).exp()
@@ -243,7 +265,9 @@ class LeptinDataRotatedRectRewards(RewardFunctionAbc):
                         elif diff1 < 50:
                             bg1_shape_score += 0.1
 
-                        scores[bg1_sp_ids] = bg1_shape_score
+                        bg1_shape_score = torch.tensor(bg1_shape_score)
+                        bg1_shape_score = (bg1_shape_score * exp_factor).exp() / (torch.ones_like(bg1_shape_score) * exp_factor).exp()
+                        scores[bg1_sp_ids] = bg1_shape_score.item()
 
                         scores[bg1_sp_ids][s_sp_cmrads[bg1_sp_ids] < self.circle_rads[1]] = 0
 
@@ -276,7 +300,7 @@ class LeptinDataRotatedRectRewards(RewardFunctionAbc):
                     elif poly_chain.shape[0] <= 3:
                         scores[bg2_sp_ids] = 0.0
                     elif ((dsts > self.circle_rads[0]).sum() / len(contour)) > 0.5:
-                        scores[bg1_sp_ids] = 0.0
+                        scores[bg2_sp_ids] = 0.0
                     else:
 
                         bg2_shape_score = 0
@@ -306,7 +330,9 @@ class LeptinDataRotatedRectRewards(RewardFunctionAbc):
                         elif diff1 < 50:
                             bg2_shape_score += 0.1
 
-                        scores[bg2_sp_ids] = bg2_shape_score
+                        bg2_shape_score = torch.tensor(bg2_shape_score)
+                        bg2_shape_score = (bg2_shape_score * exp_factor).exp() / (torch.ones_like(bg2_shape_score) * exp_factor).exp()
+                        scores[bg2_sp_ids] = bg2_shape_score.item()
 
                         scores[bg2_sp_ids][s_sp_cmrads[bg2_sp_ids] > self.circle_rads[0]] = 0
 
@@ -328,12 +354,13 @@ class LeptinDataRotatedRectRewards(RewardFunctionAbc):
             if torch.isnan(scores).any() or torch.isinf(scores).any():
                 print(Warning("NaN or inf in scores this should not happen"))
             if edge_score:
-                s1 = .1
-                s2 = .16
-                s3 = .4
+                # .02, 0.1, .1, 0.2, 0.25, .3
+                s1 = .02
+                s2 = .1
+                s3 = .1
                 w1 = .2
-                w2 = .3
-                w3 = .7
+                w2 = .25
+                w3 = .3
                 n = math.sqrt((single_sp_seg.shape[0] / 2) ** 2 + (single_sp_seg.shape[1] / 2) ** 2)
                 edges = s_dir_edges[:, :int(s_dir_edges.shape[1] / 2)]
                 edge_scores = scores[edges].max(dim=0).values
@@ -357,10 +384,14 @@ class LeptinDataRotatedRectRewards(RewardFunctionAbc):
                 fg_prob1 = torch.exp(-dst3 ** 2 / (2 * s3 ** 2)) / (math.sqrt(2 * np.pi) * s3) * w3
                 fg_prob2 = torch.exp(-dst4 ** 2 / (2 * s3 ** 2)) / (math.sqrt(2 * np.pi) * s3) * w3
 
-                bg_prob1 = torch.clamp(bg_prob1, max=1)
-                bg_prob2 = torch.clamp(bg_prob2, max=1)
-                fg_prob1 = torch.clamp(fg_prob1, max=1)
-                fg_prob2 = torch.clamp(fg_prob2, max=1)
+                # bg_prob1 = torch.clamp(bg_prob1, max=1)
+                # bg_prob2 = torch.clamp(bg_prob2, max=1)
+                # fg_prob1 = torch.clamp(fg_prob1, max=1)
+                # fg_prob2 = torch.clamp(fg_prob2, max=1)
+
+                weight1, weight2 = fg_prob1 + bg_prob1, fg_prob2 + bg_prob2
+                fg_prob1, bg_prob1 = fg_prob1 / weight1, bg_prob1 / weight1
+                fg_prob2, bg_prob2 = fg_prob2 / weight2, bg_prob2 / weight2
 
                 edge_scores[edge_mask_1] = fg_prob1 * edge_scores[edge_mask_1] + (1 - s_actions[edge_mask_1]) * bg_prob1
                 edge_scores[edge_mask_2] = fg_prob2 * edge_scores[edge_mask_2] + (1 - s_actions[edge_mask_2]) * bg_prob2

@@ -44,7 +44,7 @@ class CirclesRewards(RewardFunctionAbc):
                  *args, **kwargs):
         dev = prediction_segmentation.device
         return_scores = []
-        exp_factor = 4
+        exp_factor = 8
 
         for single_pred, single_sp_seg, s_dir_edges, s_actions, s_sp_cmrads in zip(prediction_segmentation,
                                                                                    superpixel_segmentation,
@@ -52,9 +52,8 @@ class CirclesRewards(RewardFunctionAbc):
             # assert single_sp_seg.max() == s_dir_edges.max()
             # assert s_dir_edges.shape[1] > 60
             # assert single_sp_seg.max() > 20
-            scores = torch.ones(int((single_sp_seg.max()) + 1, ), device=dev) * 0.5
+            scores = torch.zeros(int((single_sp_seg.max()) + 1, ), device=dev)
             if single_pred.max() == 0:  # image is empty
-                scores -= 0.5
                 if edge_score:
                     edges = s_dir_edges[:, :int(s_dir_edges.shape[1] / 2)]
                     edge_scores = scores[edges].max(dim=0).values
@@ -81,7 +80,6 @@ class CirclesRewards(RewardFunctionAbc):
             false_sp_ids = torch.unique((single_sp_seg[None] + 1) * one_hot[false_obj_mask])[1:] - 1
 
             # get shape descriptors for potential_objects and get a shape_score by comparing to self.descriptors
-            scores[false_sp_ids] -= 0.5
             good_obj_cnt = 0
             for object, obj_id, sp_ids in zip(potential_objects, potential_object_ids, object_sp_ids):
                 try:
@@ -89,30 +87,30 @@ class CirclesRewards(RewardFunctionAbc):
                     if len(contours) == 0:
                         raise Exception()
                 except:
-                    scores[sp_ids] -= 0.5
+                    scores[sp_ids] = 0.0
                     continue
 
                 if len(contours) > 1:
-                    scores[sp_ids] -= 0.5
+                    scores[sp_ids] = 0.0
                     continue
-                contour = contours[0]
+                contour = np.array(contours[0], dtype=np.float)
                 if (contour[0] == contour[-1]).sum() != 2:
                     continue
-                poly_chain = torch.from_numpy(approximate_polygon(contour, tolerance=0.0)).to(dev)
-                cm = poly_chain.mean(dim=0).cpu().numpy()
-                dsts = np.linalg.norm(poly_chain.cpu().numpy() - cm, axis=1)
+                cm = contour.mean(axis=0)
+                dsts = np.linalg.norm(contour - cm, axis=1)
                 dsts -= dsts.min()
                 max = dsts.max()
                 if max > 1:
                     dsts /= max
                 score = 1 - (np.std(dsts) * 2)
 
-                if score > 0.5:
-                    good_obj_cnt += 1
                 score = np.exp((score * exp_factor)) / np.exp(np.array([exp_factor]))
+                if score > 0.8:
+                    good_obj_cnt += 1
                 scores[sp_ids] += score.item()
 
-            scores[bg_sp_ids] += (good_obj_cnt / 20) / 2
+            scores[bg_sp_ids] = (0.9 * ((good_obj_cnt / 20) / 2)) + (0.1 * (1 / len(bg_object_ids) * 0.1))
+            scores[false_sp_ids] = 0.0
             if torch.isnan(scores).any() or torch.isinf(scores).any():
                 print(Warning("NaN or inf in scores this should not happen"))
                 sys.stdout.flush()
@@ -183,9 +181,11 @@ if __name__ == "__main__":
         mc_seg_old = None
         for itr in range(100):
             actions = gt_edges + torch.randn_like(gt_edges) * (itr / 100)
-            actions = torch.randn_like(gt_edges)
-            actions -= actions.min()
-            actions /= actions.max()
+            # actions = torch.randn_like(gt_edges)
+            actions = torch.zeros_like(gt_edges)
+            actions[1:4] = 1.0
+            # actions -= actions.min()
+            # actions /= actions.max()
 
             mc_seg = multicut_from_probas(superpixel_seg.cpu().numpy(), edges.T.cpu().numpy(), actions)
             mc_seg = torch.from_numpy(mc_seg.astype(np.int64)).to(dev)
@@ -212,7 +212,6 @@ if __name__ == "__main__":
 
             bnd_mask = torch.from_numpy(dilation(bnd_mask.cpu().numpy()))
 
-
             # frame_rew = np.stack([dilation(frame_rew.cpu().numpy()[..., i]) for i in range(3)], -1)
             # frame_act = np.stack([dilation(frame_act.cpu().numpy()[..., i]) for i in range(3)], -1)
             # scores_rew = np.stack([dilation(scores_rew.cpu().numpy()[..., i]) for i in range(3)], -1)
@@ -235,7 +234,6 @@ if __name__ == "__main__":
             ax[0, 1].imshow(mc_seg.cpu(), cmap=label_cm, alpha=0.8, interpolation="none")
             ax[0, 1].set_title("actions 0:g, 1:r")
             ax[0, 1].axis('off')
-
 
             # plt.savefig("/g/kreshuk/hilt/projects/RLForSeg/data/test.png", bbox_inches='tight')
             plt.show()
