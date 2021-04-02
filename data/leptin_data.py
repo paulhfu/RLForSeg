@@ -11,13 +11,13 @@ import nifty
 
 from affogato.segmentation import compute_mws_segmentation
 from utils.affinities import get_naive_affinities, get_edge_features_1d, get_max_hessian_eval, get_hessian_det
-from utils.general import calculate_gt_edge_costs, random_label_cmap
+from utils.general import calculate_gt_edge_costs, random_label_cmap, multicut_from_probas
 from utils.graphs import run_watershed
 import matplotlib.pyplot as plt
 from matplotlib import cm
 from elf.segmentation.features import compute_rag, compute_affinity_features
 from tifffile import imread
-from utils.general import pca_project, random_label_cmap, get_contour_from_seg
+from utils.general import pca_project, random_label_cmap
 from utils.pt_gaussfilter import GaussianSmoothing
 import torch.nn.functional as F
 tgtdir_train = "/g/kreshuk/hilt/projects/data/leptin_fused_tp1_ch_0/train"
@@ -138,13 +138,13 @@ def preprocess_data():
             # os.rename(os.path.join(graph_dir, "graph_" + str(i) + ".h5"), os.path.join(graph_dir, "graph_" + num + ".h5"))
             # os.rename(os.path.join(pix_dir, "pix_" + str(i) + ".h5"), os.path.join(pix_dir, "pix_" + num + ".h5"))
 
-            raw = torch.from_numpy(h5py.File(fname, 'r')['raw'][:].astype(np.float))
-            gt = h5py.File(fname, 'r')['label'][:].astype(np.long)
-            affs = torch.from_numpy(h5py.File(os.path.join(dir, 'affinities', tail[:-3] + '_predictions' + '.h5'), 'r')['predictions'][:]).squeeze(1)
+            # raw = torch.from_numpy(h5py.File(fname, 'r')['raw'][:].astype(np.float))
+            # gt = h5py.File(fname, 'r')['label'][:].astype(np.long)
+            # affs = torch.from_numpy(h5py.File(os.path.join(dir, 'affinities', tail[:-3] + '_predictions' + '.h5'), 'r')['predictions'][:]).squeeze(1)
 
 
-            raw -= raw.min()
-            raw /= raw.max()
+            # raw -= raw.min()
+            # raw /= raw.max()
             #
             # node_labeling = run_watershed(gaussian_filter(affs[0] + affs[1] + affs[2] + affs[3], sigma=.2), min_size=4)
             #
@@ -172,7 +172,6 @@ def preprocess_data():
             # affs = torch.sigmoid(affs).numpy()
             #
             # edge_feat, edges = get_edge_features_1d(node_labeling.numpy(), offs, affs[:4])
-            # gt_edge_weights = calculate_gt_edge_costs(torch.from_numpy(edges.astype(np.long)), node_labeling.squeeze(), gt.squeeze(), 0.5)
             #
             # gt_edge_weights = gt_edge_weights.numpy()
             # gt = gt.numpy()
@@ -188,10 +187,21 @@ def preprocess_data():
             # edges = edges.T
             # #
             # #
-            # graph_file = h5py.File(os.path.join(graph_dir, "graph_" + num + ".h5"), 'a')
+            dev = "cuda:0"
+            graph_file = h5py.File(os.path.join(graph_dir, "graph_" + num + ".h5"), 'r+')
             pix_file = h5py.File(os.path.join(pix_dir, "pix_" + num + ".h5"), 'r+')
-            if "raw" not in list(pix_file.keys()):
-                pix_file.create_dataset("raw", data=raw, chunks=True)
+            gt = pix_file["gt"][:]
+            sp_seg = graph_file["node_labeling"][:]
+            edges = graph_file["edges"][:]
+            gt_edge_weights = calculate_gt_edge_costs(torch.from_numpy(edges.T.astype(np.long)).to(dev), torch.from_numpy(sp_seg).to(dev), torch.from_numpy(gt.squeeze()).to(dev), 0.3).cpu()
+
+            # plt.imshow(multicut_from_probas(sp_seg, edges.T, calculate_gt_edge_costs(torch.from_numpy(edges.T.astype(np.long)).to(dev), torch.from_numpy(sp_seg).to(dev), torch.from_numpy(gt.squeeze()).to(dev), 1.5).cpu()), cmap=random_label_cmap(), interpolation="none");plt.show()
+            gt_sp_projection = multicut_from_probas(sp_seg, edges.T, gt_edge_weights)
+            # plt.imshow(gt_sp_projection, cmap=random_label_cmap(), interpolation="none");plt.show()
+            pix_file.create_dataset("sp_gt", data=gt_sp_projection, chunks=True)
+
+            # if "raw" not in list(pix_file.keys()):
+            #     pix_file.create_dataset("raw", data=raw, chunks=True)
             # pix_file.create_dataset("gt", data=gt, chunks=True)
             # #
             # graph_file.create_dataset("edges", data=edges, chunks=True)
@@ -202,7 +212,7 @@ def preprocess_data():
             # graph_file.create_dataset("affinities", data=affs, chunks=True)
             # graph_file.create_dataset("offsets", data=np.array([[1, 0], [0, 1], [2, 0], [0, 2], [4, 0], [0, 4], [8, 0], [0, 8], [16, 0], [0, 16]]), chunks=True)
             #
-            # graph_file.close()
+            graph_file.close()
             pix_file.close()
 
     pass
@@ -323,7 +333,7 @@ def show_labels(hmap):
 
 if __name__ == "__main__":
     # transfer_to_slices_in_files()
-    # preprocess_data()
+    preprocess_data()
     # graphs_for_masked_data()
     # check_sp()
     a=1
