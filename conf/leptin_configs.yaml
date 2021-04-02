@@ -52,7 +52,7 @@ backbone:
     # in intensity distribution between images with large and small cells
     layer_order: bcr
     num_groups: 8
-    f_maps: [32, 64, 128]
+    f_maps: [32, 64]
     #conv_padding: 0
     final_sigmoid: false
     is_segmentation: false
@@ -62,7 +62,7 @@ gnn_n_hl:
   value: 1
 gnn_size_hl:
   desc: factor by which feature size of hidden featuremaps in gnn increases/decreases
-  value: 2024
+  value: 524
 gnn_act_depth:
   desc: num of graph convs (1, 2, 3)
   value: 1
@@ -128,7 +128,7 @@ gt_edge_overlap_thresh:
   value: 0.5
 s_subgraph:
   desc: subgraph sizes
-  value: [6, 8, 16, 64, 128] # [8, 16, 32, 64]
+  value: [8, 16, 64] # [8, 16, 32, 64]
 entropy_range:
   desc: range of the min entropy constraint
   value: [0.05, 1.0]

@@ -57,7 +57,7 @@ class AgentSacTrainer(object):
         Scalers = namedtuple('Scalers', ('critic', 'actor'))
         OptimizerContainer = namedtuple('OptimizerContainer',
                                         ('actor', 'critic', 'temperature', 'actor_shed', 'critic_shed', 'temp_shed'))
-        actor_optimizer = torch.optim.Adam(list(self.model.actor.parameters()) + list(self.model.fe_ext.parameters()), lr=self.cfg.actor_lr)
+        actor_optimizer = torch.optim.Adam(self.model.actor.parameters(), lr=self.cfg.actor_lr)
         critic_optimizer = torch.optim.Adam(self.model.critic.parameters(), lr=self.cfg.critic_lr)
         temp_optimizer = torch.optim.Adam([self.model.log_alpha], lr=self.cfg.alpha_lr)
 

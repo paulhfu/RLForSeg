@@ -21,12 +21,10 @@ class Agent(torch.nn.Module):
         self.distance = distance
         dim_embed = self.cfg.dim_embeddings + 3
 
-        self.fe_ext = FeExtractor(dict_to_attrdict(self.cfg.backbone), self.distance, self.device)
-        self.fe_ext.embed_model.load_state_dict(torch.load(self.cfg.fe_model_name))
-        self.fe_ext.cuda(self.device)
-        self.actor = PolicyNet(dim_embed, 2, cfg.gnn_n_hl, cfg.gnn_size_hl, distance, device, False, cfg.gnn_act_depth, cfg.gnn_act_norm_inp)
-        self.critic = QValueNet(self.cfg.s_subgraph, dim_embed, 1, 1, cfg.gnn_n_hl, cfg.gnn_size_hl, distance, device, False, cfg.gnn_crit_depth, cfg.gnn_crit_norm_inp)
-        self.critic_tgt = QValueNet(self.cfg.s_subgraph, dim_embed, 1, 1, cfg.gnn_n_hl, cfg.gnn_size_hl, distance, device, False, cfg.gnn_crit_depth, cfg.gnn_crit_norm_inp)
+
+        self.actor = PolicyNet(dim_embed, 2, cfg.gnn_n_hl, cfg.gnn_size_hl, distance, cfg, device, False, cfg.gnn_act_depth, cfg.gnn_act_norm_inp)
+        self.critic = QValueNet(self.cfg.s_subgraph, dim_embed, 1, 1, cfg.gnn_n_hl, cfg.gnn_size_hl, distance, cfg, device, False, cfg.gnn_crit_depth, cfg.gnn_crit_norm_inp)
+        self.critic_tgt = QValueNet(self.cfg.s_subgraph, dim_embed, 1, 1, cfg.gnn_n_hl, cfg.gnn_size_hl, distance, cfg, device, False, cfg.gnn_crit_depth, cfg.gnn_crit_norm_inp)
 
         self.log_alpha = torch.tensor([np.log(self.cfg.init_temperature)] * len(self.cfg.s_subgraph)).to(device)
         if with_temp:
@@ -44,26 +42,11 @@ class Agent(torch.nn.Module):
     def forward(self, state, actions, expl_action, post_data, policy_opt, return_node_features, get_embeddings):
         state = self.StateClass(*state)
         # node_features = state.node_embeddings
-        raw = state.raw
 
-        if (self.cfg.backbone['in_channels'] == 4) and raw.shape[1] == 3:
-            edge_img = get_contour_from_2d_binary(state.sp_seg)
-            raw_input = torch.cat([raw, edge_img], dim=1)
-            with torch.set_grad_enabled(policy_opt):
-                embeddings = self.fe_ext(raw)
-        else:
-            with torch.set_grad_enabled(policy_opt):
-                embeddings = self.fe_ext(raw)
-
-        # get embedding agglomeration over each superpixel
-        node_features = torch.cat([self.fe_ext.get_mean_sp_embedding_chunked(embed, sp, chunks=20)
-                                                  for embed, sp in zip(embeddings, state.sp_seg)], dim=0)
-
-        node_features = torch.cat((node_features, state.sp_feat), 1)
         edge_index = torch.cat([state.edge_ids, torch.stack([state.edge_ids[1], state.edge_ids[0]], dim=0)], dim=1)  # gcnn expects two directed edges for one undirected edge
         if actions is None:
             with torch.set_grad_enabled(policy_opt):
-                out, side_loss = self.actor(node_features, edge_index, state.edge_feats, state.gt_edge_weights, post_data)
+                out, side_loss, embeddings, node_features = self.actor(state, edge_index, state.edge_feats, state.gt_edge_weights, post_data)
                 mu, std = out.chunk(2, dim=-1)
                 mu, std = mu.contiguous(), std.contiguous()
 
@@ -81,7 +64,7 @@ class Agent(torch.nn.Module):
                     z = ((expl_action - mu) / std).detach()
                     actions = mu + z * std
 
-            q, sl = self.critic_tgt(node_features, actions, edge_index, state.edge_feats, state.subgraph_indices,
+            q, sl = self.critic_tgt(state, actions, edge_index, state.edge_feats, state.subgraph_indices,
                                          state.sep_subgraphs, state.gt_edge_weights, post_data)
             side_loss = (side_loss + sl) / 2
             if policy_opt:
@@ -96,28 +79,45 @@ class Agent(torch.nn.Module):
                     return dist, q, actions, None, side_loss, embeddings.detach()
                 return dist, q, actions, None, side_loss
 
-        q, side_loss = self.critic(node_features, actions, edge_index, state.edge_feats, state.subgraph_indices,
+        q, side_loss = self.critic(state, actions, edge_index, state.edge_feats, state.subgraph_indices,
                                         state.sep_subgraphs, state.gt_edge_weights, post_data)
         return q, side_loss
 
 
 class PolicyNet(torch.nn.Module):
-    def __init__(self, n_in_features, n_classes, n_hidden_layer, hl_factor, distance, device, node_actions, depth, normalize_input):
+    def __init__(self, n_in_features, n_classes, n_hidden_layer, hl_factor, distance, cfg, device, node_actions, depth, normalize_input):
         super(PolicyNet, self).__init__()
+
+        self.fe_ext = FeExtractor(dict_to_attrdict(cfg.backbone), distance, device)
+        # self.fe_ext.embed_model.load_state_dict(torch.load(cfg.fe_model_name))
+        self.fe_ext.cuda(device)
+
         if node_actions:
             self.gcn = NodeGnn(n_in_features, n_classes, n_hidden_layer, hl_factor, distance, device, "actor")
         else:
             self.gcn = EdgeGnn(n_in_features, n_classes, 3, n_hidden_layer, hl_factor, distance, device, "actor", depth, normalize_input)
 
-    def forward(self, node_features, edge_index, edge_feats, gt_edges, post_data):
+    def forward(self, state, edge_index, edge_feats, gt_edges, post_data):
+
+        embeddings = self.fe_ext(state.raw)
+        # get embedding agglomeration over each superpixel
+        node_features = torch.cat([self.fe_ext.get_mean_sp_embedding_chunked(embed, sp, chunks=100)
+                                                  for embed, sp in zip(embeddings, state.sp_seg)], dim=0)
+
+        node_features = torch.cat((node_features, state.sp_feat), 1)
+
         actor_stats, side_loss = self.gcn(node_features, edge_index, edge_feats, gt_edges, post_data)
-        return actor_stats, side_loss
+        return actor_stats, side_loss, embeddings, node_features
 
 
 class QValueNet(torch.nn.Module):
-    def __init__(self, s_subgraph, n_in_features, n_actions, n_classes, n_hidden_layer, hl_factor, distance, device,
+    def __init__(self, s_subgraph, n_in_features, n_actions, n_classes, n_hidden_layer, hl_factor, distance, cfg, device,
                  node_actions, depth, normalize_input):
         super(QValueNet, self).__init__()
+
+        self.fe_ext = FeExtractor(dict_to_attrdict(cfg.backbone), distance, device)
+        # self.fe_ext.embed_model.load_state_dict(torch.load(cfg.fe_model_name))
+        self.fe_ext.cuda(device)
 
         self.s_subgraph = s_subgraph
         self.node_actions = node_actions
@@ -146,7 +146,16 @@ class QValueNet(torch.nn.Module):
             ))
             super(QValueNet, self).add_module(f"value{i}", self.value[-1])
 
-    def forward(self, node_features, actions, edge_index, edge_feat, sub_graphs, sep_subgraphs, gt_edges, post_data):
+    def forward(self, state, actions, edge_index, edge_feat, sub_graphs, sep_subgraphs, gt_edges, post_data):
+
+        embeddings = self.fe_ext(state.raw)
+
+        # get embedding agglomeration over each superpixel
+        node_features = torch.cat([self.fe_ext.get_mean_sp_embedding_chunked(embed, sp, chunks=100)
+                                                  for embed, sp in zip(embeddings, state.sp_seg)], dim=0)
+
+        node_features = torch.cat((node_features, state.sp_feat), 1)
+
         if actions.ndim < 2:
             actions = actions.unsqueeze(-1)
         if self.node_actions:
