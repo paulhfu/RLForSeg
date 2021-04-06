@@ -6,9 +6,11 @@ from skimage.measure import approximate_polygon, find_contours
 from skimage.morphology import dilation
 from skimage.draw import polygon_perimeter, line
 from utils.polygon_2d import Polygon2d
-from utils.general import random_label_cmap, get_colored_edges_in_sseg, sync_segmentations
+from utils.general import random_label_cmap, get_colored_edges_in_sseg, sync_segmentations, get_contour_from_2d_binary
 from utils.graphs import get_angles_smass_in_rag
+from skimage.transform import hough_circle, hough_circle_peaks
 import torch
+from skimage.draw import disk
 import math
 import copy
 from elf.segmentation.features import compute_rag
@@ -34,7 +36,6 @@ def show_conts(cont, shape, tolerance):
     plt.imshow(approx_image)
     plt.show()
 
-
 class CirclesRewards(RewardFunctionAbc):
 
     def __init__(self, *args, **kwargs):
@@ -44,7 +45,7 @@ class CirclesRewards(RewardFunctionAbc):
                  *args, **kwargs):
         dev = prediction_segmentation.device
         return_scores = []
-        exp_factor = 8
+        exp_factor = 2
 
         for single_pred, single_sp_seg, s_dir_edges, s_actions, s_sp_cmrads in zip(prediction_segmentation,
                                                                                    superpixel_segmentation,
@@ -52,6 +53,7 @@ class CirclesRewards(RewardFunctionAbc):
             # assert single_sp_seg.max() == s_dir_edges.max()
             # assert s_dir_edges.shape[1] > 60
             # assert single_sp_seg.max() > 20
+
             scores = torch.zeros(int((single_sp_seg.max()) + 1, ), device=dev)
             if single_pred.max() == 0:  # image is empty
                 if edge_score:
@@ -104,12 +106,115 @@ class CirclesRewards(RewardFunctionAbc):
                     dsts /= max
                 score = 1 - (np.std(dsts) * 2)
 
-                score = np.exp((score * exp_factor)) / np.exp(np.array([exp_factor]))
-                if score > 0.8:
+                if score > 0.85:
                     good_obj_cnt += 1
                 scores[sp_ids] += score.item()
 
-            scores[bg_sp_ids] = (0.9 * ((good_obj_cnt / 20) / 2)) + (0.1 * (1 / len(bg_object_ids) * 0.1))
+            # score = 0.5 * (good_obj_cnt / 20) + 0.5 * (1 / len(bg_object_ids))
+            score = 1 / len(bg_object_ids)
+            score = np.exp((score * exp_factor)) / np.exp(np.array([exp_factor]))
+            scores[bg_sp_ids] = score.item()
+            scores[false_sp_ids] = 0.0
+            if torch.isnan(scores).any() or torch.isinf(scores).any():
+                print(Warning("NaN or inf in scores this should not happen"))
+                sys.stdout.flush()
+                assert False
+            if edge_score:
+                edges = s_dir_edges[:, :int(s_dir_edges.shape[1] / 2)]
+                edge_scores = scores[edges].max(dim=0).values
+                return_scores.append(edge_scores)
+            else:
+                return_scores.append(scores)
+
+        return_scores = torch.cat(return_scores)
+        return return_scores
+
+
+class HoughCirclesRewards(RewardFunctionAbc):
+
+    def __init__(self, *args, **kwargs):
+        self.max_p = torch.nn.MaxPool2d(3, padding=1, stride=1)
+        self.circle_thresh = 0.4
+        self.range_rad = [10, 20]
+        self.range_num = [20, 20]
+
+    def __call__(self, prediction_segmentation, superpixel_segmentation, dir_edges, edge_score, sp_cmrads, actions,
+                 *args, **kwargs):
+        dev = prediction_segmentation.device
+        return_scores = []
+        exp_factor = 2
+
+        for single_pred, single_sp_seg, s_dir_edges, s_actions, s_sp_cmrads in zip(prediction_segmentation,
+                                                                                   superpixel_segmentation,
+                                                                                   dir_edges, actions, sp_cmrads):
+            # assert single_sp_seg.max() == s_dir_edges.max()
+            # assert s_dir_edges.shape[1] > 60
+            # assert single_sp_seg.max() > 20
+
+            scores = torch.zeros(int((single_sp_seg.max()) + 1, ), device=dev)
+            if single_pred.max() == 0:  # image is empty
+                if edge_score:
+                    edges = s_dir_edges[:, :int(s_dir_edges.shape[1] / 2)]
+                    edge_scores = scores[edges].max(dim=0).values
+                    return_scores.append(edge_scores)
+                else:
+                    return_scores.append(scores)
+                continue
+            # get one-hot representation
+            one_hot = torch.zeros((int(single_pred.max()) + 1,) + single_pred.size(), device=dev, dtype=torch.long) \
+                .scatter_(0, single_pred[None], 1)
+
+            # need masses to determine what potential_objects can be considered background
+            label_masses = one_hot.flatten(1).sum(-1)
+            # everything else are potential potential_objects
+            bg_obj_mask = label_masses > 1400
+            potenial_obj_mask = label_masses <= 1400
+            false_obj_mask = label_masses < 200
+            bg_object_ids = torch.nonzero(bg_obj_mask).squeeze(1)  # object label IDs
+            potential_object_ids = torch.nonzero(potenial_obj_mask).squeeze(1)  # object label IDs
+
+            potential_objects = one_hot[potential_object_ids]  # get object masks
+            bg_sp_ids = torch.unique((single_sp_seg[None] + 1) * one_hot[bg_object_ids])[1:] - 1
+            object_sp_ids = [torch.unique((single_sp_seg[None] + 1) * obj)[1:] - 1 for obj in potential_objects]
+            false_sp_ids = torch.unique((single_sp_seg[None] + 1) * one_hot[false_obj_mask])[1:] - 1
+
+            # Detect two radii
+            potential_fg = (potential_objects * torch.arange(len(potential_objects), device=dev)[:, None, None]).sum(0).float()
+            edge_image = ((- self.max_p(-potential_fg.unsqueeze(0)).squeeze()) != potential_fg).float().cpu().numpy()
+            hough_radii = np.arange(self.range_rad[0], self.range_rad[1])
+            hough_res = hough_circle(edge_image, hough_radii)
+            accums, cx, cy, radii = hough_circle_peaks(hough_res, hough_radii, total_num_peaks=self.range_num[1])
+            mp_circles = torch.from_numpy(np.stack([cy, cx], axis=1))
+            accepted_circles = accums > self.circle_thresh
+            good_obj_cnt = 0
+
+            if any(accepted_circles):
+                mp_circles = mp_circles[accepted_circles]
+                accums = accums[accepted_circles]
+                circle_idxs = [disk(mp, rad, shape=single_sp_seg.shape) for mp, rad in zip(mp_circles, radii)]
+
+                # plt.imshow(single_pred.cpu(), cmap=random_label_cmap(), interpolation="none"); plt.show()
+                # ex = torch.zeros_like(single_pred).cpu()
+                # for circle_idx in circle_idxs:
+                #     ex[circle_idx[0], circle_idx[1]] = 1
+                # plt.imshow(ex);plt.show()
+
+
+                circle_sps = [torch.unique(single_sp_seg[circle_idx[0], circle_idx[1]]).long() for circle_idx in circle_idxs]
+                n_objs = [len(torch.unique(1 + single_pred[circle_idx[0], circle_idx[1]])) - 1 for circle_idx in circle_idxs]
+
+                for circle_sp, val, n_obj in zip(circle_sps, accums, n_objs):
+                    val = (val - self.circle_thresh) / (1 - self.circle_thresh)
+                    hough_score = torch.sigmoid(torch.tensor([8 * (val - 0.5)])).item()
+                    num_obj_score = 1 / max(n_obj, 1)
+                    if num_obj_score == 1:
+                        good_obj_cnt += 1
+                    scores[circle_sp] = .5 * hough_score + .5 * num_obj_score
+
+            score = 0.5 * (good_obj_cnt / 20) + 0.5 * (1 / len(bg_object_ids))
+            # score = 1 / len(bg_object_ids)
+            score = np.exp((score * exp_factor)) / np.exp(np.array([exp_factor]))
+            scores[bg_sp_ids] = score.item()
             scores[false_sp_ids] = 0.0
             if torch.isnan(scores).any() or torch.isinf(scores).any():
                 print(Warning("NaN or inf in scores this should not happen"))
@@ -179,13 +284,13 @@ if __name__ == "__main__":
         gt_edges = calculate_gt_edge_costs(edges.T, superpixel_seg.squeeze(), gt_seg.squeeze(), thresh=0.5)
 
         mc_seg_old = None
-        for itr in range(100):
-            actions = gt_edges + torch.randn_like(gt_edges) * (itr / 100)
+        for itr in range(10):
+            actions = gt_edges + torch.randn_like(gt_edges) * (itr / 10)
             # actions = torch.randn_like(gt_edges)
-            actions = torch.zeros_like(gt_edges)
-            actions[1:4] = 1.0
-            # actions -= actions.min()
-            # actions /= actions.max()
+            # actions = torch.zeros_like(gt_edges)
+            # actions[1:4] = 1.0
+            actions -= actions.min()
+            actions /= actions.max()
 
             mc_seg = multicut_from_probas(superpixel_seg.cpu().numpy(), edges.T.cpu().numpy(), actions)
             mc_seg = torch.from_numpy(mc_seg.astype(np.int64)).to(dev)
@@ -198,7 +303,7 @@ if __name__ == "__main__":
             gt_seg = gt_seg[None]
             mc_seg = mc_seg[None]
 
-            f = CirclesRewards()
+            f = HoughCirclesRewards()
             # f.get_gaussians(.3, 0.16, .1, 0.2, 0.3, .2)
             # plt.imshow(pix_file['raw'][:]);plt.show()
             # rewards2 = f(gt_seg.long(), superpixel_seg.long(), dir_edges=[dir_edges], res=100)

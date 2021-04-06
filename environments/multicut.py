@@ -15,7 +15,7 @@ import sys
 
 from rewards.hc_reward import HoneycombReward
 from rewards.artificial_cells_reward import ArtificialCellsReward, ArtificialCellsReward2DEllipticFit
-from rewards.circles_reward import CirclesRewards
+from rewards.circles_reward import CirclesRewards, HoughCirclesRewards
 from rewards.leptin_data_reward_2d import LeptinDataReward2DTurning, LeptinDataReward2DEllipticFit, LeptinDataRotatedRectRewards, LeptinDataReward2DTurningWithEllipses
 from utils.reward_functions import UnSupervisedReward, SubGraphDiceReward
 from utils.graphs import collate_edges, get_edge_indices, get_angles_smass_in_rag
@@ -63,7 +63,8 @@ class MulticutEmbeddingsEnv():
             else:
                 self.reward_function = LeptinDataReward2DTurning()
         elif 'colorcircles' in self.cfg.reward_function:
-            self.reward_function = CirclesRewards()
+            # self.reward_function = CirclesRewards()
+            self.reward_function = HoughCirclesRewards()
         elif 'honeycomb_template' in self.cfg.reward_function:
             fnames_pix = sorted(glob(os.path.join(self.cfg.data_dir, 'pix_data/*.h5')))
             gts = [torch.from_numpy(h5py.File(fnames_pix[42], 'r')['gt'][:]).to(device)]
@@ -244,6 +245,8 @@ class MulticutEmbeddingsEnv():
         segmentations = []
         for i in range(1, len(self.e_offs)):
             probs = edge_weights[self.e_offs[i-1]:self.e_offs[i]]
+            probs -= probs.min()
+            probs /= probs.max()
             costs = (p_max - p_min) * probs + p_min
             costs = (torch.log((1. - costs) / costs)).detach().cpu().numpy()
             node_labels = elf.segmentation.multicut.multicut_decomposition(self.rags[i-1], costs, internal_solver='greedy-additive', n_threads=4)

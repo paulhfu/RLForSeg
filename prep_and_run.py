@@ -12,9 +12,9 @@ if __name__ == '__main__':
     # os.nice(15)
     # project name: "RL for Segmentation"
     base_dir = "/g/kreshuk/hilt/projects/RLForSeg/results/wandb"
-    project = "leptin_uv"
+    project = "leptin_uv_nodehf"
     entity = "rl_segmentation"
-    config = "conf/color_circles_configs.yaml"
+    config = "conf/leptin_configs.yaml"
     name = ""
 
     try:

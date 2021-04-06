@@ -35,7 +35,7 @@ patch_manager:
 # embedding network config
 fe_model_name:
   desc: path to state dict of trained model
-  value: /g/kreshuk/hilt/storage/leptin_data_nets/fe_cosine_ls_bn_2chnl.pth # fe_cosine_ls_bn_gtval, fe_cosine_ls_bn_2chnl
+  value: /g/kreshuk/hilt/storage/leptin_data_nets/best_val_model.pth # fe_cosine_ls_bn_2chnl.pth # fe_cosine_ls_bn_gtval, fe_cosine_ls_bn_2chnl
 dim_embeddings:
   desc: number of embedding feature channels
   value: 16
@@ -114,8 +114,8 @@ lr_sched:
     step_frequency: 10
     mov_avg_offset: 0.0
     torch_sched:  # conf for torch reduceOnPlateau scheduler
-      patience: 100
-      min_lr: 0.0001
+      patience: 60
+      min_lr: 0.00001
       factor: 0.05
       threshold: 0.01
 

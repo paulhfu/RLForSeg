@@ -204,11 +204,11 @@ class AgentSacTrainer(object):
 
         vi, are, arp, arr = self.clst_metric.dump()
         wandb.log({"validation/acc_reward": acc_reward})
-        wandb.log({"validation/mAP" : np.mean(map_scores)}, step=self.global_counter)
-        wandb.log({"validation/VI"  : vi}, step=self.global_counter)
-        wandb.log({"validation/ARE" : are}, step=self.global_counter)
-        wandb.log({"validation/ARP" : arp}, step=self.global_counter)
-        wandb.log({"validation/ARR" : arr}, step=self.global_counter)
+        wandb.log({"validation/mAP": np.mean(map_scores)}, step=self.global_counter)
+        wandb.log({"validation/VI": vi}, step=self.global_counter)
+        wandb.log({"validation/ARE": are}, step=self.global_counter)
+        wandb.log({"validation/ARP": arp}, step=self.global_counter)
+        wandb.log({"validation/ARR": arr}, step=self.global_counter)
 
         # do the lr sheduling
         self.optimizers.critic_shed.step(acc_reward)

@@ -152,7 +152,7 @@ class LeptinDataRotatedRectRewards(RewardFunctionAbc):
                 in_problem_area = False if ang is None else ang > self.problem_area[0] and ang < self.problem_area[1]
                 position = ((cm - self.circle_center) ** 2).sum().sqrt()
                 dt = abs(self.circle_rads[0] - position)
-                position_score = 0
+                position_score = 0.0
                 if dt < 100:
                     position_score = 1
 
@@ -172,7 +172,7 @@ class LeptinDataRotatedRectRewards(RewardFunctionAbc):
                 v = v / (np.linalg.norm(v) + 1e-10)
                 orientation_score = abs(np.dot(u, v))
 
-                shape_score = 0
+                shape_score = 0.0
                 diffs, diffl = abs(self.side_lens[0] - short_side), abs(self.side_lens[1] - long_side)
                 if not in_problem_area:
                     if diffs < (self.side_lens[0] / 4):
@@ -238,7 +238,7 @@ class LeptinDataRotatedRectRewards(RewardFunctionAbc):
                     elif ((dsts < self.circle_rads[1]).sum() / len(contour)) > 0.5:
                         scores[bg1_sp_ids] = 0.0
                     else:
-                        bg1_shape_score = 0
+                        bg1_shape_score = 0.0
                         principal_ax = fitEllipse(contour.astype(np.int))[1]
                         diff1 = abs(max(principal_ax) - self.exact_circle_rads[3])
                         diff2 = abs(min(principal_ax) - self.exact_circle_rads[2])
@@ -303,7 +303,7 @@ class LeptinDataRotatedRectRewards(RewardFunctionAbc):
                         scores[bg2_sp_ids] = 0.0
                     else:
 
-                        bg2_shape_score = 0
+                        bg2_shape_score = 0.0
                         principal_ax = fitEllipse(contour.astype(np.int))[1]
                         diff1 = abs(max(principal_ax) - self.exact_circle_rads[1])
                         diff2 = abs(min(principal_ax) - self.exact_circle_rads[0])

@@ -81,9 +81,10 @@ class PolicyNet(torch.nn.Module):
         if node_actions:
             self.gcn = NodeGnn(n_in_features, n_classes, n_hidden_layer, hl_factor, distance, device, "actor")
         else:
-            self.gcn = EdgeGnn(n_in_features, n_classes, 3, n_hidden_layer, hl_factor, distance, device, "actor", depth, normalize_input)
+            self.gcn = EdgeGnn(n_in_features, n_classes, False, 3, n_hidden_layer, hl_factor, distance, device, "actor", depth, normalize_input)
 
     def forward(self, node_features, edge_index, edge_feats, gt_edges, post_data):
+        edge_feats = None
         actor_stats, side_loss = self.gcn(node_features, edge_index, edge_feats, gt_edges, post_data)
         return actor_stats, side_loss
 
@@ -96,7 +97,7 @@ class QValueNet(torch.nn.Module):
         self.s_subgraph = s_subgraph
         self.node_actions = node_actions
         n_node_in_features = n_in_features
-        n_edge_in_features = n_actions + 3
+        n_edge_in_features = n_actions #+ 3
         if node_actions:
             n_node_in_features += n_actions
             n_edge_in_features = 1
@@ -127,7 +128,8 @@ class QValueNet(torch.nn.Module):
             node_features = torch.cat([node_features, actions], dim=-1)
             edge_features = edge_feat
         else:
-            edge_features = torch.cat([actions, edge_feat], dim=-1)
+            # edge_features = torch.cat([actions, edge_feat], dim=-1)
+            edge_features = actions
 
         edge_feats, side_loss = self.gcn(node_features, edge_features, edge_index, gt_edges, post_data)
 

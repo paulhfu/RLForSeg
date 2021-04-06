@@ -2,6 +2,9 @@ import torch
 import numpy as np
 import vigra
 import math
+import nifty
+import elf
+import nifty.graph.agglo as nagglo
 from elf.segmentation.watershed import watershed, apply_size_filter
 import matplotlib.pyplot as plt
 
@@ -116,6 +119,40 @@ def run_watershed(hmap_, min_size=None, nhood=4):
     if min_size is not None:
         ws, _ = apply_size_filter(ws, hmap, min_size)
     return ws
+
+def get_soln_graph_clustering(sp_seg, edge_ids, node_features, n_max_object):
+    labels = []
+    node_labels = []
+    cluster_policy = nagglo.nodeAndEdgeWeightedClusterPolicy
+    for i, sp_seg in enumerate(sp_seg):
+        single_node_features = node_features.detach().cpu().numpy()
+        rag = nifty.graph.undirectedGraph(single_node_features.shape[0])
+        rag.insertEdges((edge_ids).detach().cpu().numpy())
+
+        edge_weights = np.ones(rag.numberOfEdges, dtype=np.int)
+        edge_sizes = np.ones(rag.numberOfEdges, dtype=np.int)
+        node_sizes = np.ones(rag.numberOfNodes, dtype=np.int)
+
+        policy = cluster_policy(
+            graph=rag,
+            edgeIndicators=edge_weights,
+            edgeSizes=edge_sizes,
+            nodeFeatures=single_node_features,
+            nodeSizes=node_sizes,
+            numberOfNodesStop=n_max_object,
+            beta=1,
+            sizeRegularizer=0
+        )
+
+        clustering = nagglo.agglomerativeClustering(policy)
+        clustering.run()
+
+        node_labels.append(clustering.result())
+        rag = elf.segmentation.features.compute_rag(np.expand_dims(sp_seg.cpu(), axis=0))
+        labels.append(elf.segmentation.features.project_node_labels_to_pixels(rag, node_labels[-1]).squeeze())
+    return torch.from_numpy(np.stack(labels).astype(np.float)).to(node_features.device), \
+           torch.from_numpy(np.concatenate(node_labels).astype(np.float)).to(node_features.device)
+
 
 if __name__ == "__main__":
     # edges = np.array([[1, 3], [2, 4], [1, 2], [2, 3], [3, 5], [3, 6], [1, 5], [2, 8], [4, 8], [4, 9], [5, 9], [8, 9]])

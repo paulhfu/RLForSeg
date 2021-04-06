@@ -1,7 +1,7 @@
 # general configs
 agent:
   desc: method used for the agent
-  value: a2c
+  value: sac
 verbose:
   desc: prints intermediate results to sdt.out
   value: true
@@ -114,8 +114,8 @@ lr_sched:
     step_frequency: 10
     mov_avg_offset: 0.0
     torch_sched:  # conf for torch reduceOnPlateau scheduler
-      patience: 20
-      min_lr: 0.000001
+      patience: 100
+      min_lr: 0.00001
       factor: 0.05
       threshold: 0.01
 
@@ -128,7 +128,7 @@ gt_edge_overlap_thresh:
   value: 0.5
 s_subgraph:
   desc: subgraph sizes
-  value: [4, 8, 32, 64] # [8, 16, 32, 64]
+  value: [4, 6, 12, 64] # [8, 16, 32, 64]
 entropy_range:
   desc: range of the min entropy constraint
   value: [0.05, 2.0]
