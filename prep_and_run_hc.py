@@ -12,7 +12,7 @@ if __name__ == '__main__':
     # os.nice(15)
     # project name: "RL for Segmentation"
     base_dir = "/g/kreshuk/kaziakhm/paper_result/gen/"
-    project = "hc_turning_function"
+    project = "honeycombs_v2_n3"
     entity = "rl_segmentation"
     config = "conf/tlo_configs_hc.yaml"
     name = ""

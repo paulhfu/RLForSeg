@@ -14,6 +14,7 @@ from rag_utils import find_dense_subgraphs
 import sys
 
 from rewards.hc_reward import HoneycombReward
+from rewards.hc_reward_v2 import HoneycombRewardv2
 from rewards.artificial_cells_reward import ArtificialCellsReward, ArtificialCellsReward2DEllipticFit
 from rewards.circles_reward import CirclesRewards, HoughCirclesRewards
 from rewards.leptin_data_reward_2d import LeptinDataReward2DTurning, LeptinDataReward2DEllipticFit, LeptinDataRotatedRectRewards, LeptinDataReward2DTurningWithEllipses
@@ -65,7 +66,7 @@ class MulticutEmbeddingsEnv():
         elif 'colorcircles' in self.cfg.reward_function:
             # self.reward_function = CirclesRewards()
             self.reward_function = HoughCirclesRewards()
-        elif 'honeycomb_template' in self.cfg.reward_function:
+        elif self.cfg.reward_function == 'honeycomb_template':
             fnames_pix = sorted(glob(os.path.join(self.cfg.data_dir, 'pix_data/*.h5')))
             gts = [torch.from_numpy(h5py.File(fnames_pix[42], 'r')['gt'][:]).to(device)]
             # gts.append(torch.from_numpy(h5py.File(fnames_pix[3], 'r')['gt'][:]).to(device))
@@ -79,6 +80,20 @@ class MulticutEmbeddingsEnv():
                 sample_shapes.append(torch.zeros((int(gt.max()) + 1,) + gt.size(), device=device).scatter_(0, gt[None], 1)[
                                      1:])  # 0 should be background
             self.reward_function = HoneycombReward(torch.cat(sample_shapes)[5:6,...])
+        elif self.cfg.reward_function == 'honeycomb_template_v2':
+            fnames_pix = sorted(glob(os.path.join(self.cfg.data_dir, 'pix_data/*.h5')))
+            gts = [torch.from_numpy(h5py.File(fnames_pix[42], 'r')['gt'][:]).to(device)]
+            # gts.append(torch.from_numpy(h5py.File(fnames_pix[3], 'r')['gt'][:]).to(device))
+            sample_shapes = []
+            for gt in gts:
+                # set gt to consecutive integer labels
+                _gt = torch.zeros_like(gt).long()
+                for _lbl, lbl in enumerate(torch.unique(gt)):
+                    _gt += (gt == lbl).long() * _lbl
+                gt = _gt
+                sample_shapes.append(torch.zeros((int(gt.max()) + 1,) + gt.size(), device=device).scatter_(0, gt[None], 1)[
+                                     1:])  # 0 should be background
+            self.reward_function = HoneycombRewardv2(torch.cat(sample_shapes)[6:7,...])
         else:
             assert False
 

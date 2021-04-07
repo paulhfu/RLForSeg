@@ -7,10 +7,10 @@ verbose:
   value: true
 run_id:
   desc: dir name in base-dir. Logs are in here
-  value: honeycomb_3
+  value: honeycomb_v2_n3
 store_indices:
   desc: choose which images to store
-  value: [1, 5, 9]
+  value: [1, 10, 19]
 agent_model_name:
   desc: if not empty, agent will be initialized with the state dict at this location
   value: '' # agent_model_svpfe.pth
@@ -18,10 +18,10 @@ agent_model_name:
 # data configs
 data_dir:
   desc: train data dir
-  value: /g/kreshuk/kaziakhm/toy_data_honeycombs/train
+  value: /g/kreshuk/kaziakhm/toy_data_honeycombs_v2_n3/train
 val_data_dir:
   desc: validation data dir
-  value: /g/kreshuk/kaziakhm/toy_data_honeycombs/val
+  value: /g/kreshuk/kaziakhm/toy_data_honeycombs_v2_n3/val
 data_keys:
   desc: keys for data in h5 file
   value:
@@ -40,7 +40,7 @@ patch_manager:
 # embedding network config
 fe_model_name:
   desc: path to state dict of trained model
-  value: /g/kreshuk/kaziakhm/paper_result/fe_honeycombs/honeycomb_noise_3/best_val_model.pth
+  value: /g/kreshuk/kaziakhm/paper_result/fe_honeycombs_v2_n3/logs_02_aff1/best_val_model.pth
 dim_embeddings:
   desc: number of embedding feature channels
   value: 16
@@ -96,7 +96,7 @@ post_stats_frequency:
   value: 10
 validatoin_freq:
   desc: validate after n steps
-  value: 10
+  value: 100
 n_updates_per_step:
   desc: perform n optim steps per env step
   value: 10
@@ -124,13 +124,13 @@ lr_sched:
 # specific configs for the sac algorithm
 reward_function:
   desc: one of sub_graph_dice, artificial_cellsTurningFunc, artificial_cellsEllipticFit, honeycomb_template
-  value: sub_graph_dice
+  value: honeycomb_template_v2
 gt_edge_overlap_thresh:
   desc: if using gt edges this is the overlap thresh of the underlying gt for a gt edge to be 1
   value: 0.5
 s_subgraph:
   desc: subgraph sizes
-  value: [8, 16, 32, 64] #  [2, 4, 8] 
+  value: [2, 4, 8]
 entropy_range:
   desc: range of the min entropy constraint
   value: [0.05, 2.0]
