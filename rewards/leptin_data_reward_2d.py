@@ -354,12 +354,12 @@ class LeptinDataRotatedRectRewards(RewardFunctionAbc):
             if torch.isnan(scores).any() or torch.isinf(scores).any():
                 print(Warning("NaN or inf in scores this should not happen"))
             if edge_score:
-                # .02, 0.1, .1, 0.2, 0.25, .3
+                # .02, 0.13, .12, 0.2, 0.4, .3
                 s1 = .02
-                s2 = .1
-                s3 = .1
+                s2 = .13
+                s3 = .12
                 w1 = .2
-                w2 = .25
+                w2 = .4
                 w3 = .3
                 n = math.sqrt((single_sp_seg.shape[0] / 2) ** 2 + (single_sp_seg.shape[1] / 2) ** 2)
                 edges = s_dir_edges[:, :int(s_dir_edges.shape[1] / 2)]
@@ -384,11 +384,11 @@ class LeptinDataRotatedRectRewards(RewardFunctionAbc):
                 fg_prob1 = torch.exp(-dst3 ** 2 / (2 * s3 ** 2)) / (math.sqrt(2 * np.pi) * s3) * w3
                 fg_prob2 = torch.exp(-dst4 ** 2 / (2 * s3 ** 2)) / (math.sqrt(2 * np.pi) * s3) * w3
 
-                # bg_prob1 = torch.clamp(bg_prob1, max=1)
-                # bg_prob2 = torch.clamp(bg_prob2, max=1)
-                # fg_prob1 = torch.clamp(fg_prob1, max=1)
-                # fg_prob2 = torch.clamp(fg_prob2, max=1)
-
+                bg_prob1 = torch.clamp(bg_prob1, max=1)
+                bg_prob2 = torch.clamp(bg_prob2, max=1)
+                fg_prob1 = torch.clamp(fg_prob1, max=1)
+                fg_prob2 = torch.clamp(fg_prob2, max=1)
+                #
                 weight1, weight2 = fg_prob1 + bg_prob1, fg_prob2 + bg_prob2
                 fg_prob1, bg_prob1 = fg_prob1 / weight1, bg_prob1 / weight1
                 fg_prob2, bg_prob2 = fg_prob2 / weight2, bg_prob2 / weight2
@@ -455,6 +455,10 @@ class LeptinDataRotatedRectRewards(RewardFunctionAbc):
         fg_prob = np.exp(-dst3 ** 2 / (2 * s3 ** 2)) / (math.sqrt(2 * np.pi) * s3) * w3
         # plt.imshow(fg_prob);
         # plt.show()
+
+        bg_prob1 = np.clip(bg_prob1, a_max=1, a_min=0)
+        bg_prob2 = np.clip(bg_prob2, a_max=1, a_min=0)
+        fg_prob = np.clip(fg_prob, a_max=1, a_min=0)
 
         zz = bg_prob2 + bg_prob1 + fg_prob
         print(f"z(210):{zz[375, self.circle_center[1] - 210]}  z(260):{zz[375, self.circle_center[1] - 260]}  fgn(210): {fg_prob[375,self.circle_center[1] -  210]}  fgn(260): {fg_prob[375, self.circle_center[1] - 260]}  bgn1(260): {bg_prob1[375, self.circle_center[1] - 260]}  bgn2(210): {bg_prob2[375, self.circle_center[1] - 210]}")
@@ -1199,7 +1203,7 @@ if __name__ == "__main__":
             mc_seg = mc_seg[None]
 
             f = LeptinDataRotatedRectRewards()
-            # f.get_gaussians(.01, 0.16, .05, 0.2, 0.3, .2)
+            # f.get_gaussians(.02, 0.13, .12, 0.2, 0.4, .3)
             # plt.imshow(pix_file['raw'][:]);plt.show()
             # rewards2 = f(gt_seg.long(), superpixel_seg.long(), dir_edges=[dir_edges], res=100)
             edge_angles, sp_feat, sp_rads = get_angles_smass_in_rag(edges, superpixel_seg.long())

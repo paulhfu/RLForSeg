@@ -13,12 +13,15 @@ from affogato.segmentation import compute_mws_segmentation
 from utils.affinities import get_naive_affinities, get_edge_features_1d, get_max_hessian_eval, get_hessian_det
 from utils.general import calculate_gt_edge_costs, random_label_cmap, multicut_from_probas
 from utils.graphs import run_watershed
+from models.feature_extractor import FeExtractor
 import matplotlib.pyplot as plt
 from matplotlib import cm
 from elf.segmentation.features import compute_rag, compute_affinity_features
 from tifffile import imread
-from utils.general import pca_project, random_label_cmap
+from utils.distances import CosineDistance
 from utils.pt_gaussfilter import GaussianSmoothing
+from utils.affinities import get_affinities_from_embeddings_2d
+import threading
 import torch.nn.functional as F
 tgtdir_train = "/g/kreshuk/hilt/projects/data/leptin_fused_tp1_ch_0/train"
 tgtdir_val = "/g/kreshuk/hilt/projects/data/leptin_fused"
@@ -125,16 +128,39 @@ def preprocess_data_1():
 
 tgtdir_train = "/g/kreshuk/hilt/projects/data/leptin_fused_tp1_ch_0/train"
 tgtdir_val = "/g/kreshuk/hilt/projects/data/leptin_fused_tp1_ch_0/true_val"
+
+backbone = {
+    "name": "UNet2D",
+    "in_channels": 2,
+    "out_channels": 16,
+    "layer_order": "bcr",
+    "num_groups": 8,
+    "f_maps": [32, 64, 128, 256],
+    "final_sigmoid": False,
+    "is_segmentation": False
+}
+
 def preprocess_data():
     gauss_kernel = GaussianSmoothing(1, 5, 3, device="cpu")
+    distance = CosineDistance()
+    device = "cuda:0"
+    fe_model_name = "/g/kreshuk/hilt/storage/leptin_data_nets/best_val_model.pth"
+
+    model = FeExtractor(backbone, distance, device)
+    model.embed_model.load_state_dict(torch.load(fe_model_name))
+    model.cuda("cuda:0")
+
+    offs = [[1, 0], [0, 1], [2, 0], [0, 2], [4, 0], [0, 4], [8, 0], [0, 8], [16, 0], [0, 16]]
     for j, dir in enumerate([tgtdir_val]):
-        fnames = sorted(glob(os.path.join(dir, 'raw_gt/*.h5')))
         pix_dir = os.path.join(dir, 'pix_data')
         graph_dir = os.path.join(dir, 'graph_data')
-        for i in range(len(fnames)):
+        new_pix_dir = os.path.join(dir, "bg_masked_data", 'pix_data')
+        new_graph_dir = os.path.join(dir, "bg_masked_data", 'graph_data')
+        fnames = sorted(glob(os.path.join(pix_dir, '*.h5')))
+        def process_file(i):
             fname = fnames[i]
             head, tail = os.path.split(fname)
-            num = tail[6:-3]
+            num = tail[4:-3]
             # os.rename(os.path.join(graph_dir, "graph_" + str(i) + ".h5"), os.path.join(graph_dir, "graph_" + num + ".h5"))
             # os.rename(os.path.join(pix_dir, "pix_" + str(i) + ".h5"), os.path.join(pix_dir, "pix_" + num + ".h5"))
 
@@ -187,33 +213,91 @@ def preprocess_data():
             # edges = edges.T
             # #
             # #
-            dev = "cuda:0"
-            graph_file = h5py.File(os.path.join(graph_dir, "graph_" + num + ".h5"), 'r+')
-            pix_file = h5py.File(os.path.join(pix_dir, "pix_" + num + ".h5"), 'r+')
+            graph_file = h5py.File(os.path.join(graph_dir, "graph_" + num + ".h5"), 'r')
+            pix_file = h5py.File(os.path.join(pix_dir, "pix_" + num + ".h5"), 'r')
+
+            raw = pix_file["raw_2chnl"][:]
             gt = pix_file["gt"][:]
             sp_seg = graph_file["node_labeling"][:]
             edges = graph_file["edges"][:]
-            gt_edge_weights = calculate_gt_edge_costs(torch.from_numpy(edges.T.astype(np.long)).to(dev), torch.from_numpy(sp_seg).to(dev), torch.from_numpy(gt.squeeze()).to(dev), 0.3).cpu()
+            affs = graph_file["affinities"][:]
 
-            # plt.imshow(multicut_from_probas(sp_seg, edges.T, calculate_gt_edge_costs(torch.from_numpy(edges.T.astype(np.long)).to(dev), torch.from_numpy(sp_seg).to(dev), torch.from_numpy(gt.squeeze()).to(dev), 1.5).cpu()), cmap=random_label_cmap(), interpolation="none");plt.show()
-            gt_sp_projection = multicut_from_probas(sp_seg, edges.T, gt_edge_weights)
-            # plt.imshow(gt_sp_projection, cmap=random_label_cmap(), interpolation="none");plt.show()
-            pix_file.create_dataset("sp_gt", data=gt_sp_projection, chunks=True)
-
-            # if "raw" not in list(pix_file.keys()):
-            #     pix_file.create_dataset("raw", data=raw, chunks=True)
-            # pix_file.create_dataset("gt", data=gt, chunks=True)
-            # #
-            # graph_file.create_dataset("edges", data=edges, chunks=True)
-            # graph_file.create_dataset("edge_feat", data=edge_feat, chunks=True)
-            # graph_file.create_dataset("diff_to_gt", data=diff_to_gt)
-            # graph_file.create_dataset("gt_edge_weights", data=gt_edge_weights, chunks=True)
-            # graph_file.create_dataset("node_labeling", data=node_labeling, chunks=True)
-            # graph_file.create_dataset("affinities", data=affs, chunks=True)
-            # graph_file.create_dataset("offsets", data=np.array([[1, 0], [0, 1], [2, 0], [0, 2], [4, 0], [0, 4], [8, 0], [0, 8], [16, 0], [0, 16]]), chunks=True)
-            #
             graph_file.close()
             pix_file.close()
+            # plt.imshow(multicut_from_probas(sp_seg, edges.T, calculate_gt_edge_costs(torch.from_numpy(edges.T.astype(np.long)).to(dev), torch.from_numpy(sp_seg).to(dev), torch.from_numpy(gt.squeeze()).to(dev), 1.5).cpu()), cmap=random_label_cmap(), interpolation="none");plt.show()
+            with torch.set_grad_enabled(False):
+                embeddings = model(torch.from_numpy(raw).to(device).float()[None])
+            emb_affs = get_affinities_from_embeddings_2d(embeddings, offs, 0.4, distance)[0].cpu().numpy()
+            ew_embedaffs = 1 - get_edge_features_1d(sp_seg, offs, emb_affs)[0][:, 0]
+            mc_soln = torch.from_numpy(multicut_from_probas(sp_seg, edges.T, ew_embedaffs).astype(np.long)).to(device)
+
+            mask = mc_soln[None] == torch.unique(mc_soln)[:, None, None]
+            mc_soln = (mask * (torch.arange(len(torch.unique(mc_soln)), device=device)[:, None, None] + 1)).sum(0) - 1
+
+            masses = (mc_soln[None] == torch.unique(mc_soln)[:, None, None]).sum(-1).sum(-1)
+            bg1id = masses.argmax()
+            masses[bg1id] = 0
+            bg1_mask = mc_soln == bg1id
+            bg2_mask = mc_soln == masses.argmax()
+
+            sp_seg = torch.from_numpy(sp_seg.astype(np.long)).to(device)
+
+            mask = sp_seg[None] == torch.unique(sp_seg)[:, None, None]
+            sp_seg = (mask * (torch.arange(len(torch.unique(sp_seg)), device=sp_seg.device)[:, None, None] + 1)).sum(0) - 1
+
+            sp_seg += 2
+            sp_seg *= (bg1_mask == 0)
+            sp_seg *= (bg2_mask == 0)
+            sp_seg += bg2_mask
+
+            mask = sp_seg[None] == torch.unique(sp_seg)[:, None, None]
+            sp_seg = (mask * (torch.arange(len(torch.unique(sp_seg)), device=sp_seg.device)[:, None, None] + 1)).sum(0) - 1
+            sp_seg = sp_seg.cpu()
+
+            raw -= raw.min()
+            raw /= raw.max()
+            edge_feat, edges = get_edge_features_1d(sp_seg.numpy(), offs[:4], affs[:4])
+            edges = edges.astype(np.long)
+
+            gt_edge_weights = calculate_gt_edge_costs(torch.from_numpy(edges).to(device), sp_seg.to(device), torch.from_numpy(gt).to(device), 0.4)
+            node_labeling = sp_seg.numpy()
+
+            affs = affs.astype(np.float32)
+            edge_feat = edge_feat.astype(np.float32)
+            node_labeling = node_labeling.astype(np.float32)
+            gt_edge_weights = gt_edge_weights.cpu().numpy().astype(np.float32)
+            # edges = np.sort(edges, axis=-1)
+            edges = edges.T
+            # plt.imshow(sp_seg.cpu(), cmap=random_label_cmap(), interpolation="none");plt.show()
+            # plt.imshow(bg1_mask.cpu());plt.show()
+            # plt.imshow(bg2_mask.cpu());plt.show()
+            new_pix_file = h5py.File(os.path.join(new_pix_dir, "pix_" + num + ".h5"), 'w')
+            new_graph_file = h5py.File(os.path.join(new_graph_dir, "graph_" + num + ".h5"), 'w')
+
+            # plt.imshow(gt_sp_projection, cmap=random_label_cmap(), interpolation="none");plt.show()
+
+            new_pix_file.create_dataset("raw_2chnl", data=raw, chunks=True)
+            new_pix_file.create_dataset("gt", data=gt, chunks=True)
+            #
+            new_graph_file.create_dataset("edges", data=edges, chunks=True)
+            new_graph_file.create_dataset("edge_feat", data=edge_feat, chunks=True)
+            new_graph_file.create_dataset("gt_edge_weights", data=gt_edge_weights, chunks=True)
+            new_graph_file.create_dataset("node_labeling", data=node_labeling, chunks=True)
+            new_graph_file.create_dataset("affinities", data=affs, chunks=True)
+            new_graph_file.create_dataset("offsets", data=np.array([[1, 0], [0, 1], [2, 0], [0, 2], [4, 0], [0, 4], [8, 0], [0, 8], [16, 0], [0, 16]]), chunks=True)
+            #
+            new_graph_file.close()
+            new_pix_file.close()
+
+        workers = []
+        for i in range(len(fnames)):
+            worker = threading.Thread(target=process_file, args=(i,))
+            worker.start()
+            workers.append(worker)
+
+        for worker in workers:
+            worker.join()
+
 
     pass
 
@@ -277,7 +361,7 @@ def graphs_for_masked_data():
             node_labeling = node_labeling.astype(np.float32)
             gt_edge_weights = gt_edge_weights.astype(np.float32)
             diff_to_gt = np.abs((edge_feat[:, 0] - gt_edge_weights)).sum()
-            edges = np.sort(edges, axis=-1)
+            # edges = np.sort(edges, axis=-1)
             edges = edges.T
 
 

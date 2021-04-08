@@ -6,6 +6,7 @@ from models.gnn import EdgeGnn, NodeGnn, QGnn, GlobalEdgeGnn
 from utils.distances import CosineDistance
 from utils.sigmoid_normal import SigmNorm
 
+
 class Agent(torch.nn.Module):
     def __init__(self, cfg, StateClass, distance, device, with_temp=True):
         super(Agent, self).__init__()
@@ -17,9 +18,12 @@ class Agent(torch.nn.Module):
         self.distance = distance
         dim_embed = self.cfg.dim_embeddings + 3
 
-        self.actor = PolicyNet(dim_embed, 2, cfg.gnn_n_hl, cfg.gnn_size_hl, distance, device, False, cfg.gnn_act_depth, cfg.gnn_act_norm_inp)
-        self.critic = QValueNet(self.cfg.s_subgraph, dim_embed, 1, 1, cfg.gnn_n_hl, cfg.gnn_size_hl, distance, device, False, cfg.gnn_crit_depth, cfg.gnn_crit_norm_inp)
-        self.critic_tgt = QValueNet(self.cfg.s_subgraph, dim_embed, 1, 1, cfg.gnn_n_hl, cfg.gnn_size_hl, distance, device, False, cfg.gnn_crit_depth, cfg.gnn_crit_norm_inp)
+        self.actor = PolicyNet(dim_embed, 2, cfg.gnn_n_hl, cfg.gnn_size_hl, distance, cfg.gnn_dropout, device, False,
+                               cfg.gnn_act_depth, cfg.gnn_act_norm_inp)
+        self.critic = QValueNet(self.cfg.s_subgraph, dim_embed, 1, 1, cfg.gnn_n_hl, cfg.gnn_size_hl, distance,
+                                cfg.gnn_dropout, device, False, cfg.gnn_crit_depth, cfg.gnn_crit_norm_inp)
+        self.critic_tgt = QValueNet(self.cfg.s_subgraph, dim_embed, 1, 1, cfg.gnn_n_hl, cfg.gnn_size_hl, distance,
+                                    cfg.gnn_dropout, device, False, cfg.gnn_crit_depth, cfg.gnn_crit_norm_inp)
 
         self.log_alpha = torch.tensor([np.log(self.cfg.init_temperature)] * len(self.cfg.s_subgraph)).to(device)
         if with_temp:
@@ -38,10 +42,12 @@ class Agent(torch.nn.Module):
         state = self.StateClass(*state)
         # node_features = state.node_embeddings
         node_features = torch.cat((state.node_embeddings, state.sp_feat), 1)
-        edge_index = torch.cat([state.edge_ids, torch.stack([state.edge_ids[1], state.edge_ids[0]], dim=0)], dim=1)  # gcnn expects two directed edges for one undirected edge
+        edge_index = torch.cat([state.edge_ids, torch.stack([state.edge_ids[1], state.edge_ids[0]], dim=0)],
+                               dim=1)  # gcnn expects two directed edges for one undirected edge
         if actions is None:
             with torch.set_grad_enabled(policy_opt):
-                out, side_loss = self.actor(node_features, edge_index, state.edge_feats, state.gt_edge_weights, post_data)
+                out, side_loss = self.actor(node_features, edge_index, state.edge_feats, state.gt_edge_weights,
+                                            post_data)
                 mu, std = out.chunk(2, dim=-1)
                 mu, std = mu.contiguous(), std.contiguous()
 
@@ -60,7 +66,7 @@ class Agent(torch.nn.Module):
                     actions = mu + z * std
 
             q, sl = self.critic_tgt(node_features, actions, edge_index, state.edge_feats, state.subgraph_indices,
-                                         state.sep_subgraphs, state.gt_edge_weights, post_data)
+                                    state.sep_subgraphs, state.gt_edge_weights, post_data)
             side_loss = (side_loss + sl) / 2
             if policy_opt:
                 return dist, q, actions, side_loss
@@ -71,17 +77,19 @@ class Agent(torch.nn.Module):
                 return dist, q, actions, None, side_loss
 
         q, side_loss = self.critic(node_features, actions, edge_index, state.edge_feats, state.subgraph_indices,
-                                        state.sep_subgraphs, state.gt_edge_weights, post_data)
+                                   state.sep_subgraphs, state.gt_edge_weights, post_data)
         return q, side_loss
 
 
 class PolicyNet(torch.nn.Module):
-    def __init__(self, n_in_features, n_classes, n_hidden_layer, hl_factor, distance, device, node_actions, depth, normalize_input):
+    def __init__(self, n_in_features, n_classes, n_hidden_layer, hl_factor, distance, dropout, device, node_actions,
+                 depth, normalize_input):
         super(PolicyNet, self).__init__()
         if node_actions:
-            self.gcn = NodeGnn(n_in_features, n_classes, n_hidden_layer, hl_factor, distance, device, "actor")
+            self.gcn = NodeGnn(n_in_features, n_classes, n_hidden_layer, hl_factor, distance, dropout, device, "actor")
         else:
-            self.gcn = EdgeGnn(n_in_features, n_classes, False, 3, n_hidden_layer, hl_factor, distance, device, "actor", depth, normalize_input)
+            self.gcn = EdgeGnn(n_in_features, n_classes, False, 3, n_hidden_layer, hl_factor, distance, dropout, device,
+                               "actor", depth, normalize_input, False)
 
     def forward(self, node_features, edge_index, edge_feats, gt_edges, post_data):
         edge_feats = None
@@ -90,34 +98,37 @@ class PolicyNet(torch.nn.Module):
 
 
 class QValueNet(torch.nn.Module):
-    def __init__(self, s_subgraph, n_in_features, n_actions, n_classes, n_hidden_layer, hl_factor, distance, device,
-                 node_actions, depth, normalize_input):
+    def __init__(self, s_subgraph, n_in_features, n_actions, n_classes, n_hidden_layer, hl_factor, distance, dropout,
+                 device, node_actions, depth, normalize_input):
         super(QValueNet, self).__init__()
 
         self.s_subgraph = s_subgraph
         self.node_actions = node_actions
         n_node_in_features = n_in_features
-        n_edge_in_features = n_actions #+ 3
+        n_edge_in_features = n_actions  # + 3
         if node_actions:
             n_node_in_features += n_actions
             n_edge_in_features = 1
 
         self.gcn = QGnn(n_node_in_features, n_edge_in_features, n_node_in_features, n_hidden_layer, hl_factor,
-                           distance, device, "critic", depth, normalize_input)
+                        distance, device, "critic", depth, normalize_input, dropout, False)
 
         self.value = []
 
         for i, ssg in enumerate(self.s_subgraph):
             self.value.append(nn.Sequential(
-                torch.nn.BatchNorm1d(n_node_in_features * ssg, track_running_stats=False),
                 torch.nn.LeakyReLU(),
+                torch.nn.BatchNorm1d(n_node_in_features * ssg, track_running_stats=False),
                 nn.Linear(n_node_in_features * ssg, hl_factor),
+                nn.Dropout(dropout),
+                torch.nn.LeakyReLU(),
                 torch.nn.BatchNorm1d(hl_factor, track_running_stats=False),
-                nn.LeakyReLU(inplace=True),
                 nn.Linear(hl_factor, hl_factor),
+                nn.Dropout(dropout),
+                torch.nn.LeakyReLU(),
                 torch.nn.BatchNorm1d(hl_factor, track_running_stats=False),
-                nn.LeakyReLU(inplace=True),
                 nn.Linear(hl_factor, n_classes),
+                nn.Dropout(dropout),
             ))
             super(QValueNet, self).add_module(f"value{i}", self.value[-1])
 

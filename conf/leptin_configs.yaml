@@ -59,7 +59,7 @@ backbone:
 
 gnn_n_hl:
   desc: number of hidden layers in graph conv blocks
-  value: 1
+  value: 3
 gnn_size_hl:
   desc: factor by which feature size of hidden featuremaps in gnn increases/decreases
   value: 2024
@@ -75,6 +75,9 @@ gnn_crit_depth:
 gnn_crit_norm_inp:
   desc: put hidden features on unit sphere and scale by sim
   value: false
+gnn_dropout:
+  desc: dropout probability during training \in [0, 1]
+  value: 0.0
 
 # training config
 T_max:
@@ -114,8 +117,8 @@ lr_sched:
     step_frequency: 10
     mov_avg_offset: 0.0
     torch_sched:  # conf for torch reduceOnPlateau scheduler
-      patience: 60
-      min_lr: 0.00001
+      patience: 80
+      min_lr: 0.0001
       factor: 0.05
       threshold: 0.01
 
@@ -128,7 +131,7 @@ gt_edge_overlap_thresh:
   value: 0.5
 s_subgraph:
   desc: subgraph sizes
-  value: [6, 8, 16, 64, 128] # [8, 16, 32, 64]
+  value: [6, 16, 64, 128, 256] # [8, 16, 32, 64]
 entropy_range:
   desc: range of the min entropy constraint
   value: [0.05, 1.0]
@@ -137,13 +140,13 @@ init_temperature:
   value: 0.1
 alpha_lr:
   desc: learning rate for alpha opt
-  value: 0.0001
+  value: 0.001
 actor_lr:
   desc: learning rate for actor opt
-  value: 0.0001
+  value: 0.001
 critic_lr:
   desc: learning rate for critic opr
-  value: 0.0001
+  value: 0.001
 actor_update_frequency:
   desc: optim every n-th step
   value: 1
