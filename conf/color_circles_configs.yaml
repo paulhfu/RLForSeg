@@ -59,7 +59,7 @@ backbone:
 
 gnn_n_hl:
   desc: number of hidden layers in graph conv blocks
-  value: 4
+  value: 3
 gnn_size_hl:
   desc: factor by which feature size of hidden featuremaps in gnn increases/decreases
   value: 2028
@@ -77,7 +77,7 @@ gnn_crit_norm_inp:
   value: false
 gnn_dropout:
   desc: dropout probability during training \in [0, 1]
-  value: 0.0
+  value: 0.25
 
 # training config
 T_max:
@@ -106,7 +106,7 @@ n_explorers:
   value: 1
 batch_size:
   desc: num samples in minibatch
-  value: 8
+  value: 6
 
 # conf for lr scheduling
 lr_sched:
@@ -141,7 +141,7 @@ init_temperature:
 alpha_lr:
   desc: learning rate for alpha opt
   value: 0.001
-actor_lr:+
+actor_lr:
   desc: learning rate for actor opt
   value: 0.001
 critic_lr:

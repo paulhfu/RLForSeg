@@ -16,12 +16,13 @@ if __name__ == '__main__':
     entity = "rl_segmentation"
     config = "conf/leptin_configs.yaml"
     name = ""
+    jobid = ""
 
     try:
         opts, args = getopt.getopt(sys.argv[1:], "d:p:e:c:n:",
-                                   ["dir=", "project=", "entity=", "config=", "name="])
+                                   ["dir=", "project=", "entity=", "config=", "name=", "jobid="])
     except getopt.GetoptError:
-        print('help: run.py -d <base_dir> -p <wandb_project> -e <wandb_entity> -c <config_path> -n <run_name>')
+        print('help: run.py -d <base_dir> -p <wandb_project> -e <wandb_entity> -c <config_path> -n <run_name> -s <slurm jobid>')
         sys.exit(2)
 
     for opt, arg in opts:
@@ -38,6 +39,8 @@ if __name__ == '__main__':
             config = arg
         elif opt in ("-n", "--name"):
             name = arg
+        elif opt in ("-s", "--jobid"):
+            jobid = arg
     # os.nice(15)
     # project name: "RL for Segmentation"
     #print(base_dir, project, entity, config)

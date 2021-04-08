@@ -31,7 +31,7 @@ def write_slurm_template_std(script, out_path, env_name,
                       "which python \n"
                       "\n"
                       "export TRAIN_ON_CLUSTER=1\n"  # we set this env variable, so that the script knows we're on slurm
-                      "python %s $@ \n") % (n_threads, mem_limit, time_limit,
+                      "python %s $@ --jobid ${SLURM_JOBID} \n") % (n_threads, mem_limit, time_limit,
                                             qos, gpu_type, n_gpus, env_name, script)
     with open(out_path, 'w') as f:
         f.write(slurm_template)
@@ -60,7 +60,7 @@ def write_slurm_template(script, out_path, env_name, lib_replacement_script, pyt
                       "PATH=\"$(echo \"$PATH\" |sed -e \"s#\\(^\\|:\\)$(echo \"$path\" |sed -e 's/[^^]/[&]/g' -e 's/\\^/\\\\^/g')\\(:\\|/\\{0,1\\}$\\)#\\1\\2#\" -e \'s#:\\+#:#g\' -e \'s#^:\\|:$##g\')\"\n"
                       "export PATH=$PATH:%s\n"
                       "which python\n"
-                      "python %s $@ \n") % (n_threads, mem_limit, time_limit,
+                      "python %s $@ --jobid ${SLURM_JOBID} \n") % (n_threads, mem_limit, time_limit,
                                             qos, gpu_type, n_gpus, lib_replacement_script, pythonexec, script)
     with open(out_path, 'w') as f:
         f.write(slurm_template)
@@ -89,7 +89,7 @@ def write_slurm_template_sweep(script, out_path, env_name, lib_replacement_scrip
                       "PATH=\"$(echo \"$PATH\" |sed -e \"s#\\(^\\|:\\)$(echo \"$path\" |sed -e 's/[^^]/[&]/g' -e 's/\\^/\\\\^/g')\\(:\\|/\\{0,1\\}$\\)#\\1\\2#\" -e \'s#:\\+#:#g\' -e \'s#^:\\|:$##g\')\"\n"
                       "export PATH=$PATH:%s\n"
                       "which python\n"
-                      "wandb agent %s \n") % (n_threads, mem_limit, time_limit,
+                      "wandb agent %s --jobid ${SLURM_JOBID} \n") % (n_threads, mem_limit, time_limit,
                                             qos, gpu_type, n_gpus, lib_replacement_script, pythonexec, script)
     with open(out_path, 'w') as f:
         f.write(slurm_template)
@@ -113,7 +113,7 @@ def write_slurm_template_sweep_std(script, out_path, env_name,
                       "source activate %s\n"
                       "\n"
                       "export TRAIN_ON_CLUSTER=1\n"  # we set this env variable, so that the script knows we're on slurm
-                      "wandb agent %s \n") % (n_threads, mem_limit, time_limit,
+                      "wandb agent %s --jobid ${SLURM_JOBID} \n") % (n_threads, mem_limit, time_limit,
                                             qos, gpu_type, n_gpus, env_name, script)
     with open(out_path, 'w') as f:
         f.write(slurm_template)
