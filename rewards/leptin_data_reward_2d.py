@@ -384,10 +384,10 @@ class LeptinDataRotatedRectRewards(RewardFunctionAbc):
                 fg_prob1 = torch.exp(-dst3 ** 2 / (2 * s3 ** 2)) / (math.sqrt(2 * np.pi) * s3) * w3
                 fg_prob2 = torch.exp(-dst4 ** 2 / (2 * s3 ** 2)) / (math.sqrt(2 * np.pi) * s3) * w3
 
-                bg_prob1 = torch.clamp(bg_prob1, max=1)
-                bg_prob2 = torch.clamp(bg_prob2, max=1)
-                fg_prob1 = torch.clamp(fg_prob1, max=1)
-                fg_prob2 = torch.clamp(fg_prob2, max=1)
+                # bg_prob1 = torch.clamp(bg_prob1, max=1)
+                # bg_prob2 = torch.clamp(bg_prob2, max=1)
+                # fg_prob1 = torch.clamp(fg_prob1, max=1)
+                # fg_prob2 = torch.clamp(fg_prob2, max=1)
                 #
                 weight1, weight2 = fg_prob1 + bg_prob1, fg_prob2 + bg_prob2
                 fg_prob1, bg_prob1 = fg_prob1 / weight1, bg_prob1 / weight1

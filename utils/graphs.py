@@ -72,23 +72,28 @@ def get_angles_smass_in_rag(edges, segmentation):
     sigm_shift = 0.8
     c_norm = math.sqrt(segmentation.shape[-1]**2 + segmentation.shape[-2]**2) / 8
     nodes = torch.unique(segmentation)
-    sup_sizes = torch.empty((len(nodes), ), dtype=torch.float, device=edges.device)
-    cms = torch.empty((len(nodes), 3), dtype=torch.float, device=edges.device)
-    for i, (n, mask) in enumerate(zip(nodes, segmentation[None] == nodes[:, None, None])):
-        idxs = torch.where(mask)
-        sup_sizes[i] = mask.sum().float()
-        cart_cms = torch.stack([torch.sum(idxs[0]), torch.sum(idxs[1])]) / (sup_sizes[i] + np.finfo(float).eps)
-        a = (350 - cart_cms[1])  # This is not the image center because the Leptin data is not exactly concentric to it
-        b = (cart_cms[0] - 400)
-        c = torch.sqrt(a**2 + b**2)
-        normed_c = torch.sigmoid(c / c_norm - 1) * 2 - 1
-        ang = torch.atan(a/(b + 1e-10)) + np.pi/2
-        ang = -ang if a < 0 else ang
-        ang /= np.pi
-        cms[i] = torch.stack([ang, normed_c, c])
+    random_rotation = (torch.rand((1,)).item() * 2) - 1
 
-    vec = cms[edges[0]] - cms[edges[1]]
-    angles = torch.atan(vec[:, 0] / (vec[:, 1] + np.finfo(float).eps))
+    meshgrid = torch.stack(torch.meshgrid(torch.arange(segmentation.shape[0], device=segmentation.device),
+                                          torch.arange(segmentation.shape[1], device=segmentation.device)))
+    one_hot = segmentation[None] == nodes[:, None, None]
+    sup_sizes = one_hot.flatten(1).sum(-1)
+    cart_cms = (one_hot[None] * meshgrid[:, None]).flatten(2).sum(2) / sup_sizes[None]
+
+    a = (350 - cart_cms[1])  # This is not the image center because the Leptin data is not exactly concentric to it
+    b = (cart_cms[0] - 400)
+    c = torch.sqrt(a**2 + b**2)
+    normed_c = torch.sigmoid(c / c_norm - 1) * 2 - 1
+    ang = torch.atan(a/(b + 1e-10)) + np.pi/2
+    ang[a < 0] = -ang[a < 0]
+    ang /= np.pi
+    ang += random_rotation
+    ang[a > 1] = (ang[a > 1] - 1) - 1
+    ang[ang < -1] = 1 + (ang[ang < -1] + 1)
+    cms = torch.stack([ang, normed_c, c], 1)
+
+    vec = cart_cms[:, edges[0]] - cart_cms[:, edges[1]]
+    angles = torch.atan(vec[0] / (vec[1] + np.finfo(float).eps))
     angles = 2 * angles / np.pi
     sup_sizes = torch.sigmoid(sup_sizes / sigm_flatness - sigm_shift) * 2 - 1
     return angles, torch.cat([sup_sizes[:, None], cms[:, :-1]], 1), cms[:, -1]

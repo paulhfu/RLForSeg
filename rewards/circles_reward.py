@@ -206,12 +206,11 @@ class HoughCirclesRewards(RewardFunctionAbc):
                     val = (val - self.circle_thresh) / (1 - self.circle_thresh)
                     hough_score = torch.sigmoid(torch.tensor([8 * (val - 0.5)])).item()
                     num_obj_score = 1 / max(len(obj_id), 1)
-                    scores[circle_sp] = .6 * num_obj_score
                     if num_obj_score == 1 and obj_id[0] in potential_object_ids:
                         good_obj_cnt += 1
-                        scores[circle_sp] += .4 * hough_score
+                    scores[circle_sp] = 0.7 * hough_score + 0.3 * num_obj_score
 
-            score = 0.4 * (good_obj_cnt / 20) + 0.6 * (1 / len(bg_object_ids))
+            score = 1.0 * (good_obj_cnt / 15) * int(good_obj_cnt > 5) + 0.0 * (1 / len(bg_object_ids))
             # score = 1 / len(bg_object_ids)
             score = np.exp((score * exp_factor)) / np.exp(np.array([exp_factor]))
             scores[bg_sp_ids] = score.item()

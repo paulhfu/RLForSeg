@@ -42,6 +42,9 @@ dim_embeddings:
 distance:
   desc: used distance in embedding space, can be l2 or cosine
   value: cosine
+use_handcrafted_features:
+  desc: to embeddings append handcrafted features like sp size, position , orientation
+  value: true
 backbone:
   desc: config for the embedding network
   value:
@@ -59,7 +62,7 @@ backbone:
 
 gnn_n_hl:
   desc: number of hidden layers in graph conv blocks
-  value: 3
+  value: 1
 gnn_size_hl:
   desc: factor by which feature size of hidden featuremaps in gnn increases/decreases
   value: 2024
@@ -77,7 +80,7 @@ gnn_crit_norm_inp:
   value: false
 gnn_dropout:
   desc: dropout probability during training \in [0, 1]
-  value: 0.25
+  value: 0.1
 
 # training config
 T_max:
@@ -131,7 +134,7 @@ gt_edge_overlap_thresh:
   value: 0.5
 s_subgraph:
   desc: subgraph sizes
-  value: [6, 16, 64, 128, 256] # [8, 16, 32, 64]
+  value: [6, 16, 64, 128] # [8, 16, 32, 64]
 entropy_range:
   desc: range of the min entropy constraint
   value: [0.05, 1.0]

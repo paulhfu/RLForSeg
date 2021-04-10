@@ -16,7 +16,7 @@ class Agent(torch.nn.Module):
         self.device = device
         self.StateClass = StateClass
         self.distance = distance
-        dim_embed = self.cfg.dim_embeddings + 3
+        dim_embed = self.cfg.dim_embeddings + (3 * int(cfg.use_handcrafted_features))
 
         self.actor = PolicyNet(dim_embed, 2, cfg.gnn_n_hl, cfg.gnn_size_hl, distance, cfg.gnn_dropout, device, False,
                                cfg.gnn_act_depth, cfg.gnn_act_norm_inp)
@@ -40,8 +40,10 @@ class Agent(torch.nn.Module):
 
     def forward(self, state, actions, expl_action, post_data, policy_opt, return_node_features):
         state = self.StateClass(*state)
-        # node_features = state.node_embeddings
-        node_features = torch.cat((state.node_embeddings, state.sp_feat), 1)
+        if self.cfg.use_handcrafted_features:
+            node_features = torch.cat((state.node_embeddings, state.sp_feat), 1)
+        else:
+            node_features = state.node_embeddings
         edge_index = torch.cat([state.edge_ids, torch.stack([state.edge_ids[1], state.edge_ids[0]], dim=0)],
                                dim=1)  # gcnn expects two directed edges for one undirected edge
         if actions is None:
