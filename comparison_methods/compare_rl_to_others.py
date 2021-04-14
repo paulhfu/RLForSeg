@@ -9,7 +9,7 @@ from torch.utils.data import DataLoader
 import matplotlib.pyplot as plt
 from matplotlib import cm
 
-from utils.general import cluster_embeddings, pca_project, random_label_cmap, multicut_from_probas, get_angles
+from utils.general import cluster_embeddings, pca_project, random_label_cmap, multicut_from_probas, calculate_gt_edge_costs, get_angles
 from utils.metrics import ClusterMetrics, SegmentationMetrics, AveragePrecision
 from utils.affinities import get_edge_features_1d
 from utils.yaml_conv_parser import dict_to_attrdict
@@ -78,7 +78,8 @@ def validate_and_compare_to_clustering(model, env, distance, device, cfg):
         ex_raws.append(env.raw[0].cpu().permute(1, 2, 0).squeeze())
         # ex_sps.append(cm.prism(env.init_sp_seg[0].cpu() / env.init_sp_seg[0].max().item()))
         ex_sps.append(env.init_sp_seg[0].cpu())
-        ex_mc_gts.append(env.gt_soln[0].cpu().numpy())
+        gt_edges = calculate_gt_edge_costs(torch.from_numpy(edge_ids.astype(np.int)).to(device), env.init_sp_seg, torch.from_numpy(gt_seg).to(device), 0.3)
+        ex_mc_gts.append(env.get_current_soln(edge_weights=gt_edges).cpu().numpy()[0])
 
         ex_gts.append(gt_seg)
         ex_rl.append(rl_labels)
@@ -147,7 +148,7 @@ def validate_and_compare_to_clustering(model, env, distance, device, cfg):
     print(f"mc embed    : {arr_mcembed}")
     print(f"graph agglo : {arr_graphagglo}")
 
-
+    exit()
     for i in range(len(ex_gts)):
         fig, axs = plt.subplots(2, 4, figsize=(20, 13), sharex='col', sharey='row', gridspec_kw={'hspace': 0, 'wspace': 0})
         axs[0, 0].imshow(ex_gts[i], cmap=random_label_cmap(), interpolation="none")

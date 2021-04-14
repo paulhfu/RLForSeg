@@ -19,11 +19,13 @@ class Agent(torch.nn.Module):
         dim_embed = self.cfg.dim_embeddings + (3 * int(cfg.use_handcrafted_features))
 
         self.actor = PolicyNet(dim_embed, 2, cfg.gnn_n_hl, cfg.gnn_size_hl, distance, cfg.gnn_dropout, device, False,
-                               cfg.gnn_act_depth, cfg.gnn_act_norm_inp)
+                               cfg.gnn_act_depth, cfg.gnn_act_norm_inp, cfg.n_init_edge_feat)
         self.critic = QValueNet(self.cfg.s_subgraph, dim_embed, 1, 1, cfg.gnn_n_hl, cfg.gnn_size_hl, distance,
-                                cfg.gnn_dropout, device, False, cfg.gnn_crit_depth, cfg.gnn_crit_norm_inp)
+                                cfg.gnn_dropout, device, False, cfg.gnn_crit_depth, cfg.gnn_crit_norm_inp,
+                                cfg.n_init_edge_feat)
         self.critic_tgt = QValueNet(self.cfg.s_subgraph, dim_embed, 1, 1, cfg.gnn_n_hl, cfg.gnn_size_hl, distance,
-                                    cfg.gnn_dropout, device, False, cfg.gnn_crit_depth, cfg.gnn_crit_norm_inp)
+                                    cfg.gnn_dropout, device, False, cfg.gnn_crit_depth, cfg.gnn_crit_norm_inp,
+                                    cfg.n_init_edge_feat)
 
         self.log_alpha = torch.tensor([np.log(self.cfg.init_temperature)] * len(self.cfg.s_subgraph)).to(device)
         if with_temp:
@@ -85,32 +87,34 @@ class Agent(torch.nn.Module):
 
 class PolicyNet(torch.nn.Module):
     def __init__(self, n_in_features, n_classes, n_hidden_layer, hl_factor, distance, dropout, device, node_actions,
-                 depth, normalize_input):
+                 depth, normalize_input, n_edge_feat):
         super(PolicyNet, self).__init__()
+        self.edge_feat = n_edge_feat is not None
         if node_actions:
             self.gcn = NodeGnn(n_in_features, n_classes, n_hidden_layer, hl_factor, distance, dropout, device, "actor")
         else:
-            self.gcn = EdgeGnn(n_in_features, n_classes, False, 3, n_hidden_layer, hl_factor, distance, dropout, device,
-                               "actor", depth, normalize_input, False)
+            self.gcn = EdgeGnn(n_in_features, n_classes, self.edge_feat, n_edge_feat, n_hidden_layer,
+                               hl_factor, distance, dropout, device, "actor", depth, normalize_input, False)
 
     def forward(self, node_features, edge_index, edge_feats, gt_edges, post_data):
-        edge_feats = None
+        edge_feats = edge_feats if self.edge_feat else None
         actor_stats, side_loss = self.gcn(node_features, edge_index, edge_feats, gt_edges, post_data)
         return actor_stats, side_loss
 
 
 class QValueNet(torch.nn.Module):
     def __init__(self, s_subgraph, n_in_features, n_actions, n_classes, n_hidden_layer, hl_factor, distance, dropout,
-                 device, node_actions, depth, normalize_input):
+                 device, node_actions, depth, normalize_input, n_edge_feat):
         super(QValueNet, self).__init__()
 
         self.s_subgraph = s_subgraph
         self.node_actions = node_actions
+        self.edge_feat = n_edge_feat is not None
         n_node_in_features = n_in_features
-        n_edge_in_features = n_actions  # + 3
+        n_edge_in_features = n_actions + n_edge_feat if self.edge_feat else n_actions
         if node_actions:
             n_node_in_features += n_actions
-            n_edge_in_features = 1
+            n_edge_in_features = n_edge_feat if self.edge_feat else None
 
         self.gcn = QGnn(n_node_in_features, n_edge_in_features, n_node_in_features, n_hidden_layer, hl_factor,
                         distance, device, "critic", depth, normalize_input, dropout, False)
@@ -141,8 +145,7 @@ class QValueNet(torch.nn.Module):
             node_features = torch.cat([node_features, actions], dim=-1)
             edge_features = edge_feat
         else:
-            # edge_features = torch.cat([actions, edge_feat], dim=-1)
-            edge_features = actions
+            edge_features = torch.cat([actions, edge_feat], dim=-1) if self.edge_feat else actions
 
         edge_feats, side_loss = self.gcn(node_features, edge_features, edge_index, gt_edges, post_data)
 

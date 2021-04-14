@@ -6,13 +6,14 @@ from utils.distances import CosineDistance
 from models.unet3d.model import UNet2D
 
 class FeExtractor(nn.Module):
-    def __init__(self, backbone_cfg, distance, device=None):
+    def __init__(self, backbone_cfg, distance, delta_dist, device=None):
         """ Be aware that the underlying embedding space that this feature extractor assumes imploys the cosine distance"""
         super(FeExtractor, self).__init__()
         self.embed_model = UNet2D(**backbone_cfg)
 
         self.device = device
         self.distance = distance
+        self.delta_dist = delta_dist
         self.fwd_mtx = Lock()
 
     def forward(self, raw):

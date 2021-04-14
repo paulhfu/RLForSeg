@@ -87,7 +87,7 @@ def get_angles_smass_in_rag(edges, segmentation):
     ang = torch.atan(a/(b + 1e-10)) + np.pi/2
     ang[a < 0] = -ang[a < 0]
     ang /= np.pi
-    ang += random_rotation
+    # ang += random_rotation
     ang[a > 1] = (ang[a > 1] - 1) - 1
     ang[ang < -1] = 1 + (ang[ang < -1] + 1)
     cms = torch.stack([ang, normed_c, c], 1)

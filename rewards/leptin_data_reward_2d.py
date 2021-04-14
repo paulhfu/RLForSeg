@@ -354,12 +354,13 @@ class LeptinDataRotatedRectRewards(RewardFunctionAbc):
             if torch.isnan(scores).any() or torch.isinf(scores).any():
                 print(Warning("NaN or inf in scores this should not happen"))
             if edge_score:
+                # .02, 0.1, .1, 0.2, 0.25, .3
                 # .02, 0.13, .12, 0.2, 0.4, .3
                 s1 = .02
-                s2 = .13
-                s3 = .12
+                s2 = .1
+                s3 = .1
                 w1 = .2
-                w2 = .4
+                w2 = .25
                 w3 = .3
                 n = math.sqrt((single_sp_seg.shape[0] / 2) ** 2 + (single_sp_seg.shape[1] / 2) ** 2)
                 edges = s_dir_edges[:, :int(s_dir_edges.shape[1] / 2)]

@@ -21,6 +21,7 @@ from rewards.leptin_data_reward_2d import LeptinDataReward2DTurning, LeptinDataR
 from utils.reward_functions import UnSupervisedReward, SubGraphDiceReward
 from utils.graphs import collate_edges, get_edge_indices, get_angles_smass_in_rag
 from utils.general import get_angles, pca_project, random_label_cmap, get_contour_from_2d_binary
+from utils.affinities import get_edge_features_1d, get_affinities_from_embeddings_2d
 
 State = collections.namedtuple("State", ["node_embeddings", "edge_ids", "edge_feats", "sp_feat", "subgraph_indices", "sep_subgraphs", "round_n", "gt_edge_weights"])
 class MulticutEmbeddingsEnv():
@@ -207,6 +208,10 @@ class MulticutEmbeddingsEnv():
             with torch.set_grad_enabled(False):
                 self.embeddings = self.embedding_net(raw)
 
+        offs = [[1, 0], [0, 1], [2, 0], [0, 2], [4, 0], [0, 4], [16, 0], [0, 16]]
+        embed_affs = get_affinities_from_embeddings_2d(self.embeddings, offs, self.embedding_net.delta_dist, self.embedding_net.distance)
+        embed_dists = [1 - get_edge_features_1d(sp.cpu().numpy(), offs, embed_aff.cpu().numpy())[0][:, 0] for sp, embed_aff in zip(self.init_sp_seg, embed_affs)]
+        embed_dists = [torch.from_numpy(embed_dist).to(dev) for embed_dist in embed_dists]
         # get embedding agglomeration over each superpixel
         self.current_node_embeddings = torch.cat([self.embedding_net.get_mean_sp_embedding_chunked(embed, sp, chunks=20)
                                                   for embed, sp in zip(self.embeddings, self.init_sp_seg)], dim=0)
@@ -240,7 +245,7 @@ class MulticutEmbeddingsEnv():
             self.sg_gt_edges = [self.gt_edge_weights[sg].view(-1, sz) for sz, sg in
                                 zip(self.cfg.s_subgraph, self.subgraph_indices)]
 
-        self.edge_features = torch.cat([edge_angles, torch.cat(edge_features, 0)[:, :2]], 1)
+        self.edge_features = torch.cat([torch.cat(embed_dists, 0)[:, None], edge_angles, torch.cat(edge_features, 0)[:, :2]], 1).float()
         self.current_edge_weights = torch.ones(self.edge_ids.shape[1], device=self.edge_ids.device) / 2
 
         return

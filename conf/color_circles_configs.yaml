@@ -45,6 +45,12 @@ distance:
 use_handcrafted_features:
   desc: to embeddings append handcrafted features like sp size, position , orientation
   value: false
+n_init_edge_feat:
+  desc: GNN gets hand crafted edge featurs like mean affinity or embedding distance as well can be none if not used
+  value: 4
+fe_delta_dist:
+  desc: delta distance of contrastive loss during embedding space training
+  value: 0.4
 backbone:
   desc: config for the embedding network
   value:

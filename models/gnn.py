@@ -124,18 +124,19 @@ class QGnn(nn.Module):
         self.name = name
         self.device = device
         self.depth = depth
+        ief = n_edge_in_features is not None
         if depth == 1:
             self.node_conv1 = NodeConv(n_node_in_features, n_node_in_features, distance=distance, normalize_input=False,
                                        n_hidden_layer=n_hidden_layer, hl_factor=hl_factor, start_bn_nl=start_bn_nl,
                                        dropout=dropout)
-            self.edge_conv1 = EdgeConv(n_node_in_features, n_out_features, use_init_edge_feats=True,
+            self.edge_conv1 = EdgeConv(n_node_in_features, n_out_features, use_init_edge_feats=ief,
                                        n_init_edge_channels=n_edge_in_features, n_hidden_layer=n_hidden_layer,
                                        hl_factor=hl_factor, dropout=dropout)
         if depth == 2:
             self.node_conv1 = NodeConv(n_node_in_features, n_node_in_features, distance=distance, normalize_input=False,
                                        n_hidden_layer=n_hidden_layer, hl_factor=hl_factor, start_bn_nl=start_bn_nl,
                                        dropout=dropout)
-            self.edge_conv1 = EdgeConv(n_node_in_features, n_node_in_features * 2, use_init_edge_feats=True,
+            self.edge_conv1 = EdgeConv(n_node_in_features, n_node_in_features * 2, use_init_edge_feats=ief,
                                        n_init_edge_channels=n_edge_in_features, n_hidden_layer=n_hidden_layer,
                                        hl_factor=hl_factor, dropout=dropout)
             self.node_conv2 = NodeConv(n_node_in_features, n_node_in_features, distance=distance,

@@ -45,7 +45,7 @@ class AgentSacTrainerObjLvlReward(object):
         else:
             self.distance = L2Distance()
 
-        self.fe_ext = FeExtractor(dict_to_attrdict(self.cfg.backbone), self.distance, self.device)
+        self.fe_ext = FeExtractor(dict_to_attrdict(self.cfg.backbone), self.distance, cfg.fe_delta_dist, self.device)
         self.fe_ext.embed_model.load_state_dict(torch.load(self.cfg.fe_model_name))
         self.fe_ext.cuda(self.device)
 
