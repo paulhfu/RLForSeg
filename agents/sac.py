@@ -18,7 +18,6 @@ from skimage.morphology import dilation
 from environments.multicut import MulticutEmbeddingsEnv, State
 from data.spg_dset import SpgDset
 from models.agent_model import Agent
-from models.feature_extractor import FeExtractor
 from utils.exploration_functions import RunningAverage
 from utils.general import soft_update_params, set_seed_everywhere, get_colored_edges_in_sseg, pca_project, random_label_cmap
 from utils.replay_memory import TransitionData_ts
@@ -29,8 +28,6 @@ from utils.yaml_conv_parser import dict_to_attrdict
 from utils.training_helpers import update_env_data, supervised_policy_pretraining, state_to_cpu, Forwarder
 from utils.metrics import AveragePrecision, ClusterMetrics
 # from timeit import default_timer as timer
-
-
 
 
 class AgentSacTrainer(object):
@@ -51,10 +48,6 @@ class AgentSacTrainer(object):
         else:
             self.distance = L2Distance()
 
-        self.fe_ext = FeExtractor(dict_to_attrdict(self.cfg.backbone), self.distance, cfg.fe_delta_dist, self.device)
-        self.fe_ext.embed_model.load_state_dict(torch.load(self.cfg.fe_model_name))
-        self.fe_ext.cuda(self.device)
-
         self.model = Agent(self.cfg, State, self.distance, self.device)
         wandb.watch(self.model)
         self.model.cuda(self.device)
@@ -65,6 +58,7 @@ class AgentSacTrainer(object):
         OptimizerContainer = namedtuple('OptimizerContainer',
                                         ('actor', 'critic', 'temperature', 'actor_shed', 'critic_shed', 'temp_shed'))
         actor_optimizer = torch.optim.Adam(self.model.actor.parameters(), lr=self.cfg.actor_lr)
+        # critic_optimizer = torch.optim.Adam(list(self.model.critic.parameters()) + list(self.model.fe_ext.parameters()), lr=self.cfg.critic_lr)
         critic_optimizer = torch.optim.Adam(self.model.critic.parameters(), lr=self.cfg.critic_lr)
         temp_optimizer = torch.optim.Adam([self.model.log_alpha], lr=self.cfg.alpha_lr)
 
@@ -89,8 +83,6 @@ class AgentSacTrainer(object):
         if self.cfg.agent_model_name != "":
             self.model.load_state_dict(torch.load(self.cfg.agent_model_name))
         # finished with prepping
-        for param in self.fe_ext.parameters():
-            param.requires_grad = False
 
         self.train_dset = SpgDset(self.cfg.data_dir, dict_to_attrdict(self.cfg.patch_manager), dict_to_attrdict(self.cfg.train_data_keys), max(self.cfg.s_subgraph))
         self.val_dset = SpgDset(self.cfg.val_data_dir, dict_to_attrdict(self.cfg.patch_manager), dict_to_attrdict(self.cfg.val_data_keys), max(self.cfg.s_subgraph))
@@ -101,7 +93,7 @@ class AgentSacTrainer(object):
 
     def validate(self):
         """validates the prediction against the method of clustering the embedding space"""
-        env = MulticutEmbeddingsEnv(self.fe_ext, self.cfg, self.device)
+        env = MulticutEmbeddingsEnv(self.cfg, self.device)
         if self.cfg.verbose:
             print("\n\n###### start validate ######", end='')
         self.model.eval()
@@ -122,7 +114,8 @@ class AgentSacTrainer(object):
 
             self.model_mtx.acquire()
             try:
-                distr, _, _, _, _ = self.forwarder.forward(self.model, state, State, self.device, grad=False, post_data=False)
+                distr, _, _, _, _, embeddings = self.forwarder.forward(self.model, state, State, self.device, grad=False,
+                                                           post_data=False, get_embeddings=True)
             finally:
                 self.model_mtx.release()
             action = torch.sigmoid(distr.loc)
@@ -174,13 +167,10 @@ class AgentSacTrainer(object):
         for i, key in enumerate(keys):
             if key not in ('fp', 'tp', 'fn'):
                 div[i] = 10
-
         for tau_it in range(len(rl_scores)):
             rl_scores[tau_it] = dict(zip(keys, rl_scores[tau_it] / div))
-
         fig, axs = plt.subplots(1, 2, figsize=(10, 10))
         plt.subplots_adjust(hspace=.5)
-
         for m in ('precision', 'recall', 'accuracy', 'f1'):
             y = [s[m] for s in rl_scores]
             data = [[x, y] for (x, y) in zip(taus, y)]
@@ -192,7 +182,6 @@ class AgentSacTrainer(object):
         axs[0].legend(bbox_to_anchor=(.8, 1.65), loc='upper left', fontsize='xx-small')
         axs[0].set_title('RL method')
         axs[0].set_xlabel(r'IoU threshold $\tau$')
-
         for m in ('fp', 'tp', 'fn'):
             y = [s[m] for s in rl_scores]
             data = [[x, y] for (x, y) in zip(taus, y)]
@@ -204,9 +193,7 @@ class AgentSacTrainer(object):
         axs[1].legend(bbox_to_anchor=(.87, 1.6), loc='upper left', fontsize='xx-small');
         axs[1].set_title('RL method')
         axs[1].set_xlabel(r'IoU threshold $\tau$')
-
         #wandb.log({"validation/metrics": [wandb.Image(fig, caption="metrics")]})
-
         plt.close('all')
         '''
 
@@ -302,7 +289,8 @@ class AgentSacTrainer(object):
     def update_critic(self, obs, action, reward):
         self.optimizers.critic.zero_grad()
         with torch.cuda.amp.autocast(enabled=True):
-            current_Q, side_loss = self.forwarder.forward(self.model, obs, State, self.device, actions=action)
+            current_Q, side_loss = self.forwarder.forward(self.model, obs, State, self.device, actions=action,
+                                                          grad=True)
 
             critic_loss = torch.tensor([0.0], device=current_Q[0].device)
             mean_reward = 0
@@ -326,7 +314,9 @@ class AgentSacTrainer(object):
         self.optimizers.temperature.zero_grad()
         with torch.cuda.amp.autocast(enabled=True):
             expl_action = None
-            distribution, actor_Q, action, side_loss = self.forwarder.forward(self.model, obs, State, self.device, expl_action=expl_action, policy_opt=True)
+            distribution, actor_Q, action, side_loss = self.forwarder.forward(self.model, obs, State, self.device,
+                                                                              expl_action=expl_action, policy_opt=True,
+                                                                              grad=True)
 
             log_prob = distribution.log_prob(action)
             actor_loss = torch.tensor([0.0], device=actor_Q[0].device)
@@ -392,6 +382,7 @@ class AgentSacTrainer(object):
 
         if step % self.cfg.critic_target_update_frequency == 0:
             soft_update_params(self.model.critic, self.model.critic_tgt, self.cfg.critic_tau)
+            # soft_update_params(self.model.fe_ext, self.model.fe_ext_tgt, self.cfg.critic_tau)
 
         return critic_loss, actor_loss, alpha_loss, loc_mean
 
@@ -452,7 +443,7 @@ class AgentSacTrainer(object):
         return
 
     def explore(self):
-        env = MulticutEmbeddingsEnv(self.fe_ext, self.cfg, self.device)
+        env = MulticutEmbeddingsEnv(self.cfg, self.device)
         tau = 1
         while self.global_count.value() <= self.cfg.T_max + self.cfg.mem_size:
             dloader = iter(DataLoader(self.train_dset, batch_size=self.cfg.batch_size, shuffle=True, pin_memory=True, num_workers=0))

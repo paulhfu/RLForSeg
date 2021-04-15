@@ -23,13 +23,12 @@ from utils.graphs import collate_edges, get_edge_indices, get_angles_smass_in_ra
 from utils.general import get_angles, pca_project, random_label_cmap, get_contour_from_2d_binary
 from utils.affinities import get_edge_features_1d, get_affinities_from_embeddings_2d
 
-State = collections.namedtuple("State", ["node_embeddings", "edge_ids", "edge_feats", "sp_feat", "subgraph_indices", "sep_subgraphs", "round_n", "gt_edge_weights"])
+State = collections.namedtuple("State", ["raw", "sp_seg", "edge_ids", "edge_feats", "sp_feat", "subgraph_indices", "sep_subgraphs", "round_n", "gt_edge_weights"])
 class MulticutEmbeddingsEnv():
 
-    def __init__(self, embedding_net, cfg, device):
+    def __init__(self, cfg, device):
         super(MulticutEmbeddingsEnv, self).__init__()
 
-        self.embedding_net = embedding_net
         self.reset()
         self.cfg = cfg
         self.device = device
@@ -172,7 +171,7 @@ class MulticutEmbeddingsEnv():
                 axes[1, 0].imshow(mc_soln, cmap=random_label_cmap(), interpolation="none")
                 axes[1, 0].set_title('mc_gt')
                 # axes[1, 1].imshow(pca_project(get_angles(self.embeddings)[0].detach().cpu().numpy()))
-                axes[1, 1].imshow(pca_project(self.embeddings[-1].detach().cpu()))
+                axes[1, 1].imshow(self.init_sp_seg[-1].cpu())
                 axes[1, 1].set_title('embed')
                 axes[1, 2].imshow(self.current_soln[-1].cpu(), cmap=random_label_cmap(), interpolation="none")
                 axes[1, 2].set_title('prediction')
@@ -186,7 +185,8 @@ class MulticutEmbeddingsEnv():
         return reward
 
     def get_state(self):
-        return State(self.current_node_embeddings, self.edge_ids, self.edge_features, self.sp_feat, self.subgraph_indices, self.sep_subgraphs, self.counter, self.gt_edge_weights)
+        return State(self.raw, self.init_sp_seg, self.edge_ids, self.edge_features, self.sp_feat, self.subgraph_indices,
+                     self.sep_subgraphs, self.counter, self.gt_edge_weights)
 
     def update_data(self, raw, gt, edge_ids, gt_edges, sp_seg, fe_grad, rags, edge_features, *args, **kwargs):
         bs = raw.shape[0]
@@ -197,22 +197,6 @@ class MulticutEmbeddingsEnv():
         self.rags = rags
         self.gt_seg, self.init_sp_seg = gt.squeeze(1), sp_seg.squeeze(1)
         self.raw = raw
-
-        if (self.cfg.backbone['in_channels'] == 4) and raw.shape[1] == 3:
-            edge_img = get_contour_from_2d_binary(sp_seg)
-            raw_input = torch.cat([raw, edge_img], dim=1)
-
-            with torch.set_grad_enabled(False):
-                #print(raw_input.shape)
-                self.embeddings = self.embedding_net(raw_input)
-        else:
-            with torch.set_grad_enabled(False):
-                self.embeddings = self.embedding_net(raw)
-
-        offs = [[1, 0], [0, 1], [2, 0], [0, 2], [4, 0], [0, 4], [16, 0], [0, 16]]
-        embed_affs = get_affinities_from_embeddings_2d(self.embeddings, offs, self.embedding_net.delta_dist, self.embedding_net.distance)
-        embed_dists = [1 - get_edge_features_1d(sp.cpu().numpy(), offs, embed_aff.cpu().numpy())[0][:, 0] for sp, embed_aff in zip(self.init_sp_seg, embed_affs)]
-        embed_dists = [torch.from_numpy(embed_dist).to(dev) for embed_dist in embed_dists]
 
         edge_angles, sp_feat, self.sp_rads, self.sp_cms, self.sp_masses = \
             zip(*[get_angles_smass_in_rag(edge_ids[i], self.init_sp_seg[i]) for i in range(bs)])
@@ -251,7 +235,7 @@ class MulticutEmbeddingsEnv():
             self.sg_gt_edges = [self.gt_edge_weights[sg].view(-1, sz) for sz, sg in
                                 zip(self.cfg.s_subgraph, self.subgraph_indices)]
 
-        self.edge_features = torch.cat([torch.cat(embed_dists, 0)[:, None], edge_angles, torch.cat(edge_features, 0)[:, :2]], 1).float()
+        self.edge_features = torch.cat([edge_angles, torch.cat(edge_features, 0)[:, :2]], 1).float()
         self.current_edge_weights = torch.ones(self.edge_ids.shape[1], device=self.edge_ids.device) / 2
 
         return

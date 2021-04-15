@@ -51,10 +51,6 @@ class AgentA2CTrainer(object):
         else:
             self.distance = L2Distance()
 
-        self.fe_ext = FeExtractor(dict_to_attrdict(self.cfg.backbone), self.distance, cfg.fe_delta_dist, self.device)
-        self.fe_ext.embed_model.load_state_dict(torch.load(self.cfg.fe_model_name))
-        self.fe_ext.cuda(self.device)
-
         self.model = Agent(self.cfg, State, self.distance, self.device, with_temp=False)
         wandb.watch(self.model)
         self.model.cuda(self.device)
@@ -87,8 +83,6 @@ class AgentA2CTrainer(object):
         if self.cfg.agent_model_name != "":
             self.model.load_state_dict(torch.load(self.cfg.agent_model_name))
         # finished with prepping
-        for param in self.fe_ext.parameters():
-            param.requires_grad = False
 
         self.train_dset = SpgDset(self.cfg.data_dir, dict_to_attrdict(self.cfg.patch_manager), dict_to_attrdict(self.cfg.data_keys), max(self.cfg.s_subgraph))
         self.val_dset = SpgDset(self.cfg.val_data_dir, dict_to_attrdict(self.cfg.patch_manager), dict_to_attrdict(self.cfg.data_keys), max(self.cfg.s_subgraph))
@@ -99,7 +93,7 @@ class AgentA2CTrainer(object):
 
     def validate(self):
         """validates the prediction against the method of clustering the embedding space"""
-        env = MulticutEmbeddingsEnv(self.fe_ext, self.cfg, self.device)
+        env = MulticutEmbeddingsEnv(self.cfg, self.device)
         if self.cfg.verbose:
             print("\n\n###### start validate ######", end='')
         self.model.eval()
@@ -120,7 +114,8 @@ class AgentA2CTrainer(object):
 
             self.model_mtx.acquire()
             try:
-                distr, _, _, _, _ = self.forwarder.forward(self.model, state, State, self.device, grad=False, post_data=False)
+                distr, _, _, _, _, embeddings = self.forwarder.forward(self.model, state, State, self.device, grad=False,
+                                                           post_data=False, get_embeddings=True)
             finally:
                 self.model_mtx.release()
             action = torch.sigmoid(distr.loc)
@@ -130,7 +125,7 @@ class AgentA2CTrainer(object):
             if self.cfg.verbose:
                 print(f"\nstep: {it}; mean_loc: {round(distr.loc.mean().item(), 5)}; mean reward: {round(rew, 5)}", end='')
 
-            embeddings = env.embeddings[0].cpu().numpy()
+            embeddings = embeddings[0].cpu().numpy()
             gt_seg = env.gt_seg[0].cpu().numpy()
             gt_mc = cm.prism(env.gt_soln[0].cpu()/env.gt_soln[0].max().item()) if env.gt_edge_weights is not None else torch.zeros(env.raw.shape[-2:])
             rl_labels = env.current_soln.cpu().numpy()[0]
@@ -287,7 +282,7 @@ class AgentA2CTrainer(object):
     def update_critic(self, obs, action, reward):
         self.optimizers.critic.zero_grad()
         with torch.cuda.amp.autocast(enabled=True):
-            current_Q, side_loss = self.forwarder.forward(self.model, obs, State, self.device, actions=action)
+            current_Q, side_loss = self.forwarder.forward(self.model, obs, State, self.device, actions=action, grad=True)
 
             critic_loss = torch.tensor([0.0], device=current_Q[0].device)
             mean_reward = 0
@@ -311,7 +306,8 @@ class AgentA2CTrainer(object):
         with torch.cuda.amp.autocast(enabled=True):
             expl_action = None
             distribution, actor_Q, action, side_loss = self.forwarder.forward(self.model, obs, State, self.device,
-                                                                              expl_action=expl_action, policy_opt=True)
+                                                                              expl_action=expl_action, policy_opt=True,
+                                                                              grad=True)
 
             log_prob = distribution.log_prob(action)
             actor_loss = torch.tensor([0.0], device=actor_Q[0].device)
@@ -430,7 +426,7 @@ class AgentA2CTrainer(object):
         return
 
     def explore(self):
-        env = MulticutEmbeddingsEnv(self.fe_ext, self.cfg, self.device)
+        env = MulticutEmbeddingsEnv(self.cfg, self.device)
         tau = 1
         while self.global_count.value() <= self.cfg.T_max + self.cfg.mem_size:
             dloader = iter(DataLoader(self.train_dset, batch_size=self.cfg.batch_size, shuffle=True, pin_memory=True, num_workers=0))
