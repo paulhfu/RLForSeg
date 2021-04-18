@@ -82,7 +82,7 @@ gnn_n_hl:
   value: 1
 gnn_size_hl:
   desc: factor by which feature size of hidden featuremaps in gnn increases/decreases
-  value: 2024
+  value: 1024
 gnn_act_depth:
   desc: num of graph convs (1, 2, 3)
   value: 1
@@ -124,6 +124,15 @@ n_updates_per_step:
 n_explorers:
   desc: n experience explorer threads
   value: 1
+episode_len:
+  desc: length of the RL episode
+  value: 3
+temporal_encoding_len:
+  desc: the current step is encoded by frequency shifted sine waves. This is the number of sines used
+  value: 5
+use_expact_in_expl:
+  desc: if true we use the same action in training that was used in exploration where the reward was actually gained from.
+  value: true
 batch_size:
   desc: num samples in minibatch
   value: 1
@@ -179,6 +188,9 @@ critic_tau:
 critic_target_update_frequency:
   desc: update critic target every nth step
   value: 5
+gamma:
+  desc: RL gamma
+  value: 0.9
 
 use_closed_form_entropy:
   desc: since we have normal distributions we can use a closed for entropy
