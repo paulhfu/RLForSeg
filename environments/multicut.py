@@ -6,6 +6,7 @@ import h5py
 import os
 import wandb
 import matplotlib.pyplot as plt
+import torch.nn.functional as F
 from matplotlib import cm
 from glob import glob
 from elf.segmentation.multicut import multicut_kernighan_lin
@@ -21,6 +22,8 @@ from rewards.leptin_data_reward_2d import LeptinDataReward2DTurning, LeptinDataR
 from utils.reward_functions import UnSupervisedReward, SubGraphDiceReward
 from utils.graphs import collate_edges, get_edge_indices, get_angles_smass_in_rag
 from utils.general import get_angles, pca_project, random_label_cmap, get_contour_from_2d_binary
+from utils.pt_gaussfilter import GaussianSmoothing
+from utils.temporal_encoding import TemporalSineEncoding
 from utils.affinities import get_edge_features_1d, get_affinities_from_embeddings_2d
 
 State = collections.namedtuple("State", ["raw", "sp_seg", "edge_ids", "edge_feats", "sp_feat", "subgraph_indices", "sep_subgraphs", "round_n", "gt_edge_weights"])
@@ -29,11 +32,15 @@ class MulticutEmbeddingsEnv():
     def __init__(self, cfg, device):
         super(MulticutEmbeddingsEnv, self).__init__()
 
-        self.reset()
         self.cfg = cfg
         self.device = device
         self.last_final_reward = torch.tensor([0.0])
         self.max_p = torch.nn.MaxPool2d(3, padding=1, stride=1)
+        self.gauss_kernel = GaussianSmoothing(1, 5, 3, device=device)
+        self.sine_encoder = TemporalSineEncoding(self.cfg.episode_len, self.cfg.temporal_encoding_len)
+
+        self.acc_reward = []
+        self.counter = 0
 
         if self.cfg.reward_function == 'sub_graph_dice':
             self.reward_function = SubGraphDiceReward()
@@ -99,8 +106,7 @@ class MulticutEmbeddingsEnv():
 
 
     def execute_action(self, actions, logg_vals=None, post_stats=False, post_images=False, tau=None, train=True):
-        self.current_edge_weights = actions.squeeze()
-
+        self.current_edge_weights = torch.clamp(self.current_edge_weights + (actions.squeeze() - 0.5), min=0, max=1)
         self.current_soln = self.get_current_soln(self.current_edge_weights)
 
         if not 'sub_graph_dice' in self.cfg.reward_function:
@@ -108,7 +114,7 @@ class MulticutEmbeddingsEnv():
             # sp_reward = self.reward_function(self.current_soln.long(), self.init_sp_seg.long(), dir_edges=self.dir_edge_ids,
             #                                  res=100)
             split_actions = [actions[self.e_offs[i-1]:self.e_offs[i]].squeeze(-1) for i in range(1, len(self.e_offs))]
-            edge_reward = self.reward_function(self.current_soln.long(), self.init_sp_seg.long(),
+            edge_reward = self.reward_function(self.current_soln[0].long(), self.init_sp_seg.long(),
                                                dir_edges=self.dir_edge_ids, edge_score=True, res=50,
                                                sp_cmrads=self.sp_rads, actions=split_actions)
 
@@ -172,7 +178,7 @@ class MulticutEmbeddingsEnv():
                 # axes[1, 1].imshow(pca_project(get_angles(self.embeddings)[0].detach().cpu().numpy()))
                 axes[1, 1].imshow(self.init_sp_seg[-1].cpu())
                 axes[1, 1].set_title('embed')
-                axes[1, 2].imshow(self.current_soln[-1].cpu(), cmap=random_label_cmap(), interpolation="none")
+                axes[1, 2].imshow(self.current_soln[0][-1].cpu(), cmap=random_label_cmap(), interpolation="none")
                 axes[1, 2].set_title('prediction')
                 wandb.log({tag: [wandb.Image(fig, caption="state")]})
                 plt.close('all')
@@ -181,15 +187,19 @@ class MulticutEmbeddingsEnv():
                     wandb.log({tag + key: val})
 
         self.acc_reward.append(total_reward)
-        return reward
+        return reward, self.counter >= self.cfg.episode_len
 
     def get_state(self):
-        return State(self.raw, self.init_sp_seg, self.edge_ids, self.edge_features, self.sp_feat, self.subgraph_indices,
+        sp_feat = torch.cat((self.sp_feat, torch.stack([self.sine_encoder(self.counter, self.device)] * len(self.sp_feat), dim=0)), dim=1)
+        pix_state = torch.cat((self.raw, self.current_soln[1][:, None]), dim=1)
+        return State(pix_state, self.init_sp_seg, self.edge_ids, self.edge_features, sp_feat, self.subgraph_indices,
                      self.sep_subgraphs, self.counter, self.gt_edge_weights)
 
-    def update_data(self, raw, gt, edge_ids, gt_edges, sp_seg, fe_grad, rags, edge_features, *args, **kwargs):
+    def update_data(self, raw, gt, edge_ids, gt_edges, sp_seg, init_edges, rags, edge_features, *args, **kwargs):
         bs = raw.shape[0]
         dev = raw.device
+        self.init_edge_weights = torch.cat(init_edges)
+        self.current_edge_weights = self.init_edge_weights.clone()
         for _sp_seg in sp_seg:
             assert all(_sp_seg.unique() == torch.arange(_sp_seg.max() + 1, device=dev))
             assert _sp_seg.max() > 60
@@ -222,13 +232,12 @@ class MulticutEmbeddingsEnv():
         self.gt_edge_weights = gt_edges
         if self.gt_edge_weights is not None:
             self.gt_edge_weights = torch.cat(self.gt_edge_weights)
-            self.gt_soln = self.get_current_soln(self.gt_edge_weights)
+            self.gt_soln = self.get_current_soln(self.gt_edge_weights)[0]
             self.sg_gt_edges = [self.gt_edge_weights[sg].view(-1, sz) for sz, sg in
                                 zip(self.cfg.s_subgraph, self.subgraph_indices)]
 
         self.edge_features = torch.cat([edge_angles, torch.cat(edge_features, 0)[:, :2]], 1).float()
-        self.current_edge_weights = torch.ones(self.edge_ids.shape[1], device=self.edge_ids.device) / 2
-
+        self.current_soln = self.get_current_soln(self.current_edge_weights)
         return
 
     def get_batched_actions_from_global_graph(self, actions):
@@ -243,7 +252,7 @@ class MulticutEmbeddingsEnv():
     def get_current_soln(self, edge_weights):
         p_min = 0.001
         p_max = 1.
-        segmentations = []
+        segmentations, edge_images = [], []
         for i in range(1, len(self.e_offs)):
             probs = edge_weights[self.e_offs[i-1]:self.e_offs[i]]
             probs -= probs.min()
@@ -254,11 +263,15 @@ class MulticutEmbeddingsEnv():
             mc_seg = project_node_labels_to_pixels(self.rags[i-1], node_labels).squeeze()
 
             mc_seg = torch.from_numpy(mc_seg.astype(np.long)).to(self.device)
+            edge_img = F.pad(get_contour_from_2d_binary(mc_seg[None, None].float()), (2, 2, 2, 2), mode='constant')
+            edge_img = self.gauss_kernel(edge_img.float()).squeeze()
+            
             # mask = mc_seg[None] == torch.unique(mc_seg)[:, None, None]
             # mc_seg = (mask * (torch.arange(len(torch.unique(mc_seg)), device=mc_seg.device)[:, None, None] + 1)).sum(0) - 1
 
             segmentations.append(mc_seg)
-        return torch.stack(segmentations, dim=0)
+            edge_images.append(edge_img)
+        return torch.stack(segmentations, dim=0), torch.stack(edge_images, dim=0)
 
     def get_node_gt(self):
         b_node_seg = torch.zeros(self.n_offs[-1], device=self.gt_seg.device)
@@ -271,5 +284,6 @@ class MulticutEmbeddingsEnv():
     def reset(self):
         self.acc_reward = []
         self.counter = 0
+        self.current_edge_weights = self.init_edge_weights.clone()
 
 

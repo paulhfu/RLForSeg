@@ -12,7 +12,7 @@ if __name__ == '__main__':
     # os.nice(15)
     # project name: "RL for Segmentation"
     base_dir = "/g/kreshuk/hilt/projects/RLForSeg/results/wandb"
-    project = "crcl_sv_sac_fe_opt_tgt_updt"
+    project = "crcl_sv_sac_fe_opt_msrl"
     entity = "rl_segmentation"
     config = "conf/color_circles_configs.yaml"
     name = ""

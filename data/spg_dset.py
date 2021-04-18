@@ -102,7 +102,7 @@ class SpgDset(torch_data.Dataset):
         return patch[:-2].float(), gt.long()[None], sp_seg.long()[None], torch.tensor([img_idx])
 
     def get_graphs(self, indices, patches, device="cpu"):
-        edges, edge_feat,  gt_edge_weights = [], [], []
+        edges, edge_feat,  gt_edge_weights, init_edge_weights = [], [], [], []
         for i, patch in zip(indices, patches):
             nodes = torch.unique(patch).unsqueeze(-1).unsqueeze(-1)
             try:
@@ -118,10 +118,11 @@ class SpgDset(torch_data.Dataset):
             edges.append(es)
             edge_feat.append(torch.from_numpy(graph_file[self.keys.edge_feat][:]).to(device)[iters])
             gt_edge_weights.append(torch.from_numpy(graph_file[self.keys.gt_edge_weights][:]).to(device)[iters])
+            init_edge_weights.append(torch.from_numpy(graph_file[self.keys.init_edge_weights][:]).to(device)[iters])
 
             if es.shape[1] < self.n_edges_min:
                 return None
-        return edges, edge_feat, gt_edge_weights
+        return edges, edge_feat, gt_edge_weights, init_edge_weights
 
 
 if __name__ == "__main__":

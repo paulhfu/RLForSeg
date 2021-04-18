@@ -35,7 +35,7 @@ patch_manager:
 # embedding network config
 fe_model_name:
   desc: path to state dict of trained model
-  value: /g/kreshuk/hilt/storage/leptin_data_nets/best_val_model.pth # fe_cosine_ls_bn_2chnl.pth # fe_cosine_ls_bn_gtval, fe_cosine_ls_bn_2chnl
+  value: /g/kreshuk/hilt/storage/leptin_data_nets/fe_cosine_latest0.pth # fe_cosine_ls_bn_2chnl.pth # fe_cosine_ls_bn_gtval, fe_cosine_ls_bn_2chnl
 dim_embeddings:
   desc: number of embedding feature channels
   value: 16
@@ -112,7 +112,16 @@ n_updates_per_step:
   value: 10
 n_explorers:
   desc: n experience explorer threads
-  value: 1
+  value: 2
+episode_len:
+  desc: length of the RL episode
+  value: 3
+temporal_encoding_len:
+  desc: the current step is encoded by frequency shifted sine waves. This is the number of sines used
+  value: 5
+use_expact_in_expl:
+  desc: if true we use the same action in training that was used in exploration where the reward was actually gained from.
+  value: true
 batch_size:
   desc: num samples in minibatch
   value: 2
@@ -168,6 +177,9 @@ critic_tau:
 critic_target_update_frequency:
   desc: update critic target every nth step
   value: 5
+gamma:
+  desc: RL gamma
+  value: 0.9
 
 use_closed_form_entropy:
   desc: since we have normal distributions we can use a closed for entropy

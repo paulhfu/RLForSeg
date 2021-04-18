@@ -21,16 +21,18 @@ class Agent(torch.nn.Module):
         self.distance = distance
         self.offs = [[1, 0], [0, 1], [2, 0], [0, 2], [4, 0], [0, 4], [16, 0], [0, 16]]
 
-        dim_embed = self.cfg.dim_embeddings + (3 * int(cfg.use_handcrafted_features))
+        dim_embed = self.cfg.dim_embeddings + (3 * int(cfg.use_handcrafted_features)) + cfg.temporal_encoding_len
 
         self.fe_ext = FeExtractor(dict_to_attrdict(self.cfg.backbone), self.distance, cfg.fe_delta_dist, self.device)
-        self.fe_ext.embed_model.load_state_dict(torch.load(self.cfg.fe_model_name))
+        if self.cfg.fe_model_name is not None:
+            self.fe_ext.embed_model.load_state_dict(torch.load(self.cfg.fe_model_name))
         self.fe_ext.cuda(self.device)
         # for param in self.fe_ext.parameters():
         #     param.requires_grad = False
 
         self.fe_ext_tgt = FeExtractor(dict_to_attrdict(self.cfg.backbone), self.distance, cfg.fe_delta_dist, self.device)
-        self.fe_ext_tgt.embed_model.load_state_dict(torch.load(self.cfg.fe_model_name))
+        if self.cfg.fe_model_name is not None:
+            self.fe_ext_tgt.embed_model.load_state_dict(torch.load(self.cfg.fe_model_name))
         self.fe_ext_tgt.cuda(self.device)
         for param in self.fe_ext_tgt.parameters():
             param.requires_grad = False
