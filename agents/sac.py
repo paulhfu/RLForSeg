@@ -58,8 +58,8 @@ class AgentSacTrainer(object):
         OptimizerContainer = namedtuple('OptimizerContainer',
                                         ('actor', 'critic', 'temperature', 'actor_shed', 'critic_shed', 'temp_shed'))
         actor_optimizer = torch.optim.Adam(self.model.actor.parameters(), lr=self.cfg.actor_lr)
-        # critic_optimizer = torch.optim.Adam(list(self.model.critic.parameters()) + list(self.model.fe_ext.parameters()), lr=self.cfg.critic_lr)
-        critic_optimizer = torch.optim.Adam(self.model.critic.parameters(), lr=self.cfg.critic_lr)
+        critic_optimizer = torch.optim.Adam(list(self.model.critic.parameters()) + list(self.model.fe_ext.parameters()), lr=self.cfg.critic_lr)
+        # critic_optimizer = torch.optim.Adam(self.model.critic.parameters(), lr=self.cfg.critic_lr)
         temp_optimizer = torch.optim.Adam([self.model.log_alpha], lr=self.cfg.alpha_lr)
 
         lr_sched_cfg = dict_to_attrdict(self.cfg.lr_sched)
@@ -367,7 +367,7 @@ class AgentSacTrainer(object):
 
         if step % self.cfg.critic_target_update_frequency == 0:
             soft_update_params(self.model.critic, self.model.critic_tgt, self.cfg.critic_tau)
-            # soft_update_params(self.model.fe_ext, self.model.fe_ext_tgt, self.cfg.critic_tau)
+            soft_update_params(self.model.fe_ext, self.model.fe_ext_tgt, self.cfg.critic_tau)
 
         return critic_loss, actor_loss, alpha_loss, loc_mean
 
