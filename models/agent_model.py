@@ -123,18 +123,18 @@ class QValueNet(torch.nn.Module):
 
         for i, ssg in enumerate(self.s_subgraph):
             self.value.append(nn.Sequential(
-                torch.nn.LeakyReLU(),
                 torch.nn.BatchNorm1d(n_node_in_features * ssg, track_running_stats=False),
+                torch.nn.LeakyReLU(),
                 nn.Linear(n_node_in_features * ssg, hl_factor),
-                nn.Dropout(dropout),
-                torch.nn.LeakyReLU(),
+                # nn.Dropout(dropout),
                 torch.nn.BatchNorm1d(hl_factor, track_running_stats=False),
+                torch.nn.LeakyReLU(),
                 nn.Linear(hl_factor, hl_factor),
-                nn.Dropout(dropout),
-                torch.nn.LeakyReLU(),
+                # nn.Dropout(dropout),
                 torch.nn.BatchNorm1d(hl_factor, track_running_stats=False),
+                torch.nn.LeakyReLU(),
                 nn.Linear(hl_factor, n_classes),
-                nn.Dropout(dropout),
+                # nn.Dropout(dropout),
             ))
             super(QValueNet, self).add_module(f"value{i}", self.value[-1])
 

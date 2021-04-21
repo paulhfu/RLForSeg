@@ -20,14 +20,12 @@ class EdgeMessagePassing(torch.nn.Module):
         \mathbf{x}_i^{\prime} = \gamma_{\mathbf{\Theta}} \left( \mathbf{x}_i,
         \square_{j \in \mathcal{N}(i)} \, \phi_{\mathbf{\Theta}}
         \left(\mathbf{x}_i, \mathbf{x}_j,\mathbf{e}_{i,j}\right) \right),
-
     where :math:`\square` denotes a differentiable, permutation invariant
     function, *e.g.*, sum, mean or max, and :math:`\gamma_{\mathbf{\Theta}}`
     and :math:`\phi_{\mathbf{\Theta}}` denote differentiable functions such as
     MLPs.
     See `here <https://pytorch-geometric.readthedocs.io/en/latest/notes/
     create_gnn.html>`__ for the accompanying tutorial.
-
     Args:
         aggr (string, optional): The aggregation scheme to use
             (:obj:`"add"`, :obj:`"mean"` or :obj:`"max"`).
@@ -56,7 +54,6 @@ class EdgeMessagePassing(torch.nn.Module):
 
     def propagate(self, edge_index, size=None, dim=0, **kwargs):
         r"""The initial call to start propagating messages.
-
         Args:
             edge_index (Tensor): The indices of a gen (sparse) assignment
                 matrix with shape :obj:`[N, M]` (can be directed or
@@ -156,59 +153,52 @@ class EdgeMessagePassing(torch.nn.Module):
 
 class EdgeConv(EdgeMessagePassing):
     def __init__(self, n_channels_in, n_channels_out, use_init_edge_feats=False, n_init_edge_channels=None,
-                 n_hidden_layer=0, hl_factor=128, dropout=0.0):
+                 n_hidden_layer=0, hl_factor=128, dropout=0):
         super(EdgeConv, self).__init__(aggr='no_aggr')  # no need for aggregation when only updating edges.
 
-        hli = [torch.nn.LeakyReLU()]
-        hli.append(torch.nn.BatchNorm1d(n_channels_in * 2, track_running_stats=False))
+        hli = [torch.nn.BatchNorm1d(n_channels_in * 2, track_running_stats=False)]
+        hli.append(torch.nn.LeakyReLU())
         hli.append(torch.nn.Linear(n_channels_in * 2, hl_factor))
         nn.init.xavier_normal_(hli[-1].weight)
         hli[-1].bias.data.fill_(0.01)
-        hli.append(torch.nn.Dropout(dropout))
         for i in range(n_hidden_layer):
-            hli.append(torch.nn.LeakyReLU())
             hli.append(torch.nn.BatchNorm1d(hl_factor, track_running_stats=False))
+            hli.append(torch.nn.LeakyReLU())
             hli.append(torch.nn.Linear(hl_factor, hl_factor))
             nn.init.xavier_normal_(hli[-1].weight)
             hli[-1].bias.data.fill_(0.01)
-            hli.append(torch.nn.Dropout(dropout))
         if use_init_edge_feats:
-            hli.append(torch.nn.LeakyReLU())
             hli.append(torch.nn.BatchNorm1d(hl_factor, track_running_stats=False))
+            hli.append(torch.nn.LeakyReLU())
             hli.append(torch.nn.Linear(hl_factor, hl_factor))
             nn.init.xavier_normal_(hli[-1].weight)
             hli[-1].bias.data.fill_(0.01)
-            hli.append(torch.nn.Dropout(dropout))
         else:
-            hli.append(torch.nn.LeakyReLU())
             hli.append(torch.nn.BatchNorm1d(hl_factor, track_running_stats=False))
+            hli.append(torch.nn.LeakyReLU())
             hli.append(torch.nn.Linear(hl_factor, n_channels_out))
             nn.init.xavier_normal_(hli[-1].weight)
             hli[-1].bias.data.fill_(0.01)
-            hli.append(torch.nn.Dropout(dropout))
 
         self.lin_edges_inner = torch.nn.Sequential(OrderedDict([("hl" + str(i), l) for i, l in enumerate(hli)]))
 
         if use_init_edge_feats:
-            hlo = [torch.nn.LeakyReLU()]
-            hlo.append(torch.nn.BatchNorm1d(n_init_edge_channels + hl_factor, track_running_stats=False))
+            hlo = [torch.nn.BatchNorm1d(n_init_edge_channels + hl_factor, track_running_stats=False)]
+            hlo.append(torch.nn.LeakyReLU())
             hlo.append(torch.nn.Linear(n_init_edge_channels + hl_factor, hl_factor))
             nn.init.xavier_normal_(hlo[-1].weight)
             hlo[-1].bias.data.fill_(0.01)
-            hlo.append(torch.nn.Dropout(dropout))
             for i in range(n_hidden_layer):
-                hlo.append(torch.nn.LeakyReLU())
                 hlo.append(torch.nn.BatchNorm1d(hl_factor, track_running_stats=False))
+                hlo.append(torch.nn.LeakyReLU())
                 hlo.append(torch.nn.Linear(hl_factor, hl_factor))
                 nn.init.xavier_normal_(hlo[-1].weight)
                 hlo[-1].bias.data.fill_(0.01)
-                hlo.append(torch.nn.Dropout(dropout))
-            hlo.append(torch.nn.LeakyReLU())
             hlo.append(torch.nn.BatchNorm1d(hl_factor, track_running_stats=False))
+            hlo.append(torch.nn.LeakyReLU())
             hlo.append(torch.nn.Linear(hl_factor, n_channels_out))
             nn.init.xavier_normal_(hlo[-1].weight)
             hlo[-1].bias.data.fill_(0.01)
-            hlo.append(torch.nn.Dropout(dropout))
 
             self.lin_edges_outer = torch.nn.Sequential(OrderedDict([("hl"+str(i), l) for i, l in enumerate(hlo)]))
 
@@ -248,55 +238,49 @@ class EdgeConvNoNodes(EdgeMessagePassing):
 
 class NodeConv(EdgeMessagePassing):
     def __init__(self, n_channels_in, n_channels_out, distance=None, n_hidden_layer=0, hl_factor=128, start_bn_nl=True,
-                 normalize_input=False, n_edge_channels_in=0, dropout=0.0):
+                 normalize_input=False, n_edge_channels_in=0, dropout=0):
         super(NodeConv, self).__init__(aggr='mean')
 
         self.distance = distance
         self.normalize_input = normalize_input
         if start_bn_nl:
-            hli = [torch.nn.LeakyReLU()]
-            hli.append(torch.nn.BatchNorm1d(n_channels_in * 2 + n_edge_channels_in, track_running_stats=False))
+            hli = [torch.nn.BatchNorm1d(n_channels_in * 2 + n_edge_channels_in, track_running_stats=False)]
+            hli.append(torch.nn.LeakyReLU())
             hli.append(torch.nn.Linear(n_channels_in * 2 + n_edge_channels_in, hl_factor))
             nn.init.xavier_normal_(hli[-1].weight)
             hli[-1].bias.data.fill_(0.01)
-            hli.append(torch.nn.Dropout(dropout))
         else:
             hli = [torch.nn.Linear(n_channels_in * 2 + n_edge_channels_in, hl_factor)]
         for i in range(n_hidden_layer):
-            hli.append(torch.nn.LeakyReLU())
             hli.append(torch.nn.BatchNorm1d(hl_factor, track_running_stats=False))
+            hli.append(torch.nn.LeakyReLU())
             hli.append(torch.nn.Linear(hl_factor, hl_factor))
             nn.init.xavier_normal_(hli[-1].weight)
             hli[-1].bias.data.fill_(0.01)
-            hli.append(torch.nn.Dropout(dropout))
-        hli.append(torch.nn.LeakyReLU())
         hli.append(torch.nn.BatchNorm1d(hl_factor, track_running_stats=False))
+        hli.append(torch.nn.LeakyReLU())
         hli.append(torch.nn.Linear(hl_factor, hl_factor))
         nn.init.xavier_normal_(hli[-1].weight)
         hli[-1].bias.data.fill_(0.01)
-        hli.append(torch.nn.Dropout(dropout))
 
         self.lin_inner = torch.nn.Sequential(OrderedDict([("hl"+str(i), l) for i, l in enumerate(hli)]))
 
-        hlo = [torch.nn.LeakyReLU()]
-        hlo.append(torch.nn.BatchNorm1d(n_channels_in + hl_factor, track_running_stats=False))
+        hlo = [torch.nn.BatchNorm1d(n_channels_in + hl_factor, track_running_stats=False)]
+        hlo.append(torch.nn.LeakyReLU())
         hlo.append(torch.nn.Linear(n_channels_in + hl_factor, hl_factor))
         nn.init.xavier_normal_(hlo[-1].weight)
         hlo[-1].bias.data.fill_(0.01)
-        hlo.append(torch.nn.Dropout(dropout))
         for i in range(n_hidden_layer):
-            hlo.append(torch.nn.LeakyReLU())
             hlo.append(torch.nn.BatchNorm1d(hl_factor, track_running_stats=False))
+            hlo.append(torch.nn.LeakyReLU())
             hlo.append(torch.nn.Linear(hl_factor, hl_factor))
             nn.init.xavier_normal_(hlo[-1].weight)
             hlo[-1].bias.data.fill_(0.01)
-            hlo.append(torch.nn.Dropout(dropout))
-        hlo.append(torch.nn.LeakyReLU())
         hlo.append(torch.nn.BatchNorm1d(hl_factor, track_running_stats=False))
+        hlo.append(torch.nn.LeakyReLU())
         hlo.append(torch.nn.Linear(hl_factor, n_channels_out))
         nn.init.xavier_normal_(hlo[-1].weight)
         hlo[-1].bias.data.fill_(0.01)
-        hlo.append(torch.nn.Dropout(dropout))
 
         self.lin_outer = torch.nn.Sequential(OrderedDict([("hl"+str(i), l) for i, l in enumerate(hlo)]))
 

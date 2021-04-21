@@ -192,7 +192,7 @@ def preprocess_data():
             # mask = gt[None] == torch.unique(gt)[:, None, None]
             # gt = (mask * (torch.arange(len(torch.unique(gt)), device=gt.device)[:, None, None] + 1)).sum(0) - 1
             #
-            # edge_img = F.pad(get_contour_from_2d_binary(node_labeling[None, None].float()), (2, 2, 2, 2), mode='constant')
+            edge_img = get_contour_from_2d_binary(node_labeling[None, None].float())
             # edge_img = gauss_kernel(edge_img.float())
             # raw = torch.cat([raw[None, None], edge_img], dim=1).squeeze(0).numpy()
             # affs = torch.sigmoid(affs).numpy()
