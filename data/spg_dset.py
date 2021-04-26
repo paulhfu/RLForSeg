@@ -25,7 +25,7 @@ class SpgDset(torch_data.Dataset):
         self.reorder_sp = patch_mngr.reorder_sp
         self.n_edges_min = n_edges_min
         pix_file = h5py.File(self.pix_file_names[0], 'r')
-        shape = pix_file["gt"][:].shape
+        shape = pix_file["node_labeling"][:].shape
         if patch_mngr.name == "rotated":
             self.pm = StridedRollingPatches2D(patch_mngr.patch_stride, patch_mngr.patch_shape, shape)
         elif patch_mngr.name == "no_cross":
@@ -69,6 +69,10 @@ class SpgDset(torch_data.Dataset):
         else:
             raw = torch.from_numpy(raw.astype(np.float)).float()
 
+        if "raw_1" in self.keys:
+            raw_1 = torch.from_numpy(pix_file[self.keys.raw_1][:].squeeze().astype(np.float)).float()[None]
+            raw = torch.cat((raw, raw_1), 0)
+
         # raw -= raw.min()
         # raw /= raw.max()
         # def _draw(a, b, rs, idx):
@@ -80,8 +84,15 @@ class SpgDset(torch_data.Dataset):
         #     return altered_raw
         # plt.imshow(_draw(400, 350, [210, 280, 320], 0));plt.show()
 
-        gt = torch.from_numpy(pix_file[self.keys.gt][:].astype(np.float))
-        sp_seg = torch.from_numpy(graph_file[self.keys.node_labeling][:].astype(np.float))
+
+        if self.keys.node_labeling in pix_file.keys():
+            sp_seg = torch.from_numpy(pix_file[self.keys.node_labeling][:].astype(np.float))
+        else:
+            sp_seg = torch.from_numpy(graph_file[self.keys.node_labeling][:].astype(np.float))
+        if "gt" in self.keys:
+            gt = torch.from_numpy(pix_file[self.keys.gt][:].astype(np.float))
+        else:
+            gt = torch.zeros_like(sp_seg)
 
         all = torch.cat([raw, gt[None], sp_seg[None]], 0)
         patch = self.pm.get_patch(all, patch_idx)
@@ -117,7 +128,10 @@ class SpgDset(torch_data.Dataset):
 
             edges.append(es)
             edge_feat.append(torch.from_numpy(graph_file[self.keys.edge_feat][:]).to(device)[iters])
-            gt_edge_weights.append(torch.from_numpy(graph_file[self.keys.gt_edge_weights][:]).to(device)[iters])
+            if "gt_edge_weights" in self.keys:
+                gt_edge_weights.append(torch.from_numpy(graph_file[self.keys.gt_edge_weights][:]).to(device)[iters])
+            else:
+                gt_edge_weights = None
 
             if es.shape[1] < self.n_edges_min:
                 return None

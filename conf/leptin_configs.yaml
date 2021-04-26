@@ -13,17 +13,18 @@ agent_model_name:
   value: '' # agent_model_svpfe.pth
 data_dir:
   desc: train data dir
-  value: /g/kreshuk/kaziakhm/leptin_data/processed/v2_dwtrsd/train
+  value: /g/kreshuk/kaziakhm/leptin_data/processed/v4_dwtrsd/train
 val_data_dir:
   desc: validation data dir
-  value: /g/kreshuk/kaziakhm/leptin_data/processed/v2_dwtrsd/val
+  value: /g/kreshuk/kaziakhm/leptin_data/processed/v4_dwtrsd/val
 data_keys:
   desc: keys for data in h5 file
   value:
-    raw: "raw_2chnl"  # raw_2chnl
-    gt: "gt"
+    raw: "raw"  # raw_2chnl
+    raw_1: "ps_edge"
+#    gt: "gt"
     node_labeling: "node_labeling"
-    gt_edge_weights: "gt_edge_weights"
+#    gt_edge_weights: "gt_edge_weights"
     edge_feat: "edge_feat"
     edges: "edges"
 patch_manager:
@@ -35,7 +36,7 @@ patch_manager:
 # embedding network config
 fe_model_name:
   desc: path to state dict of trained model
-  value: g/kreshuk/kaziakhm/paper_result/fe/v2_dwtrsd_leptin/test_run_fds_0075/best_val_model.pth # fe_cosine_ls_bn_2chnl.pth # fe_cosine_ls_bn_gtval, fe_cosine_ls_bn_2chnl
+  value: /g/kreshuk/kaziakhm/paper_result/fe/leptin_ds/fe_fds_005wf_psedge_16fs/best_val_model.pth # fe_cosine_ls_bn_2chnl.pth # fe_cosine_ls_bn_gtval, fe_cosine_ls_bn_2chnl
 dim_embeddings:
   desc: number of embedding feature channels
   value: 16
@@ -115,7 +116,7 @@ n_explorers:
   value: 1
 batch_size:
   desc: num samples in minibatch
-  value: 4
+  value: 15
 
 # conf for lr scheduling
 lr_sched:

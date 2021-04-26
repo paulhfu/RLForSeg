@@ -35,7 +35,7 @@ patch_manager:
 # embedding network config
 fe_model_name:
   desc: path to state dict of trained model
-  value: /g/kreshuk/hilt/storage/leptin_data_nets/fe_cosine_ls_bn_2chnl.pth
+  value: /g/kreshuk/kaziakhm/paper_result/fe/v3_dwtrsd_leptin/test_run_fds_005/best_val_model.pth
 dim_embeddings:
   desc: number of embedding feature channels
   value: 16
