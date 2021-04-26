@@ -92,8 +92,8 @@ class AgentSacTrainer(object):
         for param in self.fe_ext.parameters():
             param.requires_grad = False
 
-        self.train_dset = SpgDset(self.cfg.data_dir, dict_to_attrdict(self.cfg.patch_manager), dict_to_attrdict(self.cfg.data_keys), max(self.cfg.s_subgraph))
-        self.val_dset = SpgDset(self.cfg.val_data_dir, dict_to_attrdict(self.cfg.patch_manager), dict_to_attrdict(self.cfg.data_keys), max(self.cfg.s_subgraph))
+        self.train_dset = SpgDset(self.cfg.data_dir, dict_to_attrdict(self.cfg.patch_manager), dict_to_attrdict(self.cfg.train_data_keys), max(self.cfg.s_subgraph))
+        self.val_dset = SpgDset(self.cfg.val_data_dir, dict_to_attrdict(self.cfg.patch_manager), dict_to_attrdict(self.cfg.val_data_keys), max(self.cfg.s_subgraph))
 
         self.segm_metric = AveragePrecision()
         self.clst_metric = ClusterMetrics()

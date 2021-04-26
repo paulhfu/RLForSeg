@@ -17,7 +17,17 @@ data_dir:
 val_data_dir:
   desc: validation data dir
   value: /g/kreshuk/kaziakhm/leptin_data/processed/v4_dwtrsd/val
-data_keys:
+val_data_keys:
+  desc: keys for data in h5 file
+  value:
+    raw: "raw"  # raw_2chnl
+    raw_1: "ps_edge"
+    gt: "gt"
+    node_labeling: "node_labeling"
+#    gt_edge_weights: "gt_edge_weights"
+    edge_feat: "edge_feat"
+    edges: "edges"
+train_data_keys:
   desc: keys for data in h5 file
   value:
     raw: "raw"  # raw_2chnl
@@ -104,7 +114,7 @@ post_stats_frequency:
   value: 10
 validatoin_freq:
   desc: validate after n steps
-  value: 100
+  value: 1
 store_indices:
   desc: validate after n steps
   value: [1, 5, 9]
@@ -116,7 +126,7 @@ n_explorers:
   value: 1
 batch_size:
   desc: num samples in minibatch
-  value: 15
+  value: 1
 
 # conf for lr scheduling
 lr_sched:
@@ -141,7 +151,7 @@ gt_edge_overlap_thresh:
   value: 0.5
 s_subgraph:
   desc: subgraph sizes
-  value: [16, 64, 128, 256] # [8, 16, 32, 64]
+  value: [6, 64, 256] # [8, 16, 32, 64]
 entropy_range:
   desc: range of the min entropy constraint
   value: [0.05, 1.0]
