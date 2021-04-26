@@ -135,7 +135,7 @@ use_expact_in_expl:
   value: true
 batch_size:
   desc: num samples in minibatch
-  value: 1
+  value: 4
 
 # conf for lr scheduling
 lr_sched:
