@@ -98,7 +98,7 @@ mem_size:
   value: 50
 data_update_frequency:
   desc: update env data after n steps
-  value: 50
+  value: 200
 post_stats_frequency:
   desc: post logs after n steps
   value: 10
