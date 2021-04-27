@@ -111,28 +111,32 @@ class AveragePrecision:
 
 class ClusterMetrics:
     def __init__(self):
-        self.vi_scores = []
+        self.splits_scores = []
+        self.merges_scores = []
         self.are_score = []
         self.arp_score = []
         self.arr_score = []
 
     def reset(self):
-        self.vi_scores = []
+        self.splits_scores = []
+        self.merges_scores = []
         self.are_score = []
         self.arp_score = []
         self.arr_score = []
 
     def __call__(self, input_seg, gt_seg):
-        h1, h2 = variation_of_information(input_seg, gt_seg)
-        self.vi_scores.append(h1 + h2)
+        splits, merges = variation_of_information(gt_seg, input_seg)
+        self.splits_scores.append(splits)
+        self.merges_scores.append(merges)
         are, arp, arr = adapted_rand_error(gt_seg, input_seg)
         self.are_score.append(are)
         self.arp_score.append(arp)
         self.arr_score.append(arr)
 
     def dump(self):
-        return np.mean(self.vi_scores), np.mean(self.are_score),\
-               np.mean(self.arp_score), np.mean(self.arr_score)
+        return np.mean(self.splits_scores), np.mean(self.merges_scores), \
+               np.mean(self.are_score), np.mean(self.arp_score), \
+               np.mean(self.arr_score)
 
 if __name__ == "__main__":
     metric = AveragePrecision()
