@@ -143,7 +143,7 @@ class AgentSacTrainer(object):
             gt_mc = cm.prism(env.gt_soln[0].cpu()/env.gt_soln[0].max().item()) if env.gt_edge_weights is not None else torch.zeros(env.raw.shape[-2:])
             rl_labels = env.current_soln.cpu().numpy()[0]
 
-            ex_feats.append(pca_project(node_features, n_comps=3).cpu())
+            ex_feats.append(pca_project(node_features.cpu(), n_comps=3))
             ex_raws.append(env.raw[0].cpu().permute(1, 2, 0).squeeze())
             ex_sps.append(env.init_sp_seg[0].cpu())
             ex_mc_gts.append(gt_mc)
