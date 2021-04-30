@@ -105,8 +105,8 @@ class Agent(torch.nn.Module):
                 # this means either exploration or critic opt
                 if return_node_features:
                     if get_embeddings:
-                        return dist, q, actions, None, side_loss, node_features_tgt, embeddings_tgt.detach()
-                    return dist, q, actions, None, side_loss, node_features_tgt
+                        return dist, q, actions, None, side_loss, node_features_tgt.detach(), embeddings_tgt.detach()
+                    return dist, q, actions, None, side_loss, node_features_tgt.detach()
                 if get_embeddings:
                     return dist, q, actions, None, side_loss, embeddings_tgt.detach()
                 return dist, q, actions, None, side_loss

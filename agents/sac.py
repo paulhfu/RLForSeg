@@ -19,7 +19,8 @@ from environments.multicut import MulticutEmbeddingsEnv, State
 from data.spg_dset import SpgDset
 from models.agent_model import Agent
 from utils.exploration_functions import RunningAverage
-from utils.general import soft_update_params, set_seed_everywhere, get_colored_edges_in_sseg, pca_project, random_label_cmap
+from utils.general import soft_update_params, set_seed_everywhere, get_colored_edges_in_sseg, pca_project, \
+    random_label_cmap
 from utils.replay_memory import TransitionData_ts
 from utils.graphs import get_joint_sg_logprobs_edges
 from utils.distances import CosineDistance, L2Distance
@@ -27,6 +28,8 @@ from utils.matching import matching
 from utils.yaml_conv_parser import dict_to_attrdict
 from utils.training_helpers import update_env_data, supervised_policy_pretraining, state_to_cpu, Forwarder
 from utils.metrics import AveragePrecision, ClusterMetrics
+
+
 # from timeit import default_timer as timer
 
 
@@ -58,7 +61,8 @@ class AgentSacTrainer(object):
         OptimizerContainer = namedtuple('OptimizerContainer',
                                         ('actor', 'critic', 'temperature', 'actor_shed', 'critic_shed', 'temp_shed'))
         actor_optimizer = torch.optim.Adam(self.model.actor.parameters(), lr=self.cfg.actor_lr)
-        critic_optimizer = torch.optim.Adam(list(self.model.critic.parameters()) + list(self.model.fe_ext.parameters()), lr=self.cfg.critic_lr)
+        critic_optimizer = torch.optim.Adam(list(self.model.critic.parameters()) + list(self.model.fe_ext.parameters()),
+                                            lr=self.cfg.critic_lr)
         # critic_optimizer = torch.optim.Adam(self.model.critic.parameters(), lr=self.cfg.critic_lr)
         temp_optimizer = torch.optim.Adam([self.model.log_alpha], lr=self.cfg.alpha_lr)
 
@@ -84,8 +88,10 @@ class AgentSacTrainer(object):
             self.model.load_state_dict(torch.load(self.cfg.agent_model_name))
         # finished with prepping
 
-        self.train_dset = SpgDset(self.cfg.data_dir, dict_to_attrdict(self.cfg.patch_manager), dict_to_attrdict(self.cfg.train_data_keys), max(self.cfg.s_subgraph))
-        self.val_dset = SpgDset(self.cfg.val_data_dir, dict_to_attrdict(self.cfg.patch_manager), dict_to_attrdict(self.cfg.val_data_keys), max(self.cfg.s_subgraph))
+        self.train_dset = SpgDset(self.cfg.data_dir, dict_to_attrdict(self.cfg.patch_manager),
+                                  dict_to_attrdict(self.cfg.train_data_keys), max(self.cfg.s_subgraph))
+        self.val_dset = SpgDset(self.cfg.val_data_dir, dict_to_attrdict(self.cfg.patch_manager),
+                                dict_to_attrdict(self.cfg.val_data_keys), max(self.cfg.s_subgraph))
 
         self.segm_metric = AveragePrecision()
         self.clst_metric = ClusterMetrics()
@@ -98,24 +104,29 @@ class AgentSacTrainer(object):
             print("\n\n###### start validate ######", end='')
         self.model.eval()
         n_examples = len(self.val_dset)
-        #taus = [0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8, 0.9]
-        #rl_scores, keys = [], None
+        # taus = [0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8, 0.9]
+        # rl_scores, keys = [], None
 
         self.clst_metric.reset()
         map_scores = []
-        ex_raws, ex_sps, ex_gts, ex_mc_gts, ex_feats, ex_emb, ex_n_emb, ex_rl, edge_ids, rewards, actions = [[] for _ in range(11)]
+        ex_raws, ex_sps, ex_gts, ex_mc_gts, ex_feats, ex_emb, ex_n_emb, ex_rl, edge_ids, rewards, actions = [[] for _ in
+                                                                                                             range(11)]
         dloader = iter(DataLoader(self.val_dset, batch_size=1, shuffle=False, pin_memory=True, num_workers=0))
         acc_reward = 0
 
         for it in range(n_examples):
-            update_env_data(env, dloader, self.val_dset, self.device, with_gt_edges="sub_graph_dice" in self.cfg.reward_function)
+            update_env_data(env, dloader, self.val_dset, self.device,
+                            with_gt_edges="sub_graph_dice" in self.cfg.reward_function)
             env.reset()
             state = env.get_state()
 
             self.model_mtx.acquire()
             try:
-                distr, _, _, _, _, embeddings = self.forwarder.forward(self.model, state, State, self.device, grad=False,
-                                                           post_data=False, get_embeddings=True)
+                distr, _, _, _, _, node_features, embeddings = self.forwarder.forward(self.model, state, State,
+                                                                                      self.device,
+                                                                                      grad=False, post_data=False,
+                                                                                      get_node_feats=True,
+                                                                                      get_embeddings=True)
             finally:
                 self.model_mtx.release()
             action = torch.sigmoid(distr.loc)
@@ -125,19 +136,16 @@ class AgentSacTrainer(object):
             rl_labels = env.current_soln.cpu().numpy()[0]
             gt_seg = env.gt_seg[0].cpu().numpy()
             if self.cfg.verbose:
-                print(f"\nstep: {it}; mean_loc: {round(distr.loc.mean().item(), 5)}; mean reward: {round(rew, 5)}", end='')
+                print(f"\nstep: {it}; mean_loc: {round(distr.loc.mean().item(), 5)}; mean reward: {round(rew, 5)}",
+                      end='')
 
             if it in self.cfg.store_indices:
-                embeddings = env.embeddings[0].cpu()
-                if self.cfg.use_handcrafted_features:
-                    node_features = torch.cat((env.current_node_embeddings, env.sp_feat), 1)
-                else:
-                    node_features = env.current_node_embeddings
                 node_features = node_features[:env.n_offs[1]][env.init_sp_seg[0].long()].permute(2, 0, 1).cpu()
-                gt_mc = cm.prism(env.gt_soln[0].cpu()/env.gt_soln[0].max().item()) if env.gt_edge_weights is not None else torch.zeros(env.raw.shape[-2:])
+                gt_mc = cm.prism(env.gt_soln[0].cpu() / env.gt_soln[
+                    0].max().item()) if env.gt_edge_weights is not None else torch.zeros(env.raw.shape[-2:])
 
                 ex_feats.append(pca_project(node_features, n_comps=3))
-                ex_emb.append(pca_project(embeddings, n_comps=3))
+                ex_emb.append(pca_project(embeddings.cpu(), n_comps=3))
                 ex_n_emb.append(pca_project(node_features[:self.cfg.dim_embeddings], n_comps=3))
                 ex_raws.append(env.raw[0].cpu().permute(1, 2, 0).squeeze())
                 ex_sps.append(env.init_sp_seg[0].cpu())
@@ -221,7 +229,7 @@ class AgentSacTrainer(object):
         label_cm.set_bad(alpha=0)
 
         for it, i in enumerate(self.cfg.store_indices):
-            fig, axs = plt.subplots(2, 4 if self.cfg.reward_function == "sub_graph_dice" else 5 , sharex='col',
+            fig, axs = plt.subplots(2, 4 if self.cfg.reward_function == "sub_graph_dice" else 5, sharex='col',
                                     figsize=(9, 5), sharey='row', gridspec_kw={'hspace': 0, 'wspace': 0})
             axs[0, 0].imshow(ex_gts[it], cmap=random_label_cmap(), interpolation="none")
             axs[0, 0].set_title('gt', y=1.05, size=10)
@@ -263,8 +271,10 @@ class AgentSacTrainer(object):
             axs[1, 3].axis('off')
 
             if self.cfg.reward_function != "sub_graph_dice":
-                frame_rew, scores_rew, bnd_mask = get_colored_edges_in_sseg(ex_sps[it][None].float(), edge_ids[it].cpu(), rewards[it].cpu())
-                frame_act, scores_act, _ = get_colored_edges_in_sseg(ex_sps[it][None].float(), edge_ids[it].cpu(), 1 - actions[it].cpu().squeeze())
+                frame_rew, scores_rew, bnd_mask = get_colored_edges_in_sseg(ex_sps[it][None].float(),
+                                                                            edge_ids[it].cpu(), rewards[it].cpu())
+                frame_act, scores_act, _ = get_colored_edges_in_sseg(ex_sps[it][None].float(), edge_ids[it].cpu(),
+                                                                     1 - actions[it].cpu().squeeze())
 
                 bnd_mask = torch.from_numpy(dilation(bnd_mask.cpu().numpy()))
                 frame_rew = np.stack([dilation(frame_rew.cpu().numpy()[..., i]) for i in range(3)], -1)
@@ -339,7 +349,8 @@ class AgentSacTrainer(object):
             for i, sz in enumerate(self.cfg.s_subgraph):
                 min_entropy = min_entropy.to(self.model.alpha[i].device).squeeze()
                 entropy = sg_entropy[i].detach() if self.cfg.use_closed_form_entropy else -_log_prob[i].detach()
-                alpha_loss = alpha_loss + (self.model.alpha[i] * (entropy - (self.cfg.s_subgraph[i] * min_entropy))).mean()
+                alpha_loss = alpha_loss + (
+                        self.model.alpha[i] * (entropy - (self.cfg.s_subgraph[i] * min_entropy))).mean()
 
             alpha_loss = alpha_loss / len(self.cfg.s_subgraph)
 
@@ -374,9 +385,12 @@ class AgentSacTrainer(object):
             wandb.log({"mov_avg/critic": self.mov_sum_losses.critic.avg}, step=self.global_counter)
             wandb.log({"mov_avg/actor": self.mov_sum_losses.actor.avg}, step=self.global_counter)
             wandb.log({"mov_avg/temperature": self.mov_sum_losses.temperature.avg}, step=self.global_counter)
-            wandb.log({"lr/critic": self.optimizers.critic_shed.optimizer.param_groups[0]['lr']}, step=self.global_counter)
-            wandb.log({"lr/actor": self.optimizers.actor_shed.optimizer.param_groups[0]['lr']}, step=self.global_counter)
-            wandb.log({"lr/temperature": self.optimizers.temp_shed.optimizer.param_groups[0]['lr']}, step=self.global_counter)
+            wandb.log({"lr/critic": self.optimizers.critic_shed.optimizer.param_groups[0]['lr']},
+                      step=self.global_counter)
+            wandb.log({"lr/actor": self.optimizers.actor_shed.optimizer.param_groups[0]['lr']},
+                      step=self.global_counter)
+            wandb.log({"lr/temperature": self.optimizers.temp_shed.optimizer.param_groups[0]['lr']},
+                      step=self.global_counter)
 
         self.global_counter = self.global_counter + 1
 
@@ -398,10 +412,12 @@ class AgentSacTrainer(object):
                     if any([_s is None for _s in stats[j]]):
                         stats[j] = "nl"
                     else:
-                        stats[j] = round(sum(stats[j])/self.cfg.n_updates_per_step, 5)
+                        stats[j] = round(sum(stats[j]) / self.cfg.n_updates_per_step, 5)
 
                 if self.cfg.verbose:
-                    print(f"step: {self.global_count.value()}; mean_loc: {stats[-1]}; n_explorer_steps {self.memory.push_count}", end="")
+                    print(
+                        f"step: {self.global_count.value()}; mean_loc: {stats[-1]}; n_explorer_steps {self.memory.push_count}",
+                        end="")
                     print(f"; cl: {stats[0]}; acl: {stats[1]}; al: {stats[3]}")
             finally:
                 self.model_mtx.release()
@@ -409,7 +425,6 @@ class AgentSacTrainer(object):
                 self.memory.reset_push_count()
             if self.global_count.value() % self.cfg.validatoin_freq == 0:
                 self.validate()
-
 
     # Acts and trains model
     def train_and_explore(self, rn):
@@ -446,10 +461,12 @@ class AgentSacTrainer(object):
         env = MulticutEmbeddingsEnv(self.cfg, self.device)
         tau = 1
         while self.global_count.value() <= self.cfg.T_max + self.cfg.mem_size:
-            dloader = iter(DataLoader(self.train_dset, batch_size=self.cfg.batch_size, shuffle=True, pin_memory=True, num_workers=0))
+            dloader = iter(DataLoader(self.train_dset, batch_size=self.cfg.batch_size, shuffle=True, pin_memory=True,
+                                      num_workers=0))
             for iteration in range((len(self.train_dset) // self.cfg.batch_size) * self.cfg.data_update_frequency):
                 if iteration % self.cfg.data_update_frequency == 0:
-                    update_env_data(env, dloader, self.train_dset, self.device, with_gt_edges="sub_graph_dice" in self.cfg.reward_function)
+                    update_env_data(env, dloader, self.train_dset, self.device,
+                                    with_gt_edges="sub_graph_dice" in self.cfg.reward_function)
                 env.reset()
                 state = env.get_state()
 
@@ -458,7 +475,8 @@ class AgentSacTrainer(object):
                 else:
                     self.model_mtx.acquire()
                     try:
-                        distr, _, action, _, _ = self.forwarder.forward(self.model, state, State, self.device, grad=False)
+                        distr, _, action, _, _ = self.forwarder.forward(self.model, state, State, self.device,
+                                                                        grad=False)
                     finally:
                         self.model_mtx.release()
 
