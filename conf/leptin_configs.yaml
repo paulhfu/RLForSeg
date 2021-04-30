@@ -82,7 +82,7 @@ gnn_n_hl:
   value: 1
 gnn_size_hl:
   desc: factor by which feature size of hidden featuremaps in gnn increases/decreases
-  value: 1024
+  value: 2024
 gnn_act_depth:
   desc: num of graph convs (1, 2, 3)
   value: 1
@@ -108,7 +108,7 @@ mem_size:
   value: 50
 data_update_frequency:
   desc: update env data after n steps
-  value: 200
+  value: 100
 post_stats_frequency:
   desc: post logs after n steps
   value: 10
@@ -135,7 +135,7 @@ use_expact_in_expl:
   value: true
 batch_size:
   desc: num samples in minibatch
-  value: 4
+  value: 1
 
 # conf for lr scheduling
 lr_sched:
