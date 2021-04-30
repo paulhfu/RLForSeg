@@ -111,7 +111,8 @@ class AgentSacTrainer(object):
 
         self.clst_metric.reset()
         map_scores = []
-        ex_raws, ex_sps, ex_gts, ex_mc_gts, ex_embeds, ex_rl, edge_ids, rewards, actions = [], [], [], [], [], [], [], [], []
+        ex_raws, ex_sps, ex_gts, ex_mc_gts, ex_feats, ex_rl, edge_ids, rewards, actions = \
+            [], [], [], [], [], [], [], [], []
         dloader = iter(DataLoader(self.val_dset, batch_size=1, shuffle=False, pin_memory=True, num_workers=0))
         acc_reward = 0
 
@@ -133,11 +134,16 @@ class AgentSacTrainer(object):
                 print(f"\nstep: {it}; mean_loc: {round(distr.loc.mean().item(), 5)}; mean reward: {round(rew, 5)}", end='')
 
             embeddings = env.embeddings[0].cpu().numpy()
+            if self.cfg.use_handcrafted_features:
+                node_features = torch.cat((env.current_node_embeddings, env.sp_feat), 1)
+            else:
+                node_features = env.current_node_embeddings
+            node_features = node_features[:env.n_offs[1]][env.init_sp_seg[0].long()].permute(2, 0, 1)
             gt_seg = env.gt_seg[0].cpu().numpy()
             gt_mc = cm.prism(env.gt_soln[0].cpu()/env.gt_soln[0].max().item()) if env.gt_edge_weights is not None else torch.zeros(env.raw.shape[-2:])
             rl_labels = env.current_soln.cpu().numpy()[0]
 
-            ex_embeds.append(pca_project(embeddings, n_comps=3))
+            ex_feats.append(pca_project(node_features, n_comps=3).cpu())
             ex_raws.append(env.raw[0].cpu().permute(1, 2, 0).squeeze())
             ex_sps.append(env.init_sp_seg[0].cpu())
             ex_mc_gts.append(gt_mc)
@@ -245,7 +251,7 @@ class AgentSacTrainer(object):
             axs[0, 2].set_title('superpixels', y=1.05, size=10)
             axs[0, 2].axis('off')
 
-            axs[1, 0].imshow(ex_embeds[i])
+            axs[1, 0].imshow(ex_feats[i])
             axs[1, 0].set_title('pc proj 1-3', y=-0.15, size=10)
             axs[1, 0].axis('off')
             if ex_raws[i].ndim == 3:

@@ -25,7 +25,7 @@ class SpgDset(torch_data.Dataset):
         self.reorder_sp = patch_mngr.reorder_sp
         self.n_edges_min = n_edges_min
         pix_file = h5py.File(self.pix_file_names[0], 'r')
-        shape = pix_file["node_labeling"][:].shape
+        shape = pix_file[keys.raw][:].shape[-2:]
         if patch_mngr.name == "rotated":
             self.pm = StridedRollingPatches2D(patch_mngr.patch_stride, patch_mngr.patch_shape, shape)
         elif patch_mngr.name == "no_cross":

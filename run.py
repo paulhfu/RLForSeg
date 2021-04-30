@@ -31,5 +31,5 @@ def main(cfg):
 
 if __name__ == '__main__':
     mp.set_start_method('spawn')
-    wandb.init(project="dbg", entity="aule", config="conf/leptin_configs.yaml")
+    wandb.init(project="dbg", entity="aule", config="conf/color_circles_configs.yaml")
     main(wandb.config)

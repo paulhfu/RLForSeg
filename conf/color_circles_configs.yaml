@@ -17,7 +17,16 @@ data_dir:
 val_data_dir:
   desc: validation data dir
   value: /g/kreshuk/hilt/projects/data/color_circles/val
-data_keys:
+train_data_keys:
+  desc: keys for data in h5 file
+  value:
+    raw: "raw_4chnl"  # raw_2chnl
+    gt: "gt"
+    node_labeling: "node_labeling"
+    gt_edge_weights: "gt_edge_weights"
+    edge_feat: "edge_feat"
+    edges: "edges"
+val_data_keys:
   desc: keys for data in h5 file
   value:
     raw: "raw_4chnl"  # raw_2chnl
@@ -44,7 +53,7 @@ distance:
   value: cosine
 use_handcrafted_features:
   desc: to embeddings append handcrafted features like sp size, position , orientation
-  value: false
+  value: true
 n_init_edge_feat:
   desc: GNN gets hand crafted edge featurs like mean affinity or embedding distance as well can be none if not used
   value: 4
@@ -71,7 +80,7 @@ gnn_n_hl:
   value: 1
 gnn_size_hl:
   desc: factor by which feature size of hidden featuremaps in gnn increases/decreases
-  value: 2028
+  value: 1028
 gnn_act_depth:
   desc: num of graph convs (1, 2, 3)
   value: 1
@@ -103,7 +112,7 @@ post_stats_frequency:
   value: 10
 validatoin_freq:
   desc: validate after n steps
-  value: 100
+  value: 1
 store_indices:
   desc: validate after n steps
   value: [1, 5, 9]
@@ -115,7 +124,7 @@ n_explorers:
   value: 1
 batch_size:
   desc: num samples in minibatch
-  value: 4
+  value: 1
 
 # conf for lr scheduling
 lr_sched:
