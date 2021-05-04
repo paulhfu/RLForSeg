@@ -111,8 +111,7 @@ class AgentSacTrainer(object):
 
         self.clst_metric.reset()
         map_scores = []
-        ex_raws, ex_sps, ex_gts, ex_mc_gts, ex_feats, ex_rl, edge_ids, rewards, actions = \
-            [], [], [], [], [], [], [], [], []
+        ex_raws, ex_sps, ex_gts, ex_mc_gts, ex_feats, ex_emb, ex_n_emb, ex_rl, edge_ids, rewards, actions = [[] for _ in range(11)]
         dloader = iter(DataLoader(self.val_dset, batch_size=1, shuffle=False, pin_memory=True, num_workers=0))
         acc_reward = 0
 
@@ -130,28 +129,31 @@ class AgentSacTrainer(object):
             reward = env.execute_action(action, tau=0.0, train=False)
             rew = reward[-1].item() if self.cfg.reward_function == "sub_graph_dice" else reward[-2].item()
             acc_reward += rew
+            rl_labels = env.current_soln.cpu().numpy()[0]
+            gt_seg = env.gt_seg[0].cpu().numpy()
             if self.cfg.verbose:
                 print(f"\nstep: {it}; mean_loc: {round(distr.loc.mean().item(), 5)}; mean reward: {round(rew, 5)}", end='')
 
-            embeddings = env.embeddings[0].cpu().numpy()
-            if self.cfg.use_handcrafted_features:
-                node_features = torch.cat((env.current_node_embeddings, env.sp_feat), 1)
-            else:
-                node_features = env.current_node_embeddings
-            node_features = node_features[:env.n_offs[1]][env.init_sp_seg[0].long()].permute(2, 0, 1)
-            gt_seg = env.gt_seg[0].cpu().numpy()
-            gt_mc = cm.prism(env.gt_soln[0].cpu()/env.gt_soln[0].max().item()) if env.gt_edge_weights is not None else torch.zeros(env.raw.shape[-2:])
-            rl_labels = env.current_soln.cpu().numpy()[0]
+            if it in self.cfg.store_indices:
+                embeddings = env.embeddings[0].cpu()
+                if self.cfg.use_handcrafted_features:
+                    node_features = torch.cat((env.current_node_embeddings, env.sp_feat), 1)
+                else:
+                    node_features = env.current_node_embeddings
+                node_features = node_features[:env.n_offs[1]][env.init_sp_seg[0].long()].permute(2, 0, 1).cpu()
+                gt_mc = cm.prism(env.gt_soln[0].cpu()/env.gt_soln[0].max().item()) if env.gt_edge_weights is not None else torch.zeros(env.raw.shape[-2:])
 
-            ex_feats.append(pca_project(node_features.cpu(), n_comps=3))
-            ex_raws.append(env.raw[0].cpu().permute(1, 2, 0).squeeze())
-            ex_sps.append(env.init_sp_seg[0].cpu())
-            ex_mc_gts.append(gt_mc)
-            ex_gts.append(gt_seg)
-            ex_rl.append(rl_labels)
-            edge_ids.append(env.edge_ids)
-            rewards.append(reward[-1])
-            actions.append(action)
+                ex_feats.append(pca_project(node_features, n_comps=3))
+                ex_emb.append(pca_project(embeddings, n_comps=3))
+                ex_n_emb.append(pca_project(node_features[:self.cfg.dim_embeddings], n_comps=3))
+                ex_raws.append(env.raw[0].cpu().permute(1, 2, 0).squeeze())
+                ex_sps.append(env.init_sp_seg[0].cpu())
+                ex_mc_gts.append(gt_mc)
+                ex_gts.append(gt_seg)
+                ex_rl.append(rl_labels)
+                edge_ids.append(env.edge_ids)
+                rewards.append(reward[-1])
+                actions.append(action)
 
             map_scores.append(self.segm_metric(rl_labels, gt_seg))
             self.clst_metric(rl_labels, gt_seg)
@@ -231,61 +233,67 @@ class AgentSacTrainer(object):
         label_cm = random_label_cmap(zeroth=1.0)
         label_cm.set_bad(alpha=0)
 
-        for i in self.cfg.store_indices:
-            fig, axs = plt.subplots(2, 3 if self.cfg.reward_function == "sub_graph_dice" else 4 , sharex='col',
+        for it, i in enumerate(self.cfg.store_indices):
+            fig, axs = plt.subplots(2, 4 if self.cfg.reward_function == "sub_graph_dice" else 5 , sharex='col',
                                     figsize=(9, 5), sharey='row', gridspec_kw={'hspace': 0, 'wspace': 0})
-            axs[0, 0].imshow(ex_gts[i], cmap=random_label_cmap(), interpolation="none")
+            axs[0, 0].imshow(ex_gts[it], cmap=random_label_cmap(), interpolation="none")
             axs[0, 0].set_title('gt', y=1.05, size=10)
             axs[0, 0].axis('off')
-            if ex_raws[i].ndim == 3:
-                if ex_raws[i].shape[-1] > 2:
-                    axs[0, 1].imshow(ex_raws[i][..., :3], cmap="gray")
+            if ex_raws[it].ndim == 3:
+                if ex_raws[it].shape[-1] > 2:
+                    axs[0, 1].imshow(ex_raws[it][..., :3], cmap="gray")
                 else:
-                    axs[0, 1].imshow(ex_raws[i][..., 0], cmap="gray")
+                    axs[0, 1].imshow(ex_raws[it][..., 0], cmap="gray")
             else:
-                axs[1, 1].imshow(ex_raws[i], cmap="gray")
+                axs[1, 1].imshow(ex_raws[it], cmap="gray")
 
             axs[0, 1].set_title('raw image', y=1.05, size=10)
             axs[0, 1].axis('off')
-            axs[0, 2].imshow(ex_sps[i], cmap=random_label_cmap(), interpolation="none")
-            axs[0, 2].set_title('superpixels', y=1.05, size=10)
-            axs[0, 2].axis('off')
+            axs[0, 3].imshow(ex_sps[it], cmap=random_label_cmap(), interpolation="none")
+            axs[0, 3].set_title('superpixels', y=1.05, size=10)
+            axs[0, 3].axis('off')
 
-            axs[1, 0].imshow(ex_feats[i])
-            axs[1, 0].set_title('pc proj 1-3', y=-0.15, size=10)
+            axs[1, 0].imshow(ex_feats[it])
+            axs[1, 0].set_title('pcp feat', y=-0.15, size=10)
             axs[1, 0].axis('off')
-            if ex_raws[i].ndim == 3:
-                if ex_raws[i].shape[-1] > 1:
-                    axs[1, 1].imshow(ex_raws[i][..., -1], cmap="gray")
-                else:
-                    axs[1, 1].imshow(ex_raws[i][..., 0], cmap="gray")
-            else:
-                axs[1, 1].imshow(ex_raws[i], cmap="gray")
-            axs[1, 1].set_title('sp edge', y=-0.15, size=10)
+            axs[1, 1].imshow(ex_emb[it])
+            axs[1, 1].set_title('pcp emb', y=-0.15, size=10)
             axs[1, 1].axis('off')
-            axs[1, 2].imshow(ex_rl[i], cmap=random_label_cmap(), interpolation="none")
-            axs[1, 2].set_title('prediction', y=-0.15, size=10)
+            axs[1, 2].imshow(ex_n_emb[it])
+            axs[1, 2].set_title('pcp node emb', y=-0.15, size=10)
             axs[1, 2].axis('off')
+            if ex_raws[it].ndim == 3:
+                if ex_raws[it].shape[-1] > 1:
+                    axs[0, 2].imshow(ex_raws[it][..., -1], cmap="gray")
+                else:
+                    axs[0, 2].imshow(ex_raws[it][..., 0], cmap="gray")
+            else:
+                axs[0, 2].imshow(ex_raws[it], cmap="gray")
+            axs[0, 2].set_title('sp edge', y=-0.15, size=10)
+            axs[0, 2].axis('off')
+            axs[1, 3].imshow(ex_rl[it], cmap=random_label_cmap(), interpolation="none")
+            axs[1, 3].set_title('prediction', y=-0.15, size=10)
+            axs[1, 3].axis('off')
 
             if self.cfg.reward_function != "sub_graph_dice":
-                frame_rew, scores_rew, bnd_mask = get_colored_edges_in_sseg(ex_sps[i][None].float(), edge_ids[i].cpu(), rewards[i].cpu())
-                frame_act, scores_act, _ = get_colored_edges_in_sseg(ex_sps[i][None].float(), edge_ids[i].cpu(), 1 - actions[i].cpu().squeeze())
+                frame_rew, scores_rew, bnd_mask = get_colored_edges_in_sseg(ex_sps[it][None].float(), edge_ids[it].cpu(), rewards[it].cpu())
+                frame_act, scores_act, _ = get_colored_edges_in_sseg(ex_sps[it][None].float(), edge_ids[it].cpu(), 1 - actions[it].cpu().squeeze())
 
                 bnd_mask = torch.from_numpy(dilation(bnd_mask.cpu().numpy()))
                 frame_rew = np.stack([dilation(frame_rew.cpu().numpy()[..., i]) for i in range(3)], -1)
                 frame_act = np.stack([dilation(frame_act.cpu().numpy()[..., i]) for i in range(3)], -1)
-                ex_rl[i] = ex_rl[i].squeeze().astype(np.float)
-                ex_rl[i][bnd_mask] = np.nan
+                ex_rl[it] = ex_rl[it].squeeze().astype(np.float)
+                ex_rl[it][bnd_mask] = np.nan
 
-                axs[1, 3].imshow(frame_rew, interpolation="none")
-                axs[1, 3].imshow(ex_rl[i], cmap=label_cm, alpha=0.8, interpolation="none")
-                axs[1, 3].set_title("rewards 1:g, 0:r", y=-0.2)
-                axs[1, 3].axis('off')
+                axs[1, 4].imshow(frame_rew, interpolation="none")
+                axs[1, 4].imshow(ex_rl[it], cmap=label_cm, alpha=0.8, interpolation="none")
+                axs[1, 4].set_title("rewards 1:g, 0:r", y=-0.2)
+                axs[1, 4].axis('off')
 
-                axs[0, 3].imshow(frame_act, interpolation="none")
-                axs[0, 3].imshow(ex_rl[i], cmap=label_cm, alpha=0.8, interpolation="none")
-                axs[0, 3].set_title("actions 0:g, 1:r", y=1.05, size=10)
-                axs[0, 3].axis('off')
+                axs[0, 4].imshow(frame_act, interpolation="none")
+                axs[0, 4].imshow(ex_rl[it], cmap=label_cm, alpha=0.8, interpolation="none")
+                axs[0, 4].set_title("actions 0:g, 1:r", y=1.05, size=10)
+                axs[0, 4].axis('off')
 
             wandb.log({"validation/sample_" + str(i): [wandb.Image(fig, caption="sample images")]},
                       step=self.global_counter)
