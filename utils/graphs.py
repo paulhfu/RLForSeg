@@ -80,16 +80,19 @@ def get_angles_smass_in_rag(edges, segmentation):
     sup_sizes = one_hot.flatten(1).sum(-1)
     cart_cms = (one_hot[None] * meshgrid[:, None]).flatten(2).sum(2) / sup_sizes[None]
 
-    a = (350 - cart_cms[1])  # This is not the image center because the Leptin data is not exactly concentric to it
-    b = (cart_cms[0] - 400)
+    a = (cart_cms[0].float() - 390)  # This is not the image center because the Leptin data is not exactly concentric to it
+    b = (cart_cms[1].float() - 340)
     c = torch.sqrt(a**2 + b**2)
     normed_c = torch.sigmoid(c / c_norm - 1) * 2 - 1
-    ang = torch.atan(a/(b + 1e-10)) + np.pi/2
-    ang[a < 0] = -ang[a < 0]
+    ang = torch.atan(a/(b + 1e-10)).abs()
+    ang[(b < 0) & (a >= 0)] = np.pi - ang[(b < 0) & (a >= 0)]
+    ang[(b < 0) & (a < 0)] = np.pi + ang[(b < 0) & (a < 0)]
+    ang[(b >= 0) & (a < 0)] = 2 * np.pi - ang[(b >= 0) & (a < 0)]
     ang /= np.pi
+    ang -= 1
     # ang += random_rotation
-    ang[a > 1] = (ang[a > 1] - 1) - 1
-    ang[ang < -1] = 1 + (ang[ang < -1] + 1)
+    # ang[a > 1] = (ang[a > 1] - 1) - 1
+    # ang[ang < -1] = 1 + (ang[ang < -1] + 1)
     cms = torch.stack([ang, normed_c, c], 1)
 
     vec = cart_cms[:, edges[0]] - cart_cms[:, edges[1]]

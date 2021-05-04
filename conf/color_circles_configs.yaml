@@ -112,7 +112,7 @@ post_stats_frequency:
   value: 10
 validatoin_freq:
   desc: validate after n steps
-  value: 1
+  value: 100
 store_indices:
   desc: validate after n steps
   value: [1, 5, 9]
@@ -124,7 +124,7 @@ n_explorers:
   value: 1
 batch_size:
   desc: num samples in minibatch
-  value: 1
+  value: 10
 
 # conf for lr scheduling
 lr_sched:
