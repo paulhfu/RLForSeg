@@ -145,7 +145,7 @@ class AgentSacTrainer(object):
                     0].max().item()) if env.gt_edge_weights is not None else torch.zeros(env.raw.shape[-2:])
 
                 ex_feats.append(pca_project(node_features, n_comps=3))
-                ex_emb.append(pca_project(embeddings.cpu(), n_comps=3))
+                ex_emb.append(pca_project(embeddings[0].cpu(), n_comps=3))
                 ex_n_emb.append(pca_project(node_features[:self.cfg.dim_embeddings], n_comps=3))
                 ex_raws.append(env.raw[0].cpu().permute(1, 2, 0).squeeze())
                 ex_sps.append(env.init_sp_seg[0].cpu())

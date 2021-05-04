@@ -97,7 +97,7 @@ gnn_crit_norm_inp:
   value: false
 gnn_dropout:
   desc: dropout probability during training \in [0, 1]
-  value: 0.2
+  value: 0.0
 
 # training config
 T_max:
