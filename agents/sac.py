@@ -254,13 +254,13 @@ class AgentSacTrainer(object):
             axs[0, 3].axis('off')
 
             axs[1, 0].imshow(ex_feats[it])
-            axs[1, 0].set_title('pcp feat', y=-0.15, size=10)
+            axs[1, 0].set_title('feat', y=-0.15, size=10)
             axs[1, 0].axis('off')
-            axs[1, 1].imshow(ex_emb[it])
-            axs[1, 1].set_title('pcp emb', y=-0.15, size=10)
+            axs[1, 1].imshow(ex_n_emb[it])
+            axs[1, 1].set_title('node emb', y=-0.15, size=10)
             axs[1, 1].axis('off')
-            axs[1, 2].imshow(ex_n_emb[it])
-            axs[1, 2].set_title('pcp node emb', y=-0.15, size=10)
+            axs[1, 2].imshow(ex_emb[it])
+            axs[1, 2].set_title('emb', y=-0.15, size=10)
             axs[1, 2].axis('off')
             if ex_raws[it].ndim == 3:
                 if ex_raws[it].shape[-1] > 1:
