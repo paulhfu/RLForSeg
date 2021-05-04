@@ -77,7 +77,7 @@ class LeptinDataRotatedRectRewards(RewardFunctionAbc):
         self.fg_shape_descriptors = self.celltype_1_ds + self.celltype_2_ds + self.celltype_3_ds
         self.circle_center = np.array([390, 340])
         self.circle_rads = [210, 270, 100, 340]
-        self.exact_circle_rads = [345, 353, 603, 611]
+        self.exact_circle_diameter = [345, 353, 603, 611]
         self.side_lens = [28, 125]
         self.problem_area = [95/275, 355/32]
 
@@ -85,7 +85,7 @@ class LeptinDataRotatedRectRewards(RewardFunctionAbc):
                  *args, **kwargs):
         dev = prediction_segmentation.device
         return_scores = []
-        exp_factor = 4
+        exp_factor = 2
 
         for single_pred, single_sp_seg, s_dir_edges, s_actions, s_sp_cmrads in zip(prediction_segmentation,
                                                                                    superpixel_segmentation,
@@ -99,20 +99,29 @@ class LeptinDataRotatedRectRewards(RewardFunctionAbc):
                 else:
                     return_scores.append(scores)
                 continue
+
             # get one-hot representation
             one_hot = torch.zeros((int(single_pred.max()) + 1,) + single_pred.size(), device=dev, dtype=torch.long) \
                 .scatter_(0, single_pred[None], 1)
+            label_masses = one_hot.flatten(1).sum(-1)
+            meshgrid = torch.stack(torch.meshgrid(torch.arange(single_pred.shape[0], device=dev),
+                                                  torch.arange(single_pred.shape[1], device=dev)))
+            radii = (((one_hot[:, None] * meshgrid[None]) -
+                     torch.from_numpy(self.circle_center).to(dev)[None, :, None, None]) ** 2).sum(1).sqrt()
+            bg1_score = ((radii > self.circle_rads[-1]) * one_hot).flatten(1).sum(1)
+            bg2_score = ((radii < self.circle_rads[-2]) * one_hot).flatten(1).sum(1)
+            bg1_id = torch.argmax(bg1_score)
+            bg2_id = torch.argmax(bg2_score)
 
             # need masses to determine what objects can be considered background
-            label_masses = one_hot.flatten(1).sum(-1)
             bg1_mask = torch.zeros_like(label_masses).bool()
-            bg1_id = label_masses.argmax()
-            bg1_mass = label_masses[bg1_id].item()
+            # bg1_id = label_masses.argmax()
+            # bg1_mass = label_masses[bg1_id].item()
             bg1_mask[bg1_id] = True
             bg2_mask = torch.zeros_like(label_masses).bool()
-            label_masses[bg1_id] = -1
-            bg2_id = label_masses.argmax()
-            label_masses[bg1_id] = bg1_mass
+            # label_masses[bg1_id] = -1
+            # bg2_id = label_masses.argmax()
+            # label_masses[bg1_id] = bg1_mass
             bg2_mask[bg2_id] = True
             # get the objects that are torching the patch boarder as for them we cannot compute a relieable sim shape_score
             false_obj_mask = (label_masses < (self.masses[2] / 3)) | (label_masses > (self.masses[2] * 3))
@@ -228,20 +237,20 @@ class LeptinDataRotatedRectRewards(RewardFunctionAbc):
                     # if len(contour) > 1:
                     #     raise Exception()
                     contour = contour[np.array([len(cnt) for cnt in contour]).argmax()]
-                    poly_chain = torch.from_numpy(approximate_polygon(contour, tolerance=0.0)).to(dev)
-                    dsts = ((poly_chain.cpu() - self.circle_center)**2).sum(1).sqrt()
-                    cm = poly_chain.mean(0)
-                    if (cm.cpu() - self.circle_center).abs().sum() > 150:
+                    contour = torch.from_numpy(contour).to(dev)
+                    # dsts = ((contour.cpu() - self.circle_center)**2).sum(1).sqrt()
+                    cm = contour.mean(0)
+                    if (cm.cpu() - self.circle_center).abs().sum() > 100:
                         scores[bg1_sp_ids] = 0.0
-                    elif poly_chain.shape[0] <= 3:
+                    elif contour.shape[0] <= 8:
                         scores[bg1_sp_ids] = 0.0
-                    elif ((dsts < self.circle_rads[1]).sum() / len(contour)) > 0.5:
-                        scores[bg1_sp_ids] = 0.0
+                    # elif ((dsts < self.circle_rads[1]).sum() / len(dsts)) > 0.3:
+                    #     scores[bg1_sp_ids] = 0.0
                     else:
                         bg1_shape_score = 0.0
-                        principal_ax = fitEllipse(contour.astype(np.int))[1]
-                        diff1 = abs(max(principal_ax) - self.exact_circle_rads[3])
-                        diff2 = abs(min(principal_ax) - self.exact_circle_rads[2])
+                        principal_ax = fitEllipse(contour.long().cpu().numpy())[1]
+                        diff1 = abs(max(principal_ax) - self.exact_circle_diameter[3])
+                        diff2 = abs(min(principal_ax) - self.exact_circle_diameter[2])
 
                         if diff2 < 15:
                             bg1_shape_score += 0.5
@@ -279,9 +288,9 @@ class LeptinDataRotatedRectRewards(RewardFunctionAbc):
                         # bg1_shape_score = (bg1_shape_score * exp_factor).exp() / (
                         #             torch.ones_like(bg1_shape_score) * exp_factor).exp()
 
-                        rads = np.linalg.norm(poly_chain.cpu().numpy() - self.circle_center[np.newaxis], axis=1)
-                        dists = abs(rads.mean() - rads)
-                        bg1_rad = rads[dists < 10].mean() - 5
+                        # rads = np.linalg.norm(contour.cpu().numpy() - self.circle_center[np.newaxis], axis=1)
+                        # dists = abs(rads.mean() - rads)
+                        # bg1_rad = rads[dists < 10].mean() - 5
                 except Exception as e:
                     print(e)
             if diff2 > (self.masses[1] / 4):
@@ -292,21 +301,24 @@ class LeptinDataRotatedRectRewards(RewardFunctionAbc):
                     # if len(contour) > 1:
                     #     raise Exception
                     contour = contour[np.array([len(cnt) for cnt in contour]).argmax()]
-                    poly_chain = torch.from_numpy(approximate_polygon(contour, tolerance=0.0)).to(dev)
-                    dsts = ((poly_chain.cpu() - self.circle_center) ** 2).sum(1).sqrt()
-                    cm = poly_chain.mean(0)
+                    contour = torch.from_numpy(contour).to(dev)
+                    # dsts = ((contour.cpu() - self.circle_center) ** 2).sum(1).sqrt()
+                    cm = contour.mean(0)
                     if (cm.cpu() - self.circle_center).abs().sum() > 150:
                         scores[bg2_sp_ids] = 0.0
-                    elif poly_chain.shape[0] <= 3:
+                    elif contour.shape[0] <= 8:
                         scores[bg2_sp_ids] = 0.0
-                    elif ((dsts > self.circle_rads[0]).sum() / len(contour)) > 0.5:
-                        scores[bg2_sp_ids] = 0.0
+                    # elif ((dsts > self.circle_rads[0]).sum() / len(contour)) > 0.3:
+                    #     scores[bg2_sp_ids] = 0.0
                     else:
 
                         bg2_shape_score = 0.0
-                        principal_ax = fitEllipse(contour.astype(np.int))[1]
-                        diff1 = abs(max(principal_ax) - self.exact_circle_rads[1])
-                        diff2 = abs(min(principal_ax) - self.exact_circle_rads[0])
+                        principal_ax = fitEllipse(contour.long().cpu().numpy())[1]
+                        diff1 = abs(max(principal_ax) - self.exact_circle_diameter[1])
+                        diff2 = abs(min(principal_ax) - self.exact_circle_diameter[0])
+
+                        # plt.imshow(bg2.cpu()[..., None] * 200 + cv2.ellipse(np.zeros(shape=[741, 692, 3], dtype=np.uint8), fitEllipse(contour.long().cpu().numpy()), (23, 184, 80), 3))
+                        # plt.show()
 
                         if diff2 < 15:
                             bg2_shape_score += 0.5
@@ -344,9 +356,9 @@ class LeptinDataRotatedRectRewards(RewardFunctionAbc):
                         # bg2_shape_score = (bg2_shape_score * exp_factor).exp() / (
                         #             torch.ones_like(bg2_shape_score) * exp_factor).exp()
 
-                        rads = np.linalg.norm(poly_chain.cpu().numpy() - self.circle_center[np.newaxis], axis=1)
-                        dists = abs(rads.mean() - rads)
-                        bg2_rad = rads[dists < 10].mean() + 5
+                        # rads = np.linalg.norm(contour.cpu().numpy() - self.circle_center[np.newaxis], axis=1)
+                        # dists = abs(rads.mean() - rads)
+                        # bg2_rad = rads[dists < 10].mean() + 5
                 except Exception as e:
                     print(e)
 
@@ -397,17 +409,13 @@ class LeptinDataRotatedRectRewards(RewardFunctionAbc):
                 edge_scores[edge_mask_1] = fg_prob1 * edge_scores[edge_mask_1] + (1 - s_actions[edge_mask_1]) * bg_prob1
                 edge_scores[edge_mask_2] = fg_prob2 * edge_scores[edge_mask_2] + (1 - s_actions[edge_mask_2]) * bg_prob2
 
-                if bg1_shape_score > 0.6:
-                    edge_mask = (edges[None] == bg2_sp_ids[:, None, None]).sum(0).sum(0) == 2
-                    unmerge_edges = (edge_cmrads[:, edge_mask] < bg1_rad).sum(0) == 1
-                    edge_scores[edge_mask][unmerge_edges] = 0.4 * edge_scores[edge_mask][unmerge_edges] + 0.6 * \
-                                                            s_actions[edge_mask][unmerge_edges]
+                edge_mask = (edges[None] == bg2_sp_ids[:, None, None]).sum(0).sum(0) == 2
+                unmerge_edges = (edge_cmrads[:, edge_mask] < self.circle_rads[1]).sum(0) == 1
+                edge_scores[edge_mask][unmerge_edges] = s_actions[edge_mask][unmerge_edges]
 
-                if bg2_shape_score > 0.6:
-                    edge_mask = (edges[None] == bg2_sp_ids[:, None, None]).sum(0).sum(0) == 2
-                    unmerge_edges = (edge_cmrads[:, edge_mask] > bg2_rad).sum(0) == 1
-                    edge_scores[edge_mask][unmerge_edges] = 0.4 * edge_scores[edge_mask][unmerge_edges] + 0.6 * \
-                                                            s_actions[edge_mask][unmerge_edges]
+                edge_mask = (edges[None] == bg2_sp_ids[:, None, None]).sum(0).sum(0) == 2
+                unmerge_edges = (edge_cmrads[:, edge_mask] > self.circle_rads[0]).sum(0) == 1
+                edge_scores[edge_mask][unmerge_edges] = s_actions[edge_mask][unmerge_edges]
 
                 return_scores.append(edge_scores)
             else:
