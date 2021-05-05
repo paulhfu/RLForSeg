@@ -44,9 +44,9 @@ patch_manager:
     reorder_sp: false
 
 # embedding network config
-#fe_model_name:
-#  desc: path to state dict of trained model
-#  value: /g/kreshuk/kaziakhm/paper_result/fe/leptin_ds/fe_fds_005wf_psedge_16fs/best_val_model.pth # fe_cosine_ls_bn_2chnl.pth # fe_cosine_ls_bn_gtval, fe_cosine_ls_bn_2chnl
+fe_model_name:
+  desc: path to state dict of trained model
+  value: /g/kreshuk/kaziakhm/paper_result/fe/leptin_ds/fe_fds_005wf_psedge_16fs/best_val_model.pth # fe_cosine_ls_bn_2chnl.pth # fe_cosine_ls_bn_gtval, fe_cosine_ls_bn_2chnl
 dim_embeddings:
   desc: number of embedding feature channels
   value: 16
