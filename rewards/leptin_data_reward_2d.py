@@ -106,8 +106,8 @@ class LeptinDataRotatedRectRewards(RewardFunctionAbc):
             label_masses = one_hot.flatten(1).sum(-1)
             meshgrid = torch.stack(torch.meshgrid(torch.arange(single_pred.shape[0], device=dev),
                                                   torch.arange(single_pred.shape[1], device=dev)))
-            radii = (((one_hot[:, None] * meshgrid[None]) -
-                     torch.from_numpy(self.circle_center).to(dev)[None, :, None, None]) ** 2).sum(1).sqrt()
+            radii = (((one_hot[:, None].float() * meshgrid[None].float()) -
+                     torch.from_numpy(self.circle_center).to(dev).float()[None, :, None, None]) ** 2).sum(1).sqrt()
             bg1_score = ((radii > self.circle_rads[-1]) * one_hot).flatten(1).sum(1)
             bg2_score = ((radii < self.circle_rads[-2]) * one_hot).flatten(1).sum(1)
             bg1_id = torch.argmax(bg1_score)

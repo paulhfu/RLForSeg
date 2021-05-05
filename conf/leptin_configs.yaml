@@ -114,7 +114,7 @@ post_stats_frequency:
   value: 10
 validatoin_freq:
   desc: validate after n steps
-  value: 1
+  value: 100
 store_indices:
   desc: validate after n steps
   value: [1, 5, 9]
