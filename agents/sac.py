@@ -249,6 +249,15 @@ class AgentSacTrainer(object):
 
             axs[0, 1].set_title('raw image', y=1.05, size=10)
             axs[0, 1].axis('off')
+            if ex_raws[it].ndim == 3:
+                if ex_raws[it].shape[-1] > 1:
+                    axs[0, 2].imshow(ex_raws[it][..., -1], cmap="gray")
+                else:
+                    axs[0, 2].imshow(ex_raws[it][..., 0], cmap="gray")
+            else:
+                axs[0, 2].imshow(ex_raws[it], cmap="gray")
+            axs[0, 2].set_title('sp edge', y=1.05, size=10)
+            axs[0, 2].axis('off')
             axs[0, 3].imshow(ex_sps[it], cmap=random_label_cmap(), interpolation="none")
             axs[0, 3].set_title('superpixels', y=1.05, size=10)
             axs[0, 3].axis('off')
@@ -262,15 +271,6 @@ class AgentSacTrainer(object):
             axs[1, 2].imshow(ex_emb[it])
             axs[1, 2].set_title('emb', y=-0.15, size=10)
             axs[1, 2].axis('off')
-            if ex_raws[it].ndim == 3:
-                if ex_raws[it].shape[-1] > 1:
-                    axs[0, 2].imshow(ex_raws[it][..., -1], cmap="gray")
-                else:
-                    axs[0, 2].imshow(ex_raws[it][..., 0], cmap="gray")
-            else:
-                axs[0, 2].imshow(ex_raws[it], cmap="gray")
-            axs[0, 2].set_title('sp edge', y=-0.15, size=10)
-            axs[0, 2].axis('off')
             axs[1, 3].imshow(ex_rl[it], cmap=random_label_cmap(), interpolation="none")
             axs[1, 3].set_title('prediction', y=-0.15, size=10)
             axs[1, 3].axis('off')
