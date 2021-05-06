@@ -111,7 +111,8 @@ class MulticutEmbeddingsEnv():
             split_actions = [actions[self.e_offs[i-1]:self.e_offs[i]].squeeze(-1) for i in range(1, len(self.e_offs))]
             edge_reward = self.reward_function(self.current_soln.long(), self.init_sp_seg.long(),
                                                dir_edges=self.dir_edge_ids, edge_score=True, res=50,
-                                               sp_cmrads=self.sp_rads, actions=split_actions)
+                                               sp_cmrads=self.sp_rads, actions=split_actions, sp_cms=self.sp_cms,
+                                               sp_masses=self.sp_masses)
 
             for i, sz in enumerate(self.cfg.s_subgraph):
                 # reward.append((sp_reward[self.edge_ids][:, self.subgraph_indices[i].view(-1, sz)].sum(0) / 2).mean(1))
@@ -216,7 +217,8 @@ class MulticutEmbeddingsEnv():
         self.current_node_embeddings = torch.cat([self.embedding_net.get_mean_sp_embedding_chunked(embed, sp, chunks=20)
                                                   for embed, sp in zip(self.embeddings, self.init_sp_seg)], dim=0)
 
-        edge_angles, sp_feat, self.sp_rads = zip(*[get_angles_smass_in_rag(edge_ids[i], self.init_sp_seg[i]) for i in range(bs)])
+        edge_angles, sp_feat, self.sp_rads, self.sp_cms, self.sp_masses = \
+            zip(*[get_angles_smass_in_rag(edge_ids[i], self.init_sp_seg[i]) for i in range(bs)])
         edge_angles, self.sp_feat = torch.cat(edge_angles).unsqueeze(-1), torch.cat(sp_feat)
 
         subgraphs, self.sep_subgraphs = [], []

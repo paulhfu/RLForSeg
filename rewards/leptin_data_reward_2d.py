@@ -1,5 +1,7 @@
 import matplotlib
 # matplotlib.use('TkAgg')
+import skimage.draw
+
 from rewards.reward_abc import RewardFunctionAbc
 from skimage.measure import approximate_polygon, find_contours
 from skimage.morphology import dilation
@@ -31,6 +33,15 @@ def show_conts(cont, shape, tolerance):
     plt.imshow(cont_image)
     plt.show()
     plt.imshow(approx_image)
+    plt.show()
+
+def show_circle(raw, center, perimeters):
+    raw /= raw.max()
+    raw = torch.stack((raw, raw, raw), -1).float().numpy()
+    for perimeter in perimeters:
+        rr, cc = skimage.draw.circle_perimeter(center[0], center[1], perimeter, shape=raw.shape)
+        raw[rr, cc] = np.array([1., 0., 0.])
+    plt.imshow(raw)
     plt.show()
 
 
@@ -75,21 +86,22 @@ class LeptinDataRotatedRectRewards(RewardFunctionAbc):
 
         self.masses = [np.array(m1).mean(), np.array(m2).mean(), np.array(m3 + m4 + m5).mean()]
         self.fg_shape_descriptors = self.celltype_1_ds + self.celltype_2_ds + self.celltype_3_ds
-        self.circle_center = np.array([390, 340])
+        # self.circle_center = np.array([390, 340])
         self.circle_rads = [210, 270, 100, 340]
         self.exact_circle_diameter = [345, 353, 603, 611]
         self.side_lens = [28, 125]
         self.problem_area = [95/275, 355/32]
 
     def __call__(self, prediction_segmentation, superpixel_segmentation, dir_edges, edge_score, sp_cmrads, actions,
-                 *args, **kwargs):
+                 sp_cms, sp_masses, *args, **kwargs):
         dev = prediction_segmentation.device
         return_scores = []
         exp_factor = 2
 
-        for single_pred, single_sp_seg, s_dir_edges, s_actions, s_sp_cmrads in zip(prediction_segmentation,
+        for single_pred, single_sp_seg, s_dir_edges, s_actions, s_sp_cmrads, cms, masses in zip(prediction_segmentation,
                                                                                    superpixel_segmentation,
-                                                                                   dir_edges, actions, sp_cmrads):
+                                                                                   dir_edges, actions, sp_cmrads,
+                                                                                   sp_cms, sp_masses):
             scores = torch.zeros(int((single_sp_seg.max()) + 1, ), device=dev)
             if single_pred.max() == 0:  # image is empty
                 if edge_score:
@@ -100,6 +112,8 @@ class LeptinDataRotatedRectRewards(RewardFunctionAbc):
                     return_scores.append(scores)
                 continue
 
+            circle_center = cms[masses < 1000].mean(0).round().long().cpu().numpy()
+
             # get one-hot representation
             one_hot = torch.zeros((int(single_pred.max()) + 1,) + single_pred.size(), device=dev, dtype=torch.long) \
                 .scatter_(0, single_pred[None], 1)
@@ -107,7 +121,7 @@ class LeptinDataRotatedRectRewards(RewardFunctionAbc):
             meshgrid = torch.stack(torch.meshgrid(torch.arange(single_pred.shape[0], device=dev),
                                                   torch.arange(single_pred.shape[1], device=dev)))
             radii = (((one_hot[:, None].float() * meshgrid[None].float()) -
-                     torch.from_numpy(self.circle_center).to(dev).float()[None, :, None, None]) ** 2).sum(1).sqrt()
+                     torch.from_numpy(circle_center).to(dev).float()[None, :, None, None]) ** 2).sum(1).sqrt()
             bg1_score = ((radii > self.circle_rads[-1]) * one_hot).flatten(1).sum(1)
             bg2_score = ((radii < self.circle_rads[-2]) * one_hot).flatten(1).sum(1)
             bg1_id = torch.argmax(bg1_score)
@@ -156,10 +170,10 @@ class LeptinDataRotatedRectRewards(RewardFunctionAbc):
 
                 poly_chain = torch.tensor(contour).to(dev)
                 cm = poly_chain.mean(dim=0).cpu()
-                pos = self.circle_center-cm.cpu().tolist()
+                pos = circle_center-cm.cpu().tolist()
                 ang = abs(pos[1]) / abs(pos[0]) if (pos > 0).all() else None
                 in_problem_area = False if ang is None else ang > self.problem_area[0] and ang < self.problem_area[1]
-                position = ((cm - self.circle_center) ** 2).sum().sqrt()
+                position = ((cm - circle_center) ** 2).sum().sqrt()
                 dt = abs(self.circle_rads[0] - position)
                 position_score = 0.0
                 if dt < 100:
@@ -174,9 +188,9 @@ class LeptinDataRotatedRectRewards(RewardFunctionAbc):
                 long_side = dsts[long_side_ind]
                 short_side = dsts.min()
 
-                u = np.array([rect[long_side_ind], rect[(long_side_ind + 1) % 4]]) - self.circle_center
+                u = np.array([rect[long_side_ind], rect[(long_side_ind + 1) % 4]]) - circle_center
                 u = u[0] - u[1]
-                v = cm - self.circle_center
+                v = cm - circle_center
                 u = u / (np.linalg.norm(u) + 1e-10)
                 v = v / (np.linalg.norm(v) + 1e-10)
                 orientation_score = abs(np.dot(u, v))
@@ -238,9 +252,9 @@ class LeptinDataRotatedRectRewards(RewardFunctionAbc):
                     #     raise Exception()
                     contour = contour[np.array([len(cnt) for cnt in contour]).argmax()]
                     contour = torch.from_numpy(contour).to(dev)
-                    # dsts = ((contour.cpu() - self.circle_center)**2).sum(1).sqrt()
+                    # dsts = ((contour.cpu() - circle_center)**2).sum(1).sqrt()
                     cm = contour.mean(0)
-                    if (cm.cpu() - self.circle_center).abs().sum() > 100:
+                    if (cm.cpu() - circle_center).abs().sum() > 100:
                         scores[bg1_sp_ids] = 0.0
                     elif contour.shape[0] <= 8:
                         scores[bg1_sp_ids] = 0.0
@@ -288,7 +302,7 @@ class LeptinDataRotatedRectRewards(RewardFunctionAbc):
                         # bg1_shape_score = (bg1_shape_score * exp_factor).exp() / (
                         #             torch.ones_like(bg1_shape_score) * exp_factor).exp()
 
-                        # rads = np.linalg.norm(contour.cpu().numpy() - self.circle_center[np.newaxis], axis=1)
+                        # rads = np.linalg.norm(contour.cpu().numpy() - circle_center[np.newaxis], axis=1)
                         # dists = abs(rads.mean() - rads)
                         # bg1_rad = rads[dists < 10].mean() - 5
                 except Exception as e:
@@ -302,9 +316,9 @@ class LeptinDataRotatedRectRewards(RewardFunctionAbc):
                     #     raise Exception
                     contour = contour[np.array([len(cnt) for cnt in contour]).argmax()]
                     contour = torch.from_numpy(contour).to(dev)
-                    # dsts = ((contour.cpu() - self.circle_center) ** 2).sum(1).sqrt()
+                    # dsts = ((contour.cpu() - circle_center) ** 2).sum(1).sqrt()
                     cm = contour.mean(0)
-                    if (cm.cpu() - self.circle_center).abs().sum() > 150:
+                    if (cm.cpu() - circle_center).abs().sum() > 150:
                         scores[bg2_sp_ids] = 0.0
                     elif contour.shape[0] <= 8:
                         scores[bg2_sp_ids] = 0.0
@@ -356,7 +370,7 @@ class LeptinDataRotatedRectRewards(RewardFunctionAbc):
                         # bg2_shape_score = (bg2_shape_score * exp_factor).exp() / (
                         #             torch.ones_like(bg2_shape_score) * exp_factor).exp()
 
-                        # rads = np.linalg.norm(contour.cpu().numpy() - self.circle_center[np.newaxis], axis=1)
+                        # rads = np.linalg.norm(contour.cpu().numpy() - circle_center[np.newaxis], axis=1)
                         # dists = abs(rads.mean() - rads)
                         # bg2_rad = rads[dists < 10].mean() + 5
                 except Exception as e:
@@ -1126,6 +1140,7 @@ if __name__ == "__main__":
     from utils.general import multicut_from_probas, calculate_gt_edge_costs
     from glob import glob
     import os
+    from threading import Thread
 
 
     label_cm = random_label_cmap(zeroth=1.0)
@@ -1134,7 +1149,7 @@ if __name__ == "__main__":
     edge_cmap.set_bad(alpha=0)
     dev = "cuda:0"
     # get a few images and extract some gt objects used ase shape descriptors that we want to compare against
-    dir = "/g/kreshuk/hilt/projects/data/leptin_fused_tp1_ch_0/true_val"
+    dir = "/g/kreshuk/kaziakhm/leptin_data/processed/v4_dwtrsd/train"
     fnames_pix = sorted(glob(os.path.join(dir, 'pix_data/*.h5')))
     fnames_graph = sorted(glob(os.path.join(dir, 'graph_data/*.h5')))
 
@@ -1151,8 +1166,43 @@ if __name__ == "__main__":
         seg = (mask * (torch.arange(len(torch.unique(seg)), device=seg.device)[:, None, None] + 1)).sum(0) - 1
         return seg
 
-    fnames_graph = ['/g/kreshuk/hilt/projects/data/leptin_fused_tp1_ch_0/true_val/graph_data/graph_125.h5']
-    fnames_pix= ['/g/kreshuk/hilt/projects/data/leptin_fused_tp1_ch_0/true_val/pix_data/pix_125.h5']
+    # fnames_graph = ['/g/kreshuk/hilt/projects/data/leptin_fused_tp1_ch_0/true_val/graph_data/graph_125.h5']
+    # fnames_pix= ['/g/kreshuk/hilt/projects/data/leptin_fused_tp1_ch_0/true_val/pix_data/pix_125.h5']
+
+    def workerfunc(pfname, gfname):
+        p_file = h5py.File(pfname, 'r')
+        g_file = h5py.File(gfname, 'r')
+        raw = p_file['raw'][:].astype(np.float)
+        suppix = torch.from_numpy(p_file['node_labeling'][:]).to(dev).float()
+        onehot = suppix[None] == torch.unique(suppix)[:, None, None]
+        masses = onehot.flatten(1).sum(1)
+        meshgrid = torch.stack(torch.meshgrid(torch.arange(suppix.shape[0], device=dev),
+                                              torch.arange(suppix.shape[1], device=dev)))
+        cms = (onehot[:, None] * meshgrid[None]).flatten(2).sum(2) / masses[:, None]
+        circle_center = cms[masses < 1000].mean(0).round().long().cpu().numpy()
+        raw /= raw.max()
+        raw = torch.from_numpy(raw)
+        # circle_center = np.array([390, 340])
+        circle_rads = [210, 270, 100, 340]
+        exact_circle_diameter = [345, 353, 603, 611]
+        show_circle(raw, circle_center, circle_rads)
+
+    slices = []
+    chunksize = 10
+    n = len(fnames_pix)
+    for i in range(int(n//chunksize)):
+        slices.append(slice(i*chunksize, (i+1)*chunksize))
+    slices.append(slice(int((n//chunksize) * chunksize), n))
+    # for slice in slices:
+    #     workers = []
+    for pfname, gfname in zip(fnames_pix, fnames_graph):
+        workerfunc(pfname, gfname)
+        # workers.append(Thread(target=workerfunc, args=(pfname, )))
+        # workers[-1].start()
+        # workers[-1].join()
+        # for worker in workers:
+        #     worker.join()
+
     for i in range(1):
         g_file = h5py.File(fnames_graph[i], 'r')
         pix_file = h5py.File(fnames_pix[i], 'r')

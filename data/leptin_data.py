@@ -8,6 +8,8 @@ from skimage import draw
 from scipy.ndimage import gaussian_filter
 import elf
 import nifty
+from threading import Thread
+
 
 from affogato.segmentation import compute_mws_segmentation
 from utils.affinities import get_naive_affinities, get_edge_features_1d, get_max_hessian_eval, get_hessian_det
@@ -192,7 +194,7 @@ def preprocess_data():
             # mask = gt[None] == torch.unique(gt)[:, None, None]
             # gt = (mask * (torch.arange(len(torch.unique(gt)), device=gt.device)[:, None, None] + 1)).sum(0) - 1
             #
-            edge_img = get_contour_from_2d_binary(node_labeling[None, None].float())
+            # edge_img = get_contour_from_2d_binary(node_labeling[None, None].float())
             # edge_img = gauss_kernel(edge_img.float())
             # raw = torch.cat([raw[None, None], edge_img], dim=1).squeeze(0).numpy()
             # affs = torch.sigmoid(affs).numpy()
