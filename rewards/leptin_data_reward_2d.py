@@ -112,7 +112,7 @@ class LeptinDataRotatedRectRewards(RewardFunctionAbc):
                     return_scores.append(scores)
                 continue
 
-            circle_center = cms[masses < 1000].mean(0).round().long().cpu().numpy()
+            circle_center = cms.T[masses < 1000].mean(0).round().long().cpu().numpy()
 
             # get one-hot representation
             one_hot = torch.zeros((int(single_pred.max()) + 1,) + single_pred.size(), device=dev, dtype=torch.long) \
@@ -1149,7 +1149,7 @@ if __name__ == "__main__":
     edge_cmap.set_bad(alpha=0)
     dev = "cuda:0"
     # get a few images and extract some gt objects used ase shape descriptors that we want to compare against
-    dir = "/g/kreshuk/kaziakhm/leptin_data/processed/v4_dwtrsd/train"
+    dir = "/g/kreshuk/kaziakhm/leptin_data/processed/v4_dwtrsd/val"
     fnames_pix = sorted(glob(os.path.join(dir, 'pix_data/*.h5')))
     fnames_graph = sorted(glob(os.path.join(dir, 'graph_data/*.h5')))
 
@@ -1187,27 +1187,28 @@ if __name__ == "__main__":
         exact_circle_diameter = [345, 353, 603, 611]
         show_circle(raw, circle_center, circle_rads)
 
-    slices = []
-    chunksize = 10
-    n = len(fnames_pix)
-    for i in range(int(n//chunksize)):
-        slices.append(slice(i*chunksize, (i+1)*chunksize))
-    slices.append(slice(int((n//chunksize) * chunksize), n))
-    # for slice in slices:
-    #     workers = []
-    for pfname, gfname in zip(fnames_pix, fnames_graph):
-        workerfunc(pfname, gfname)
-        # workers.append(Thread(target=workerfunc, args=(pfname, )))
-        # workers[-1].start()
-        # workers[-1].join()
-        # for worker in workers:
-        #     worker.join()
+    # slices = []
+    # chunksize = 10
+    # n = len(fnames_pix)
+    # for i in range(int(n//chunksize)):
+    #     slices.append(slice(i*chunksize, (i+1)*chunksize))
+    # slices.append(slice(int((n//chunksize) * chunksize), n))
+    # # for slice in slices:
+    # #     workers = []
+    # for pfname, gfname in zip(fnames_pix, fnames_graph):
+    #     workerfunc(pfname, gfname)
+    #     # workers.append(Thread(target=workerfunc, args=(pfname, )))
+    #     # workers[-1].start()
+    #     # workers[-1].join()
+    #     # for worker in workers:
+    #     #     worker.join()
 
     for i in range(1):
         g_file = h5py.File(fnames_graph[i], 'r')
         pix_file = h5py.File(fnames_pix[i], 'r')
-        superpixel_seg = g_file['node_labeling'][:]
+        superpixel_seg = pix_file['node_labeling'][:]
         gt_seg = pix_file['gt'][:]
+        # gt_seg = torch.zeros_like(superpixel_seg)
         superpixel_seg = torch.from_numpy(superpixel_seg.astype(np.int64)).to(dev)
         gt_seg = torch.from_numpy(gt_seg.astype(np.int64)).to(dev)
 
@@ -1265,9 +1266,9 @@ if __name__ == "__main__":
             # f.get_gaussians(.02, 0.13, .12, 0.2, 0.4, .3)
             # plt.imshow(pix_file['raw'][:]);plt.show()
             # rewards2 = f(gt_seg.long(), superpixel_seg.long(), dir_edges=[dir_edges], res=100)
-            edge_angles, sp_feat, sp_rads = get_angles_smass_in_rag(edges, superpixel_seg.long())
+            edge_angles, sp_feat, sp_rads, cms, masses = get_angles_smass_in_rag(edges, superpixel_seg.long())
             edge_rewards = f(mc_seg.long(), superpixel_seg[None].long(), dir_edges=[dir_edges], res=50, edge_score=True,
-                             sp_cmrads=[sp_rads], actions=[actions])
+                             sp_cmrads=[sp_rads], actions=[actions], sp_cms=[cms], sp_masses=[masses])
 
             fig, ax = plt.subplots(2, 2, figsize=(10, 10))
             frame_rew, scores_rew, bnd_mask = get_colored_edges_in_sseg(superpixel_seg[None].float(), edges, edge_rewards)
