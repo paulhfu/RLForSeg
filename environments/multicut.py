@@ -213,9 +213,6 @@ class MulticutEmbeddingsEnv():
         embed_affs = get_affinities_from_embeddings_2d(self.embeddings, offs, self.embedding_net.delta_dist, self.embedding_net.distance)
         embed_dists = [1 - get_edge_features_1d(sp.cpu().numpy(), offs, embed_aff.cpu().numpy())[0][:, 0] for sp, embed_aff in zip(self.init_sp_seg, embed_affs)]
         embed_dists = [torch.from_numpy(embed_dist).to(dev) for embed_dist in embed_dists]
-        # get embedding agglomeration over each superpixel
-        self.current_node_embeddings = torch.cat([self.embedding_net.get_mean_sp_embedding_chunked(embed, sp, chunks=20)
-                                                  for embed, sp in zip(self.embeddings, self.init_sp_seg)], dim=0)
 
         edge_angles, sp_feat, self.sp_rads, self.sp_cms, self.sp_masses = \
             zip(*[get_angles_smass_in_rag(edge_ids[i], self.init_sp_seg[i]) for i in range(bs)])
@@ -233,15 +230,15 @@ class MulticutEmbeddingsEnv():
             subgraphs.append(torch.cat([sg + self.n_offs[i] for i, sg in enumerate(_subgraphs[i*bs:(i+1)*bs])], -2).flatten(-2, -1))
             self.sep_subgraphs.append(torch.cat(_sep_subgraphs[i*bs:(i+1)*bs], -2).flatten(-2, -1))
 
-        self.subgraphs = subgraphs
-        self.subgraph_indices = get_edge_indices(self.edge_ids, subgraphs)
-
+        # get embedding agglomeration over each superpixel
         batched_sp = []
         for sp, off in zip(self.init_sp_seg, self.n_offs):
             batched_sp.append(sp + off)
         batched_sp = torch.stack(batched_sp, 0)
+        self.current_node_embeddings = self.embedding_net.get_mean_sp_embedding_sparse(self.embeddings[:, :, None], batched_sp[:, None]).T
 
-        ne = self.embedding_net.get_mean_sp_embedding_sparse(self.embeddings[:, :, None], batched_sp[:, None])
+        self.subgraphs = subgraphs
+        self.subgraph_indices = get_edge_indices(self.edge_ids, subgraphs)
 
         # for i, sz in enumerate(self.cfg.s_subgraph):
         #     if not self.subgraph_indices[i].max() == self.edge_ids.shape[1] - 1:

@@ -46,13 +46,13 @@ class FeExtractor(nn.Module):
         masses = mask.flatten(1).sum(-1)
         masked_embeddings = embeddings[:, None] * mask[None]
         means = masked_embeddings.flatten(2).sum(-1) / masses[None]
-        if isinstance(self.distance, CosineDistance):
-            means = means / torch.clamp(torch.norm(means, dim=0, keepdim=True), min=1e-10)  # normalize since we use cosine distance
-            probs = self.distance.similarity(masked_embeddings, means[..., None, None], dim=0, kd=False)
-            probs = probs * mask
-            probs = probs / probs.flatten(1).sum(-1)[..., None, None]  # get the probabilities for the embeddings distribution
-            sp_embeddings = (masked_embeddings * probs[None]).flatten(2).sum(-1)
-            return (sp_embeddings / torch.clamp(torch.norm(sp_embeddings, dim=0, keepdim=True), min=1e-10)).T
+        # if isinstance(self.distance, CosineDistance):
+        #     means = means / torch.clamp(torch.norm(means, dim=0, keepdim=True), min=1e-10)  # normalize since we use cosine distance
+        #     probs = self.distance.similarity(masked_embeddings, means[..., None, None], dim=0, kd=False)
+        #     probs = probs * mask
+        #     probs = probs / probs.flatten(1).sum(-1)[..., None, None]  # get the probabilities for the embeddings distribution
+        #     sp_embeddings = (masked_embeddings * probs[None]).flatten(2).sum(-1)
+        #     return (sp_embeddings / torch.clamp(torch.norm(sp_embeddings, dim=0, keepdim=True), min=1e-10)).T
         return means.T
 
     def get_mean_sp_embedding_sparse(self, embeddings, supix):
