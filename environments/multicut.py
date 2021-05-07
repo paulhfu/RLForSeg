@@ -236,6 +236,13 @@ class MulticutEmbeddingsEnv():
         self.subgraphs = subgraphs
         self.subgraph_indices = get_edge_indices(self.edge_ids, subgraphs)
 
+        batched_sp = []
+        for sp, off in zip(self.init_sp_seg, self.n_offs):
+            batched_sp.append(sp + off)
+        batched_sp = torch.stack(batched_sp, 0)
+
+        ne = self.embedding_net.get_mean_sp_embedding_sparse(self.embeddings[:, :, None], batched_sp[:, None])
+
         # for i, sz in enumerate(self.cfg.s_subgraph):
         #     if not self.subgraph_indices[i].max() == self.edge_ids.shape[1] - 1:
         #         pass

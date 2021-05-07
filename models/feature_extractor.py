@@ -1,5 +1,6 @@
 import torch.nn as nn
 import torch
+from torch_scatter import scatter_mean
 import matplotlib.pyplot as plt
 from multiprocessing import Lock
 from utils.distances import CosineDistance
@@ -53,4 +54,16 @@ class FeExtractor(nn.Module):
             sp_embeddings = (masked_embeddings * probs[None]).flatten(2).sum(-1)
             return (sp_embeddings / torch.clamp(torch.norm(sp_embeddings, dim=0, keepdim=True), min=1e-10)).T
         return means.T
+
+    def get_mean_sp_embedding_sparse(self, embeddings, supix):
+        """
+        :param embeddings: should have shape = NCDHW
+        :param supix: should be consecutive integers and of shape = NDHW
+        :return: the mean embedding verctor over each label region in supix
+        """
+        feat = embeddings.permute(1, 0, 2, 3, 4).flatten(1)
+        lbl = supix.flatten()
+        n_lbl = torch.unique(supix).size(0)
+        sp_embeddings = scatter_mean(feat, lbl, dim=1, dim_size=n_lbl)
+        return sp_embeddings
 
