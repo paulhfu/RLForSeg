@@ -86,7 +86,7 @@ class LeptinDataRotatedRectRewards(RewardFunctionAbc):
 
         self.masses = [np.array(m1).mean(), np.array(m2).mean(), np.array(m3 + m4 + m5).mean()]
         self.fg_shape_descriptors = self.celltype_1_ds + self.celltype_2_ds + self.celltype_3_ds
-        # self.circle_center = np.array([390, 340])
+        self.circle_center = np.array([390, 340])
         self.circle_rads = [210, 270, 100, 340]
         self.exact_circle_diameter = [345, 353, 603, 611]
         self.side_lens = [28, 125]
@@ -112,7 +112,7 @@ class LeptinDataRotatedRectRewards(RewardFunctionAbc):
                     return_scores.append(scores)
                 continue
 
-            circle_center = cms.T[masses < 1000].mean(0).round().long().cpu().numpy()
+            circle_center = self.circle_center #cms.T[masses < 1000].mean(0).round().long().cpu().numpy()
 
             # get one-hot representation
             one_hot = torch.zeros((int(single_pred.max()) + 1,) + single_pred.size(), device=dev, dtype=torch.long) \
@@ -331,8 +331,7 @@ class LeptinDataRotatedRectRewards(RewardFunctionAbc):
                         diff1 = abs(max(principal_ax) - self.exact_circle_diameter[1])
                         diff2 = abs(min(principal_ax) - self.exact_circle_diameter[0])
 
-                        # plt.imshow(bg2.cpu()[..., None] * 200 + cv2.ellipse(np.zeros(shape=[741, 692, 3], dtype=np.uint8), fitEllipse(contour.long().cpu().numpy()), (23, 184, 80), 3))
-                        # plt.show()
+                        # plt.imshow(bg2.cpu()[..., None] * 200 + cv2.ellipse(np.zeros(shape=[741, 692, 3], dtype=np.uint8), fitEllipse(contour.long().cpu().numpy()), (23, 184, 80), 3));plt.show()
 
                         if diff2 < 15:
                             bg2_shape_score += 0.5
@@ -384,10 +383,10 @@ class LeptinDataRotatedRectRewards(RewardFunctionAbc):
                 # .02, 0.13, .12, 0.2, 0.4, .3
                 s1 = .02
                 s2 = .1
-                s3 = .1
+                s3 = .6
                 w1 = .2
                 w2 = .25
-                w3 = .3
+                w3 = .8
                 n = math.sqrt((single_sp_seg.shape[0] / 2) ** 2 + (single_sp_seg.shape[1] / 2) ** 2)
                 edges = s_dir_edges[:, :int(s_dir_edges.shape[1] / 2)]
                 edge_scores = scores[edges].max(dim=0).values
