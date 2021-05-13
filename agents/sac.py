@@ -220,7 +220,7 @@ class AgentSacTrainer(object):
 
         if acc_reward > self.best_val_reward:
             self.best_val_reward = acc_reward
-            wandb.run.summary["validation_reward"] = acc_reward
+            wandb.run.summary["validation/acc_reward"] = acc_reward
             torch.save(self.model.state_dict(), os.path.join(wandb.run.dir, "best_checkpoint_agent.pth"))
         if self.cfg.verbose:
             print("\n###### finish validate ######\n", end='')

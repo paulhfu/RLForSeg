@@ -103,10 +103,10 @@ T_max:
   value: 50000
 mem_size:
   desc: Mem size in replay memory buffer
-  value: 40
+  value: 100
 data_update_frequency:
   desc: update env data after n steps
-  value: 50
+  value: 3
 post_stats_frequency:
   desc: post logs after n steps
   value: 10
@@ -124,7 +124,7 @@ n_explorers:
   value: 1
 batch_size:
   desc: num samples in minibatch
-  value: 2
+  value: 4
 
 # conf for lr scheduling
 lr_sched:
@@ -149,7 +149,7 @@ gt_edge_overlap_thresh:
   value: 0.5
 s_subgraph:
   desc: subgraph sizes
-  value: [6, 12, 64] # [8, 16, 32, 64]
+  value: [4, 6, 12, 64] # [8, 16, 32, 64]
 entropy_range:
   desc: range of the min entropy constraint
   value: [0.05, 2.0]

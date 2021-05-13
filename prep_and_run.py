@@ -12,7 +12,7 @@ if __name__ == '__main__':
     # os.nice(15)
     # project name: "RL for Segmentation"
     base_dir = "/g/kreshuk/hilt/projects/RLForSeg/results/wandb"
-    project = "leptin_e2e_from_noise_46_0"
+    project = "leptin_noisee2e_47_no_sphere_emb"
     entity = "rl_segmentation"
     config = "conf/leptin_configs.yaml"
     name = ""

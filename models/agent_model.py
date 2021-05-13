@@ -64,8 +64,7 @@ class Agent(torch.nn.Module):
         embed_dists = [1 - get_edge_features_1d(sp.cpu().numpy(), self.offs, embed_aff.cpu().numpy())[0][:, 0] for sp, embed_aff in zip(state.sp_seg, embed_affs)]
         embed_dists = [torch.from_numpy(embed_dist).to(model.device) for embed_dist in embed_dists]
         embed_dists = torch.cat(embed_dists, 0)[:, None]
-        node_features = torch.cat([model.get_mean_sp_embedding_chunked(embed, sp, chunks=10)
-                                   for embed, sp in zip(embeddings, state.sp_seg)], dim=0)
+        node_features = model.get_mean_sp_embedding_sparse(embeddings[:, :, None], state.sp_seg[:, None]).T
 
         node_features = torch.cat((node_features, state.sp_feat), 1) if self.cfg.use_handcrafted_features else node_features
         edge_features = torch.cat((embed_dists, state.edge_feats), 1).float()

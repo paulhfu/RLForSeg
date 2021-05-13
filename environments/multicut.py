@@ -185,7 +185,7 @@ class MulticutEmbeddingsEnv():
         return reward
 
     def get_state(self):
-        return State(self.raw, self.init_sp_seg, self.edge_ids, self.edge_features, self.sp_feat, self.subgraph_indices,
+        return State(self.raw, self.batched_sp_seg, self.edge_ids, self.edge_features, self.sp_feat, self.subgraph_indices,
                      self.sep_subgraphs, self.counter, self.gt_edge_weights)
 
     def update_data(self, raw, gt, edge_ids, gt_edges, sp_seg, fe_grad, rags, edge_features, *args, **kwargs):
@@ -214,19 +214,16 @@ class MulticutEmbeddingsEnv():
             subgraphs.append(torch.cat([sg + self.n_offs[i] for i, sg in enumerate(_subgraphs[i*bs:(i+1)*bs])], -2).flatten(-2, -1))
             self.sep_subgraphs.append(torch.cat(_sep_subgraphs[i*bs:(i+1)*bs], -2).flatten(-2, -1))
 
-        # get embedding agglomeration over each superpixel
-        batched_sp = []
-        for sp, off in zip(self.init_sp_seg, self.n_offs):
-            batched_sp.append(sp + off)
-        batched_sp = torch.stack(batched_sp, 0)
-        self.current_node_embeddings = self.embedding_net.get_mean_sp_embedding_sparse(self.embeddings[:, :, None], batched_sp[:, None]).T
-
         self.subgraphs = subgraphs
         self.subgraph_indices = get_edge_indices(self.edge_ids, subgraphs)
 
         # for i, sz in enumerate(self.cfg.s_subgraph):
         #     if not self.subgraph_indices[i].max() == self.edge_ids.shape[1] - 1:
         #         pass
+        batched_sp = []
+        for sp, off in zip(self.init_sp_seg, self.n_offs):
+            batched_sp.append(sp + off)
+        self.batched_sp_seg = torch.stack(batched_sp, 0)
 
         self.gt_edge_weights = gt_edges
         if self.gt_edge_weights is not None:

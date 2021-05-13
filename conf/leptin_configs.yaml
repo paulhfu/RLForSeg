@@ -52,7 +52,7 @@ dim_embeddings:
   value: 16
 distance:
   desc: used distance in embedding space, can be l2 or cosine
-  value: cosine
+  value: l2  #cosine
 use_handcrafted_features:
   desc: to embeddings append handcrafted features like sp size, position , orientation
   value: true
@@ -105,10 +105,10 @@ T_max:
   value: 50000
 mem_size:
   desc: Mem size in replay memory buffer
-  value: 50
+  value: 100
 data_update_frequency:
   desc: update env data after n steps
-  value: 100
+  value: 5
 post_stats_frequency:
   desc: post logs after n steps
   value: 10
@@ -116,7 +116,7 @@ validatoin_freq:
   desc: validate after n steps
   value: 100
 store_indices:
-  desc: validate after n steps
+  desc: shown validation samples
   value: [1, 5, 9]
 n_updates_per_step:
   desc: perform n optim steps per env step
@@ -135,7 +135,7 @@ use_expact_in_expl:
   value: true
 batch_size:
   desc: num samples in minibatch
-  value: 1
+  value: 5
 
 # conf for lr scheduling
 lr_sched:
@@ -160,7 +160,7 @@ gt_edge_overlap_thresh:
   value: 0.5
 s_subgraph:
   desc: subgraph sizes
-  value: [6, 64, 256] # [8, 16, 32, 64]
+  value: [4, 6, 64, 256] # [8, 16, 32, 64]
 entropy_range:
   desc: range of the min entropy constraint
   value: [0.05, 1.0]

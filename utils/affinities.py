@@ -50,6 +50,7 @@ def get_affinities_from_embeddings_2d(embeddings, offsets, delta, distance):
     return affs
 
 def get_edge_features_1d(sp_seg, offsets, affinities):
+    sp_seg -= sp_seg.min()
     offsets_3d = []
     for off in offsets:
         offsets_3d.append([0] + off)

@@ -186,16 +186,16 @@ def validate_and_compare_to_clustering(model, env, distance, device, cfg):
         plt.close('all')
 
 if __name__=="__main__":
-    wandb.init(project="dbg", entity="aule", config="../conf/leptin_configs.yaml")
+    wandb.init(project="dbg", entity="aule", config="./default_configs.yaml")
     cfg = wandb.config
     device = torch.device("cuda:0")
     distance = CosineDistance()
-    fe_ext = FeExtractor(dict_to_attrdict(cfg.backbone), distance, device)
-    fe_ext.embed_model.load_state_dict(torch.load(cfg.fe_model_name))
-    fe_ext.cuda(device)
-    env = MulticutEmbeddingsEnv(fe_ext, cfg, device)
+    # fe_ext = FeExtractor(dict_to_attrdict(cfg.backbone), distance, device)
+    # fe_ext.embed_model.load_state_dict(torch.load(cfg.fe_model_name))
+    # fe_ext.cuda(device)
+    env = MulticutEmbeddingsEnv(cfg, device)
     model = Agent(cfg, State, distance, device)
-    # model.load_state_dict(torch.load(cfg.agent_model_name))
+    model.load_state_dict(torch.load(cfg.agent_model_name))
     model.cuda(device)
 
     validate_and_compare_to_clustering(model, env, distance, device, cfg)
