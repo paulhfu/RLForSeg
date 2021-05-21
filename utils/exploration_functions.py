@@ -75,6 +75,7 @@ class RunningAverage(object):
         if len(self._mem) == self.band_width:
             self._avg = (np.array(self._mem) * self.weights).sum() + self.offset
             return self._avg
+        return None
 
     @property
     def avg(self):

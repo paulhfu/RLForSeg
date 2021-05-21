@@ -4,13 +4,14 @@ import elf
 import numpy as np
 import n_sphere
 import wandb
+import z5py
 from elf.segmentation.features import compute_rag
 from torch.utils.data import DataLoader
 import matplotlib.pyplot as plt
 from matplotlib import cm
 
-from utils.general import cluster_embeddings, pca_project, random_label_cmap, multicut_from_probas, calculate_gt_edge_costs, get_angles
-from utils.metrics import ClusterMetrics, SegmentationMetrics, AveragePrecision
+from utils.general import cluster_embeddings, pca_project, random_label_cmap, multicut_from_probas, project_overseg_to_seg, get_angles
+from utils.metrics import ClusterMetrics, SegmentationMetrics, AveragePrecision, SBD
 from utils.affinities import get_edge_features_1d
 from utils.yaml_conv_parser import dict_to_attrdict
 from utils.training_helpers import update_env_data, Forwarder
@@ -30,123 +31,150 @@ def validate_and_compare_to_clustering(model, env, distance, device, cfg):
     model.eval()
     offs = [[1, 0], [0, 1], [2, 0], [0, 2], [4, 0], [0, 4], [16, 0], [0, 16]]
     ex_raws, ex_sps, ex_gts, ex_mc_gts, ex_embeds, ex_clst, ex_clst_sp, ex_mcaff, ex_mc_embed, ex_rl, \
-    ex_clst_graph_agglo = [], [], [], [], [], [], [], [], [], [], []
-    dset = SpgDset(cfg.val_data_dir, dict_to_attrdict(cfg.patch_manager), dict_to_attrdict(cfg.data_keys), max(cfg.s_subgraph))
+    ex_clst_graph_agglo= [], [], [], [], [], [], [], [], [], [], []
+    dset = SpgDset(cfg.val_data_dir, dict_to_attrdict(cfg.patch_manager), dict_to_attrdict(cfg.val_data_keys), max(cfg.s_subgraph))
     dloader = iter(DataLoader(dset))
     acc_reward = 0
     forwarder = Forwarder()
     delta_dist = 0.4
 
-    segm_metric = AveragePrecision()
+    # segm_metric = AveragePrecision()
     clst_metric_rl = ClusterMetrics()
-    clst_metric = ClusterMetrics()
+    # clst_metric = ClusterMetrics()
     metric_sp_gt = ClusterMetrics()
-    clst_metric_mcaff = ClusterMetrics()
-    clst_metric_mcembed = ClusterMetrics()
-    clst_metric_graphagglo = ClusterMetrics()
+    # clst_metric_mcaff = ClusterMetrics()
+    # clst_metric_mcembed = ClusterMetrics()
+    # clst_metric_graphagglo = ClusterMetrics()
+    sbd = SBD()
 
-    map_rl, map_embed, map_sp_gt, map_mcaff, map_mcembed, map_graphagglo, map_rl, map_rl = [], [], [], [], [], [], [], []
+    # map_rl, map_embed, map_sp_gt, map_mcaff, map_mcembed, map_graphagglo = [], [], [], [], [], []
+    sbd_rl, sbd_embed, sbd_sp_gt, sbd_mcaff, sbd_mcembed, sbd_graphagglo = [], [], [], [], [], []
 
     n_examples = len(dset)
     for it in range(n_examples):
         update_env_data(env, dloader, dset, device, with_gt_edges=False)
         env.reset()
         state = env.get_state()
-        distr, _, _, _, _ = forwarder.forward(model, state, State, device, grad=False)
+        distr, _, _, _, _, node_features, embeddings = forwarder.forward(model, state, State,
+                                                                              device,
+                                                                              grad=False, post_data=False,
+                                                                              get_node_feats=True,
+                                                                              get_embeddings=True)
         action = torch.sigmoid(distr.loc)
         reward = env.execute_action(action, tau=0.0, train=False)
         acc_reward += reward[-2].item()
 
-        embeddings = env.embeddings[0].cpu()
-        node_features = env.current_node_embeddings.cpu().numpy()
+        embeds = embeddings[0].cpu()
+        # node_features = node_features.cpu().numpy()
         rag = env.rags[0]
         edge_ids = rag.uvIds()
         gt_seg = env.gt_seg[0].cpu().numpy()
-        l2_embeddings = get_angles(embeddings[None])[0]
-        l2_node_feats = get_angles(torch.from_numpy(node_features.T[None, ..., None])).squeeze().T.numpy()
+        # l2_embeddings = get_angles(embeds[None])[0]
+        # l2_node_feats = get_angles(torch.from_numpy(node_features.T[None, ..., None])).squeeze().T.numpy()
         # clst_labels_kmeans = cluster_embeddings(l2_embeddings.permute((1, 2, 0)), len(np.unique(gt_seg)))
         # node_labels = cluster_embeddings(l2_node_feats, len(np.unique(gt_seg)))
         # clst_labels_sp_kmeans = elf.segmentation.features.project_node_labels_to_pixels(rag, node_labels).squeeze()
 
-        clst_labels_sp_graph_agglo = get_soln_graph_clustering(env.init_sp_seg, torch.from_numpy(edge_ids.astype(np.int)), torch.from_numpy(l2_node_feats), len(np.unique(gt_seg)))[0][0].numpy()
-        mc_labels_aff = env.get_current_soln(edge_weights=env.edge_features[:, 0]).cpu().numpy()[0]
-        ew_embedaffs = 1 - get_edge_features_1d(env.init_sp_seg[0].cpu().numpy(), offs, get_affinities_from_embeddings_2d(env.embeddings, offs, delta_dist, distance)[0].cpu().numpy())[0][:, 0]
-        mc_labels_embedding_aff = env.get_current_soln(edge_weights=torch.from_numpy(ew_embedaffs).to(device)).cpu().numpy()[0]
+        # clst_labels_sp_graph_agglo = get_soln_graph_clustering(env.init_sp_seg, torch.from_numpy(edge_ids.astype(np.int)), torch.from_numpy(l2_node_feats), len(np.unique(gt_seg)))[0][0].numpy()
+        # mc_labels_aff = env.get_current_soln(edge_weights=env.edge_features[:, 0]).cpu().numpy()[0]
+        # ew_embedaffs = 1 - get_edge_features_1d(env.init_sp_seg[0].cpu().numpy(), offs, get_affinities_from_embeddings_2d(embeddings, offs, delta_dist, distance)[0].cpu().numpy())[0][:, 0]
+        # mc_labels_embedding_aff = env.get_current_soln(edge_weights=torch.from_numpy(ew_embedaffs).to(device)).cpu().numpy()[0]
         rl_labels = env.current_soln.cpu().numpy()[0]
 
-        ex_embeds.append(pca_project(embeddings, n_comps=3))
+        ex_embeds.append(pca_project(embeds, n_comps=3))
         ex_raws.append(env.raw[0].cpu().permute(1, 2, 0).squeeze())
         # ex_sps.append(cm.prism(env.init_sp_seg[0].cpu() / env.init_sp_seg[0].max().item()))
         ex_sps.append(env.init_sp_seg[0].cpu())
-        gt_edges = calculate_gt_edge_costs(torch.from_numpy(edge_ids.astype(np.int)).to(device), env.init_sp_seg, torch.from_numpy(gt_seg).to(device), 0.3)
-        ex_mc_gts.append(env.get_current_soln(edge_weights=gt_edges).cpu().numpy()[0])
+        ex_mc_gts.append(project_overseg_to_seg(env.init_sp_seg[0], torch.from_numpy(gt_seg).to(device)).cpu().numpy())
 
         ex_gts.append(gt_seg)
         ex_rl.append(rl_labels)
         # ex_clst.append(clst_labels_kmeans)
         # ex_clst_sp.append(clst_labels_sp_kmeans)
-        ex_clst_graph_agglo.append(clst_labels_sp_graph_agglo)
-        ex_mcaff.append(mc_labels_aff)
-        ex_mc_embed.append(mc_labels_embedding_aff)
+        # ex_clst_graph_agglo.append(clst_labels_sp_graph_agglo)
+        # ex_mcaff.append(mc_labels_aff)
+        # ex_mc_embed.append(mc_labels_embedding_aff)
 
-        map_rl.append(segm_metric(rl_labels, gt_seg))
+        # map_rl.append(segm_metric(rl_labels, gt_seg))
+        sbd_rl.append(sbd(gt_seg, rl_labels))
         clst_metric_rl(rl_labels, gt_seg)
 
-        map_sp_gt.append(segm_metric(ex_mc_gts[-1], gt_seg))
+        # map_sp_gt.append(segm_metric(ex_mc_gts[-1], gt_seg))
+        sbd_sp_gt.append(sbd(gt_seg, ex_mc_gts[-1]))
         metric_sp_gt(ex_mc_gts[-1], gt_seg)
 
         # map_embed.append(segm_metric(clst_labels_kmeans, gt_seg))
         # clst_metric(clst_labels_kmeans, gt_seg)
 
-        map_mcaff.append(segm_metric(mc_labels_aff, gt_seg))
-        clst_metric_mcaff(mc_labels_aff, gt_seg)
+        # map_mcaff.append(segm_metric(mc_labels_aff, gt_seg))
+        # sbd_mcaff.append(sbd(gt_seg, mc_labels_aff))
+        # clst_metric_mcaff(mc_labels_aff, gt_seg)
+        #
+        # map_mcembed.append(segm_metric(mc_labels_embedding_aff, gt_seg))
+        # sbd_mcembed.append(sbd(gt_seg, mc_labels_embedding_aff))
+        # clst_metric_mcembed(mc_labels_embedding_aff, gt_seg)
+        #
+        # map_graphagglo.append(segm_metric(clst_labels_sp_graph_agglo, gt_seg))
+        # sbd_graphagglo.append(sbd(gt_seg, clst_labels_sp_graph_agglo.astype(np.int)))
+        # clst_metric_graphagglo(clst_labels_sp_graph_agglo.astype(np.int), gt_seg)
 
-        map_mcembed.append(segm_metric(mc_labels_embedding_aff, gt_seg))
-        clst_metric_mcembed(mc_labels_embedding_aff, gt_seg)
+    print("\nSBD: ")
+    print(f"sp gt       : {round(np.array(sbd_sp_gt).mean(), 4)}; {round(np.array(sbd_sp_gt).std(), 4)}")
+    print(f"ours        : {round(np.array(sbd_rl).mean(), 4)}; {round(np.array(sbd_rl).std(), 4)}")
+    # print(f"mc node     : {np.array(sbd_mcembed).mean()}")
+    # print(f"mc embed    : {np.array(sbd_mcaff).mean()}")
+    # print(f"graph agglo : {np.array(sbd_graphagglo).mean()}")
 
-        map_graphagglo.append(segm_metric(clst_labels_sp_graph_agglo, gt_seg))
-        clst_metric_graphagglo(clst_labels_sp_graph_agglo.astype(np.int), gt_seg)
+    # print("\nmAP: ")
+    # print(f"sp gt       : {np.array(map_sp_gt).mean()}")
+    # print(f"ours        : {np.array(map_rl).mean()}")
+    # print(f"mc node     : {np.array(map_mcembed).mean()}")
+    # print(f"mc embed    : {np.array(map_mcaff).mean()}")
+    # print(f"graph agglo : {np.array(map_graphagglo).mean()}")
+    #
+    vi_rl_s, vi_rl_m, are_rl, arp_rl, arr_rl = clst_metric_rl.dump()
+    vi_spgt_s, vi_spgt_m, are_spgt, arp_spgt, arr_spgt = metric_sp_gt.dump()
+    # vi_mcaff_s, vi_mcaff_m, are_mcaff, arp_mcaff, arr_mcaff = clst_metric_mcaff.dump()
+    # vi_mcembed_s, vi_mcembed_m, are_mcembed, arp_embed, arr_mcembed = clst_metric_mcembed.dump()
+    # vi_graphagglo_s, vi_graphagglo_m, are_graphagglo, arp_graphagglo, arr_graphagglo = clst_metric_graphagglo.dump()
+    #
+    vi_rl_s_std, vi_rl_m_std, are_rl_std, arp_rl_std, arr_rl_std = clst_metric_rl.dump_std()
+    vi_spgt_s_std, vi_spgt_m_std, are_spgt_std, arp_spgt_std, arr_spgt_std = metric_sp_gt.dump_std()
 
-    print("\nmAP: ")
-    print(f"sp gt       : {np.array(map_sp_gt).mean()}")
-    print(f"ours        : {np.array(map_rl).mean()}")
-    print(f"mc node     : {np.array(map_mcembed).mean()}")
-    print(f"mc embed    : {np.array(map_mcaff).mean()}")
-    print(f"graph agglo : {np.array(map_graphagglo).mean()}")
-
-    vi_rl, are_rl, arp_rl, arr_rl = clst_metric_rl.dump()
-    vi_spgt, are_spgt, arp_spgt, arr_spgt = metric_sp_gt.dump()
-    vi_mcaff, are_mcaff, arp_mcaff, arr_mcaff = clst_metric_mcaff.dump()
-    vi_mcembed, are_mcembed, arp_embed, arr_mcembed = clst_metric_mcembed.dump()
-    vi_graphagglo, are_graphagglo, arp_graphagglo, arr_graphagglo = clst_metric_graphagglo.dump()
-
-    print("\nVI: ")
-    print(f"sp gt       : {vi_spgt}")
-    print(f"ours        : {vi_rl}")
-    print(f"mc affnties : {vi_mcaff}")
-    print(f"mc embed    : {vi_mcembed}")
-    print(f"graph agglo : {vi_graphagglo}")
-
+    print("\nVI merge: ")
+    print(f"sp gt       : {round(vi_spgt_m, 4)}; {round(vi_spgt_m_std, 4)}")
+    print(f"ours        : {round(vi_rl_m, 4)}; {round(vi_rl_m_std, 4)}")
+    # print(f"mc affnties : {vi_mcaff_m}")
+    # print(f"mc embed    : {vi_mcembed_m}")
+    # print(f"graph agglo : {vi_graphagglo_m}")
+    #
+    print("\nVI split: ")
+    print(f"sp gt       : {round(vi_spgt_s, 4)}; {round(vi_spgt_s_std, 4)}")
+    print(f"ours        : {round(vi_rl_s, 4)}; {round(vi_rl_s_std, 4)}")
+    # print(f"mc affnties : {vi_mcaff_s}")
+    # print(f"mc embed    : {vi_mcembed_s}")
+    # print(f"graph agglo : {vi_graphagglo_s}")
+    #
     print("\nARE: ")
-    print(f"sp gt       : {are_spgt}")
-    print(f"ours        : {are_rl}")
-    print(f"mc affnties : {are_mcaff}")
-    print(f"mc embed    : {are_mcembed}")
-    print(f"graph agglo : {are_graphagglo}")
-
+    print(f"sp gt       : {round(are_spgt, 4)}; {round(are_spgt_std, 4)}")
+    print(f"ours        : {round(are_rl, 4)}; {round(are_rl_std, 4)}")
+    # print(f"mc affnties : {are_mcaff}")
+    # print(f"mc embed    : {are_mcembed}")
+    # print(f"graph agglo : {are_graphagglo}")
+    #
     print("\nARP: ")
-    print(f"sp gt       : {arp_spgt}")
-    print(f"ours        : {arp_rl}")
-    print(f"mc affnties : {arp_mcaff}")
-    print(f"mc embed    : {arp_embed}")
-    print(f"graph agglo : {arp_graphagglo}")
-
+    print(f"sp gt       : {round(arp_spgt, 4)}; {round(arp_spgt_std, 4)}")
+    print(f"ours        : {round(arp_rl, 4)}; {round(arp_rl_std, 4)}")
+    # print(f"mc affnties : {arp_mcaff}")
+    # print(f"mc embed    : {arp_embed}")
+    # print(f"graph agglo : {arp_graphagglo}")
+    #
     print("\nARR: ")
-    print(f"sp gt       : {arr_spgt}")
-    print(f"ours        : {arr_rl}")
-    print(f"mc affnties : {arr_mcaff}")
-    print(f"mc embed    : {arr_mcembed}")
-    print(f"graph agglo : {arr_graphagglo}")
+    print(f"sp gt       : {round(arr_spgt, 4)}; {round(arr_spgt_std, 4)}")
+    print(f"ours        : {round(arr_rl, 4)}; {round(arr_rl_std, 4)}")
+    # print(f"mc affnties : {arr_mcaff}")
+    # print(f"mc embed    : {arr_mcembed}")
+    # print(f"graph agglo : {arr_graphagglo}")
 
     exit()
     for i in range(len(ex_gts)):
@@ -186,6 +214,8 @@ def validate_and_compare_to_clustering(model, env, distance, device, cfg):
         plt.close('all')
 
 if __name__=="__main__":
+    baselinefile = z5py.File('/scratch/pape/embeddings/leptin/data_16.n5')['default_with_boundaries']
+    baselinefile[f'im000']['embed_sp']
     wandb.init(project="dbg", entity="aule", config="./default_configs.yaml")
     cfg = wandb.config
     device = torch.device("cuda:0")

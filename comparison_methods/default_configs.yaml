@@ -47,6 +47,9 @@ patch_manager:
 #fe_model_name:
 #  desc: path to state dict of trained model
 #  value: /g/kreshuk/kaziakhm/paper_result/fe/leptin_ds/fe_fds_005wf_psedge_16fs/best_val_model.pth # fe_cosine_ls_bn_2chnl.pth # fe_cosine_ls_bn_gtval, fe_cosine_ls_bn_2chnl
+fe_optimization:
+  desc: if true the fe will be optimized by the critic
+  value: true
 dim_embeddings:
   desc: number of embedding feature channels
   value: 16
@@ -160,7 +163,7 @@ gt_edge_overlap_thresh:
   value: 0.5
 s_subgraph:
   desc: subgraph sizes
-  value: [4, 6, 64, 256] # [8, 16, 32, 64]
+  value: [6, 64, 256] # [8, 16, 32, 64]
 entropy_range:
   desc: range of the min entropy constraint
   value: [0.05, 1.0]

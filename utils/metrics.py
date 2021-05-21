@@ -1,6 +1,7 @@
 import numpy as np
 from skimage.metrics import contingency_table
 from skimage.metrics import variation_of_information, adapted_rand_error
+import threading
 
 def precision(tp, fp, fn):
     return tp / (tp + fp) if tp > 0 else 0
@@ -137,6 +138,78 @@ class ClusterMetrics:
         return np.mean(self.splits_scores), np.mean(self.merges_scores), \
                np.mean(self.are_score), np.mean(self.arp_score), \
                np.mean(self.arr_score)
+
+    def dump_std(self):
+        return np.std(self.splits_scores), np.std(self.merges_scores), \
+               np.std(self.are_score), np.std(self.arp_score), \
+               np.std(self.arr_score)
+
+import numpy as np
+
+
+def dic(gt, seg):
+    n_gt = len(np.setdiff1d(np.unique(gt), [0]))
+    n_seg = len(np.setdiff1d(np.unique(seg), [0]))
+    return np.abs(n_gt - n_seg)
+
+
+def dice_score(gt, seg, smooth = 1.):
+    gt = gt > 0
+    seg = seg > 0
+    nom = 2 * np.sum(gt * seg)
+    denom = np.sum(gt) + np.sum(seg)
+
+    dice = float(nom + smooth) / float(denom + smooth)
+    return dice
+
+
+class DiceScore:
+    def __call__(self, gt, seg, smooth = 1.):
+        return dice_score(gt, seg)
+
+
+def best_dice(gt, seg):
+    gt_lables = np.setdiff1d(np.unique(gt), [0])
+    seg_labels = np.setdiff1d(np.unique(seg), [0])
+
+    best_dices = []
+
+    def dice(gt_idx):
+        _gt_seg = (gt == gt_idx).astype('uint8')
+        dices = []
+        for pred_idx in seg_labels:
+            _pred_seg = (seg == pred_idx).astype('uint8')
+
+            dice = dice_score(_gt_seg, _pred_seg)
+            dices.append(dice)
+        best_dice = np.max(dices)
+        best_dices.append(best_dice)
+
+    workers = []
+    for gt_idx in gt_lables:
+        worker = threading.Thread(target=dice, args=(gt_idx,))
+        worker.start()
+        workers.append(worker)
+    for worker in workers:
+        worker.join()
+
+    return np.mean(best_dices)
+
+
+def symmetric_best_dice(gt, seg):
+    bd1 = best_dice(gt, seg)
+    bd2 = best_dice(seg, gt)
+    return min(bd1, bd2)
+
+
+class SBD:
+    def __call__(self, gt, seg):
+        return symmetric_best_dice(gt, seg)
+
+
+class DiC:
+    def __call__(self, gt, seg):
+        return dic(gt, seg)
 
 if __name__ == "__main__":
     metric = AveragePrecision()

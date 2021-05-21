@@ -42,9 +42,12 @@ patch_manager:
     reorder_sp: true
 
 # embedding network config
-#fe_model_name:
-#  desc: path to state dict of trained model
-#  value: /g/kreshuk/hilt/storage/color_circles/fe_cosine.pth # fe_cosine_ls_bn_gtval, fe_cosine_ls_bn_2chnl
+fe_model_name:
+  desc: path to state dict of trained model
+  value: /g/kreshuk/hilt/storage/color_circles/fe_cosine.pth # fe_cosine_ls_bn_gtval, fe_cosine_ls_bn_2chnl
+fe_optimization:
+  desc: if true the fe will be optimized by the critic
+  value: false
 dim_embeddings:
   desc: number of embedding feature channels
   value: 16
@@ -130,13 +133,13 @@ batch_size:
 lr_sched:
   desc: config for moving averages and learning rate sheduling
   value:
-    mov_avg_bandwidth: 40
+    mov_avg_bandwidth: 50
     weight_range: [0.1, 1.0]
     step_frequency: 10
     mov_avg_offset: 0.0
     torch_sched:  # conf for torch reduceOnPlateau scheduler
-      patience: 20
-      min_lr: 0.000001
+      patience: 10000
+      min_lr: 0.00001
       factor: 0.05
       threshold: 0.01
 

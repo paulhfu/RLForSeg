@@ -61,8 +61,10 @@ class AgentSacTrainer(object):
         OptimizerContainer = namedtuple('OptimizerContainer',
                                         ('actor', 'critic', 'temperature', 'actor_shed', 'critic_shed', 'temp_shed'))
         actor_optimizer = torch.optim.Adam(self.model.actor.parameters(), lr=self.cfg.actor_lr)
-        critic_optimizer = torch.optim.Adam(list(self.model.critic.parameters()) + list(self.model.fe_ext.parameters()),
-                                            lr=self.cfg.critic_lr)
+        if self.cfg.fe_optimization:
+            critic_optimizer = torch.optim.Adam(list(self.model.critic.parameters()) + list(self.model.fe_ext.parameters()), lr=self.cfg.critic_lr)
+        else:
+            critic_optimizer = torch.optim.Adam(self.model.critic.parameters(), lr=self.cfg.critic_lr)
         # critic_optimizer = torch.optim.Adam(self.model.critic.parameters(), lr=self.cfg.critic_lr)
         temp_optimizer = torch.optim.Adam([self.model.log_alpha], lr=self.cfg.alpha_lr)
 
@@ -251,20 +253,20 @@ class AgentSacTrainer(object):
                     axs[0, 2].imshow(ex_raws[it][..., 0], cmap="gray")
             else:
                 axs[0, 2].imshow(ex_raws[it], cmap="gray")
-            axs[0, 2].set_title('sp edge', y=1.05, size=10)
+            axs[0, 2].set_title('plantseg', y=1.05, size=10)
             axs[0, 2].axis('off')
             axs[0, 3].imshow(ex_sps[it], cmap=random_label_cmap(), interpolation="none")
             axs[0, 3].set_title('superpixels', y=1.05, size=10)
             axs[0, 3].axis('off')
 
             axs[1, 0].imshow(ex_feats[it])
-            axs[1, 0].set_title('feat', y=-0.15, size=10)
+            axs[1, 0].set_title('features', y=-0.15, size=10)
             axs[1, 0].axis('off')
             axs[1, 1].imshow(ex_n_emb[it])
-            axs[1, 1].set_title('node emb', y=-0.15, size=10)
+            axs[1, 1].set_title('node embeddings', y=-0.15, size=10)
             axs[1, 1].axis('off')
             axs[1, 2].imshow(ex_emb[it])
-            axs[1, 2].set_title('emb', y=-0.15, size=10)
+            axs[1, 2].set_title('embeddings', y=-0.15, size=10)
             axs[1, 2].axis('off')
             axs[1, 3].imshow(ex_rl[it], cmap=random_label_cmap(), interpolation="none")
             axs[1, 3].set_title('prediction', y=-0.15, size=10)
@@ -284,12 +286,12 @@ class AgentSacTrainer(object):
 
                 axs[1, 4].imshow(frame_rew, interpolation="none")
                 axs[1, 4].imshow(ex_rl[it], cmap=label_cm, alpha=0.8, interpolation="none")
-                axs[1, 4].set_title("rewards 1:g, 0:r", y=-0.2)
+                axs[1, 4].set_title("rewards", y=-0.2)
                 axs[1, 4].axis('off')
 
                 axs[0, 4].imshow(frame_act, interpolation="none")
                 axs[0, 4].imshow(ex_rl[it], cmap=label_cm, alpha=0.8, interpolation="none")
-                axs[0, 4].set_title("actions 0:g, 1:r", y=1.05, size=10)
+                axs[0, 4].set_title("actions", y=1.05)
                 axs[0, 4].axis('off')
 
             wandb.log({"validation/sample_" + str(i): [wandb.Image(fig, caption="sample images")]},
@@ -369,13 +371,19 @@ class AgentSacTrainer(object):
 
         critic_loss, mean_reward = self.update_critic(obs, action, reward)
         self.memory.report_sample_loss(critic_loss + mean_reward, sample_idx)
-        self.mov_sum_losses.critic.apply(critic_loss)
+        avg = self.mov_sum_losses.critic.apply(critic_loss)
+        if avg is not None:
+            self.optimizers.critic_shed.step(avg)
         wandb.log({"loss/critic": critic_loss}, step=self.global_counter)
 
         if self.cfg.actor_update_after < step and step % self.cfg.actor_update_frequency == 0:
             actor_loss, alpha_loss, min_entropy, loc_mean = self.update_actor_and_alpha(obs, reward, action)
-            self.mov_sum_losses.actor.apply(actor_loss)
-            self.mov_sum_losses.temperature.apply(alpha_loss)
+            avg = self.mov_sum_losses.actor.apply(actor_loss)
+            if avg is not None:
+                self.optimizers.actor_shed.step(avg)
+            avg = self.mov_sum_losses.temperature.apply(alpha_loss)
+            if avg is not None:
+                self.optimizers.temp_shed.step(avg)
             wandb.log({"loss/actor": actor_loss}, step=self.global_counter)
             wandb.log({"loss/alpha": alpha_loss}, step=self.global_counter)
 
@@ -425,6 +433,7 @@ class AgentSacTrainer(object):
                 self.memory.reset_push_count()
             if self.global_count.value() % self.cfg.validatoin_freq == 0:
                 self.validate()
+        torch.save(self.model.state_dict(), os.path.join(wandb.run.dir, "last_checkpoint_agent.pth"))
 
     # Acts and trains model
     def train_and_explore(self, rn):

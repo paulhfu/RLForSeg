@@ -27,8 +27,9 @@ class Agent(torch.nn.Module):
         if "fe_model_name" in self.cfg:
             self.fe_ext.embed_model.load_state_dict(torch.load(self.cfg.fe_model_name))
         self.fe_ext.cuda(self.device)
-        # for param in self.fe_ext.parameters():
-        #     param.requires_grad = False
+        if self.cfg.fe_optimization:
+            for param in self.fe_ext.parameters():
+                param.requires_grad = False
 
         self.fe_ext_tgt = FeExtractor(dict_to_attrdict(self.cfg.backbone), self.distance, cfg.fe_delta_dist, self.device)
         if "fe_model_name" in self.cfg:

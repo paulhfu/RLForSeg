@@ -45,7 +45,7 @@ class CirclesRewards(RewardFunctionAbc):
                  *args, **kwargs):
         dev = prediction_segmentation.device
         return_scores = []
-        exp_factor = 2
+        exp_factor = 3
 
         for single_pred, single_sp_seg, s_dir_edges, s_actions, s_sp_cmrads in zip(prediction_segmentation,
                                                                                    superpixel_segmentation,
@@ -134,7 +134,7 @@ class HoughCirclesRewards(RewardFunctionAbc):
 
     def __init__(self, *args, **kwargs):
         self.max_p = torch.nn.MaxPool2d(3, padding=1, stride=1)
-        self.circle_thresh = 0.3
+        self.circle_thresh = 0.6
         self.range_rad = [10, 20]
         self.range_num = [20, 20]
 
@@ -142,7 +142,7 @@ class HoughCirclesRewards(RewardFunctionAbc):
                  *args, **kwargs):
         dev = prediction_segmentation.device
         return_scores = []
-        exp_factor = 2
+        exp_factor = 3
 
         for single_pred, single_sp_seg, s_dir_edges, s_actions, s_sp_cmrads in zip(prediction_segmentation,
                                                                                    superpixel_segmentation,
