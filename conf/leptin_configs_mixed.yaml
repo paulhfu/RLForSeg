@@ -13,10 +13,10 @@ agent_model_name:
   value: '' # agent_model_svpfe.pth
 data_dir:
   desc: train data dir
-  value: /g/kreshuk/kaziakhm/leptin_data/processed/v4_dwtrsd/train
+  value: /g/kreshuk/kaziakhm/leptin_data/processed/v5_dwtrsd/train
 val_data_dir:
   desc: validation data dir
-  value: /g/kreshuk/kaziakhm/leptin_data/processed/v4_dwtrsd/val
+  value: /g/kreshuk/kaziakhm/leptin_data/processed/v5_dwtrsd/val
 val_data_keys:
   desc: keys for data in h5 file
   value:
@@ -32,9 +32,11 @@ train_data_keys:
   value:
     raw: "raw"  # raw_2chnl
     raw_1: "ps_edge"
-    gt: "gt"
+    gt_optional: "gt"
+    gt_edge_weights_optional: "gt_edge_weights"
+    #gt: "gt"
     node_labeling: "node_labeling"
-    gt_edge_weights: "gt_edge_weights"
+    #gt_edge_weights: "gt_edge_weights"
     edge_feat: "edge_feat"
     edges: "edges"
 patch_manager:
@@ -114,10 +116,10 @@ post_stats_frequency:
   value: 10
 validatoin_freq:
   desc: validate after n steps
-  value: 100
+  value: 10
 store_indices:
   desc: validate after n steps
-  value: [1, 5, 9]
+  value: [1, 5, 8]
 n_updates_per_step:
   desc: perform n optim steps per env step
   value: 10
@@ -151,7 +153,7 @@ gt_edge_overlap_thresh:
   value: 0.5
 s_subgraph:
   desc: subgraph sizes
-  value: [6, 64, 256] # [8, 16, 32, 64]
+  value: [6, 64, 128] # [8, 16, 32, 64]
 entropy_range:
   desc: range of the min entropy constraint
   value: [0.05, 1.0]
