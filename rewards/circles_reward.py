@@ -134,7 +134,7 @@ class HoughCirclesRewards(RewardFunctionAbc):
 
     def __init__(self, *args, **kwargs):
         self.max_p = torch.nn.MaxPool2d(3, padding=1, stride=1)
-        self.circle_thresh = 0.6
+        self.circle_thresh = 0.0
         self.range_rad = [10, 20]
         self.range_num = [20, 20]
 
@@ -142,14 +142,11 @@ class HoughCirclesRewards(RewardFunctionAbc):
                  *args, **kwargs):
         dev = prediction_segmentation.device
         return_scores = []
-        exp_factor = 3
+        exp_factor = 1
 
         for single_pred, single_sp_seg, s_dir_edges, s_actions, s_sp_cmrads in zip(prediction_segmentation,
                                                                                    superpixel_segmentation,
                                                                                    dir_edges, actions, sp_cmrads):
-            # assert single_sp_seg.max() == s_dir_edges.max()
-            # assert s_dir_edges.shape[1] > 60
-            # assert single_sp_seg.max() > 20
 
             scores = torch.zeros(int((single_sp_seg.max()) + 1, ), device=dev)
             if single_pred.max() == 0:  # image is empty
@@ -168,10 +165,11 @@ class HoughCirclesRewards(RewardFunctionAbc):
             label_masses = one_hot.flatten(1).sum(-1)
             # everything else are potential potential_objects
             bg_obj_mask = label_masses > 1400
-            potenial_obj_mask = label_masses <= 1400
             false_obj_mask = label_masses < 200
+            potential_obj_mask = label_masses <= 1400
+            potential_obj_mask &= (false_obj_mask == False)
             bg_object_ids = torch.nonzero(bg_obj_mask).squeeze(1)  # object label IDs
-            potential_object_ids = torch.nonzero(potenial_obj_mask).squeeze(1)  # object label IDs
+            potential_object_ids = torch.nonzero(potential_obj_mask).squeeze(1)  # object label IDs
 
             potential_objects = one_hot[potential_object_ids]  # get object masks
             bg_sp_ids = torch.unique((single_sp_seg[None] + 1) * one_hot[bg_object_ids])[1:] - 1
@@ -237,7 +235,54 @@ if __name__ == "__main__":
     from utils.general import multicut_from_probas, calculate_gt_edge_costs
     from glob import glob
     import os
+    import numpy as np
+    import matplotlib.pyplot as plt
 
+    from skimage import data, color
+    from skimage.transform import hough_circle, hough_circle_peaks
+    from skimage.feature import canny
+    from skimage.draw import circle_perimeter
+    from skimage.util import img_as_ubyte
+    import os
+    import torch
+
+    from glob import glob
+    import h5py
+    import numpy as np
+    from skimage import draw
+    from skimage.filters import gaussian
+    import elf
+    import nifty
+
+    from affogato.segmentation import compute_mws_segmentation
+    from utils.affinities import get_naive_affinities, get_edge_features_1d
+    from utils.general import calculate_gt_edge_costs, set_seed_everywhere, get_contour_from_2d_binary
+    import matplotlib.pyplot as plt
+    from matplotlib import cm
+    from utils.pt_gaussfilter import GaussianSmoothing
+    import torch.nn.functional as F
+
+    def get_hough_performance(image):
+        # Load picture and detect edges
+        edges = canny(np.dot(image[...,:3], [0.2989, 0.5870, 0.1140]), sigma=1, low_threshold=0.4, high_threshold=0.9)
+
+        # Detect two radii
+        hough_radii = np.arange(10, 20, 1)
+        hough_res = hough_circle(edges, hough_radii)
+
+        # Select the most prominent 3 circles
+        accums, cx, cy, radii = hough_circle_peaks(hough_res, hough_radii,
+                                                   total_num_peaks=20)
+
+        # Draw them
+        fig, ax = plt.subplots(ncols=1, nrows=1, figsize=(10, 4))
+        for center_y, center_x, radius in zip(cy, cx, radii):
+            circy, circx = circle_perimeter(center_y, center_x, radius,
+                                            shape=image.shape)
+            image[circy, circx] = (1, 0, 0)
+
+        ax.imshow(image, cmap=plt.cm.gray)
+        plt.show()
 
     label_cm = random_label_cmap(zeroth=1.0)
     label_cm.set_bad(alpha=0)
@@ -245,102 +290,136 @@ if __name__ == "__main__":
     edge_cmap.set_bad(alpha=0)
     dev = "cuda:0"
     # get a few images and extract some gt objects used ase shape descriptors that we want to compare against
-    dir = "/g/kreshuk/hilt/projects/data/color_circles/train"
+    dir = "/g/kreshuk/hilt/projects/data/color_circles/val"
     fnames_pix = sorted(glob(os.path.join(dir, 'pix_data/*.h5')))
     fnames_graph = sorted(glob(os.path.join(dir, 'graph_data/*.h5')))
 
-    for i in range(1):
+    for i in range(len(fnames_pix)):
         g_file = h5py.File(fnames_graph[i], 'r')
         pix_file = h5py.File(fnames_pix[i], 'r')
-        superpixel_seg = g_file['node_labeling'][:]
-        gt_seg = pix_file['gt'][:]
-        superpixel_seg = torch.from_numpy(superpixel_seg.astype(np.int64)).to(dev)
-        gt_seg = torch.from_numpy(gt_seg.astype(np.int64)).to(dev)
+        raw = pix_file['raw'][:]
 
-        probas = g_file['edge_feat'][:, 0]  # take initial edge features as weights
+        edge_offsets_ = [[0, -1], [-1, 0], [-3, 0], [0, -3], [-5, 0],
+                        [0, -5]]  # offsets defining the edges for pixel affinities
+        overseg_factor_ = 3.0
+        sep_chnl_ = 2  # channel separating attractive from repulsive edges
+        sigma_ = 0.2
 
-        # make sure probas are probas and get a sample prediction
-        probas -= probas.min()
-        probas /= (probas.max() + 1e-6)
-        pred_seg = multicut_from_probas(superpixel_seg.cpu().numpy(), g_file['edges'][:].T, probas)
-        pred_seg = torch.from_numpy(pred_seg.astype(np.int64)).to(dev)
-
-        # relabel to consecutive integers:
-        mask = gt_seg[None] == torch.unique(gt_seg)[:, None, None]
-        gt_seg = (mask * (torch.arange(len(torch.unique(gt_seg)), device=dev)[:, None, None] + 1)).sum(0) - 1
-        mask = superpixel_seg[None] == torch.unique(superpixel_seg)[:, None, None]
-        superpixel_seg = (mask * (torch.arange(len(torch.unique(superpixel_seg)), device=dev)[:, None, None] + 1)).sum(
-            0) - 1
-        mask = pred_seg[None] == torch.unique(pred_seg)[:, None, None]
-        pred_seg = (mask * (torch.arange(len(torch.unique(pred_seg)), device=dev)[:, None, None] + 1)).sum(0) - 1
-        # assert the segmentations are consecutive integers
-        assert pred_seg.max() == len(torch.unique(pred_seg)) - 1
-        assert superpixel_seg.max() == len(torch.unique(superpixel_seg)) - 1
-
-        edges = torch.from_numpy(compute_rag(superpixel_seg.cpu().numpy()).uvIds().astype(np.long)).T.to(dev)
-        dir_edges = torch.stack((torch.cat((edges[0], edges[1])), torch.cat((edges[1], edges[0]))))
-
-        gt_edges = calculate_gt_edge_costs(edges.T, superpixel_seg.squeeze(), gt_seg.squeeze(), thresh=0.5)
-
-        mc_seg_old = None
-        for itr in range(10):
-            actions = gt_edges + torch.randn_like(gt_edges) * (itr / 10)
-            # actions = torch.randn_like(gt_edges)
-            # actions = torch.zeros_like(gt_edges)
-            # actions[1:4] = 1.0
-            actions -= actions.min()
-            actions /= actions.max()
-
-            mc_seg = multicut_from_probas(superpixel_seg.cpu().numpy(), edges.T.cpu().numpy(), actions)
-            mc_seg = torch.from_numpy(mc_seg.astype(np.int64)).to(dev)
-
-            # relabel to consecutive integers:
-            mask = mc_seg[None] == torch.unique(mc_seg)[:, None, None]
-            mc_seg = (mask * (torch.arange(len(torch.unique(mc_seg)), device=dev)[:, None, None] + 1)).sum(0) - 1
-            # add batch dimension
-            pred_seg = pred_seg[None]
-            gt_seg = gt_seg[None]
-            mc_seg = mc_seg[None]
-
-            f = HoughCirclesRewards()
-            # f.get_gaussians(.3, 0.16, .1, 0.2, 0.3, .2)
-            # plt.imshow(pix_file['raw'][:]);plt.show()
-            # rewards2 = f(gt_seg.long(), superpixel_seg.long(), dir_edges=[dir_edges], res=100)
-            edge_angles, sp_feat, sp_rads = get_angles_smass_in_rag(edges, superpixel_seg.long())
-            edge_rewards = f(mc_seg.long(), superpixel_seg[None].long(), dir_edges=[dir_edges], res=50, edge_score=True,
-                             sp_cmrads=[sp_rads], actions=[actions])
-
-            fig, ax = plt.subplots(2, 2)
-            frame_rew, scores_rew, bnd_mask = get_colored_edges_in_sseg(superpixel_seg[None].float(), edges, edge_rewards)
-            frame_act, scores_act, _ = get_colored_edges_in_sseg(superpixel_seg[None].float(), edges, 1 - actions.squeeze())
-
-            bnd_mask = torch.from_numpy(dilation(bnd_mask.cpu().numpy()))
-
-            # frame_rew = np.stack([dilation(frame_rew.cpu().numpy()[..., i]) for i in range(3)], -1)
-            # frame_act = np.stack([dilation(frame_act.cpu().numpy()[..., i]) for i in range(3)], -1)
-            # scores_rew = np.stack([dilation(scores_rew.cpu().numpy()[..., i]) for i in range(3)], -1)
-            # scores_act = np.stack([dilation(scores_act.cpu().numpy()[..., i]) for i in range(3)], -1)
-
-            ax[1, 0].imshow(mc_seg.cpu().squeeze(), cmap=label_cm, interpolation="none")
-            ax[1, 0].set_title("mc_seg")
-            ax[1, 0].axis('off')
-            ax[1, 1].imshow(superpixel_seg.cpu().squeeze(), cmap=label_cm, interpolation="none")
-            ax[1, 1].set_title("sp_seg")
-            ax[1, 1].axis('off')
-
-            mc_seg = mc_seg.squeeze().float()
-            mc_seg[bnd_mask] = np.nan
-            ax[0, 0].imshow(frame_rew.cpu().numpy(), interpolation="none")
-            ax[0, 0].imshow(mc_seg.cpu(), cmap=label_cm, alpha=0.8, interpolation="none")
-            ax[0, 0].set_title("rewards 1:g, 0:r")
-            ax[0, 0].axis('off')
-            ax[0, 1].imshow(frame_act.cpu().numpy(), interpolation="none")
-            ax[0, 1].imshow(mc_seg.cpu(), cmap=label_cm, alpha=0.8, interpolation="none")
-            ax[0, 1].set_title("actions 0:g, 1:r")
-            ax[0, 1].axis('off')
-
-            # plt.savefig("/g/kreshuk/hilt/projects/RLForSeg/data/test.png", bbox_inches='tight')
+        def mws(sep_chnl, overseg_factor, sigma, edge_offsets):
+            raw_affinities = get_naive_affinities(gaussian(raw, sigma=sigma), edge_offsets)
+            affinities = raw_affinities.copy()
+            affinities[:sep_chnl] *= -1
+            affinities[:sep_chnl] += +1
+            # scale affinities in order to get an oversegmentation
+            affinities[:sep_chnl] /= overseg_factor
+            affinities[sep_chnl:] *= overseg_factor
+            affinities = np.clip(affinities, 0, 1)
+            node_labeling = compute_mws_segmentation(affinities, edge_offsets, sep_chnl)
+            fig, (ax1, ax2, ax3) = plt.subplots(1, 3, sharex='col',
+                                    figsize=(9, 5), sharey='row', gridspec_kw={'hspace': 0, 'wspace': 0})
+            ax3.imshow(node_labeling, cmap=random_label_cmap(), interpolation='none')
+            ax3.set_title('mws', y=1.05, size=10)
+            ax3.axis('off')
+            ax1.imshow(pix_file['gt'][:], cmap=random_label_cmap(), interpolation='none')
+            ax1.set_title('gt', y=1.05, size=10)
+            ax1.axis('off')
+            ax2.imshow(raw, interpolation='none')
+            ax2.set_title('raw', y=1.05, size=10)
+            ax2.axis('off')
             plt.show()
+
+
+        if i == 1:
+            mws(sep_chnl_, 3, 0.9, edge_offsets_)
+        # superpixel_seg = g_file['node_labeling'][:]
+        # gt_seg = pix_file['gt'][:]
+        # superpixel_seg = torch.from_numpy(superpixel_seg.astype(np.int64)).to(dev)
+        # gt_seg = torch.from_numpy(gt_seg.astype(np.int64)).to(dev)
+        #
+        # probas = g_file['edge_feat'][:, 0]  # take initial edge features as weights
+        #
+        # # make sure probas are probas and get a sample prediction
+        # probas -= probas.min()
+        # probas /= (probas.max() + 1e-6)
+        # pred_seg = multicut_from_probas(superpixel_seg.cpu().numpy(), g_file['edges'][:].T, probas)
+        # pred_seg = torch.from_numpy(pred_seg.astype(np.int64)).to(dev)
+        #
+        # # relabel to consecutive integers:
+        # mask = gt_seg[None] == torch.unique(gt_seg)[:, None, None]
+        # gt_seg = (mask * (torch.arange(len(torch.unique(gt_seg)), device=dev)[:, None, None] + 1)).sum(0) - 1
+        # mask = superpixel_seg[None] == torch.unique(superpixel_seg)[:, None, None]
+        # superpixel_seg = (mask * (torch.arange(len(torch.unique(superpixel_seg)), device=dev)[:, None, None] + 1)).sum(
+        #     0) - 1
+        # mask = pred_seg[None] == torch.unique(pred_seg)[:, None, None]
+        # pred_seg = (mask * (torch.arange(len(torch.unique(pred_seg)), device=dev)[:, None, None] + 1)).sum(0) - 1
+        # # assert the segmentations are consecutive integers
+        # assert pred_seg.max() == len(torch.unique(pred_seg)) - 1
+        # assert superpixel_seg.max() == len(torch.unique(superpixel_seg)) - 1
+        #
+        # edges = torch.from_numpy(compute_rag(superpixel_seg.cpu().numpy()).uvIds().astype(np.long)).T.to(dev)
+        # dir_edges = torch.stack((torch.cat((edges[0], edges[1])), torch.cat((edges[1], edges[0]))))
+        #
+        # gt_edges = calculate_gt_edge_costs(edges.T, superpixel_seg.squeeze(), gt_seg.squeeze(), thresh=0.5)
+        #
+        # mc_seg_old = None
+        # for itr in range(10):
+        #     actions = gt_edges + torch.randn_like(gt_edges) * (itr / 10)
+        #     # actions = torch.randn_like(gt_edges)
+        #     # actions = torch.zeros_like(gt_edges)
+        #     # actions[1:4] = 1.0
+        #     actions -= actions.min()
+        #     actions /= actions.max()
+        #
+        #     mc_seg = multicut_from_probas(superpixel_seg.cpu().numpy(), edges.T.cpu().numpy(), actions)
+        #     mc_seg = torch.from_numpy(mc_seg.astype(np.int64)).to(dev)
+        #
+        #     # relabel to consecutive integers:
+        #     mask = mc_seg[None] == torch.unique(mc_seg)[:, None, None]
+        #     mc_seg = (mask * (torch.arange(len(torch.unique(mc_seg)), device=dev)[:, None, None] + 1)).sum(0) - 1
+        #     # add batch dimension
+        #     pred_seg = pred_seg[None]
+        #     gt_seg = gt_seg[None]
+        #     mc_seg = mc_seg[None]
+        #
+        #     f = HoughCirclesRewards()
+        #     # f.get_gaussians(.3, 0.16, .1, 0.2, 0.3, .2)
+        #     # plt.imshow(pix_file['raw'][:]);plt.show()
+        #     # rewards2 = f(gt_seg.long(), superpixel_seg.long(), dir_edges=[dir_edges], res=100)
+        #     edge_angles, sp_feat, sp_rads, _, _ = get_angles_smass_in_rag(edges, superpixel_seg.long())
+        #     edge_rewards = f(mc_seg.long(), superpixel_seg[None].long(), dir_edges=[dir_edges], res=50, edge_score=True,
+        #                      sp_cmrads=[sp_rads], actions=[actions])
+        #
+        #     fig, ax = plt.subplots(2, 2)
+        #     frame_rew, scores_rew, bnd_mask = get_colored_edges_in_sseg(superpixel_seg[None].float(), edges, edge_rewards)
+        #     frame_act, scores_act, _ = get_colored_edges_in_sseg(superpixel_seg[None].float(), edges, 1 - actions.squeeze())
+        #
+        #     bnd_mask = torch.from_numpy(dilation(bnd_mask.cpu().numpy()))
+        #
+        #     # frame_rew = np.stack([dilation(frame_rew.cpu().numpy()[..., i]) for i in range(3)], -1)
+        #     # frame_act = np.stack([dilation(frame_act.cpu().numpy()[..., i]) for i in range(3)], -1)
+        #     # scores_rew = np.stack([dilation(scores_rew.cpu().numpy()[..., i]) for i in range(3)], -1)
+        #     # scores_act = np.stack([dilation(scores_act.cpu().numpy()[..., i]) for i in range(3)], -1)
+        #
+        #     ax[1, 0].imshow(mc_seg.cpu().squeeze(), cmap=label_cm, interpolation="none")
+        #     ax[1, 0].set_title("mc_seg")
+        #     ax[1, 0].axis('off')
+        #     ax[1, 1].imshow(superpixel_seg.cpu().squeeze(), cmap=label_cm, interpolation="none")
+        #     ax[1, 1].set_title("sp_seg")
+        #     ax[1, 1].axis('off')
+        #
+        #     mc_seg = mc_seg.squeeze().float()
+        #     mc_seg[bnd_mask] = np.nan
+        #     ax[0, 0].imshow(frame_rew.cpu().numpy(), interpolation="none")
+        #     ax[0, 0].imshow(mc_seg.cpu(), cmap=label_cm, alpha=0.8, interpolation="none")
+        #     ax[0, 0].set_title("rewards 1:g, 0:r")
+        #     ax[0, 0].axis('off')
+        #     ax[0, 1].imshow(frame_act.cpu().numpy(), interpolation="none")
+        #     ax[0, 1].imshow(mc_seg.cpu(), cmap=label_cm, alpha=0.8, interpolation="none")
+        #     ax[0, 1].set_title("actions 0:g, 1:r")
+        #     ax[0, 1].axis('off')
+        #
+        #     # plt.savefig("/g/kreshuk/hilt/projects/RLForSeg/data/test.png", bbox_inches='tight')
+        #     plt.show()
 
         # rewards1 = f(pred_seg.long(), superpixel_seg.long(), dir_edges=[dir_edges], res=100)
     a = 1

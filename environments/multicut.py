@@ -22,6 +22,8 @@ from utils.reward_functions import UnSupervisedReward, SubGraphDiceReward
 from utils.graphs import collate_edges, get_edge_indices, get_angles_smass_in_rag
 from utils.general import get_angles, pca_project, random_label_cmap, get_contour_from_2d_binary
 from utils.affinities import get_edge_features_1d, get_affinities_from_embeddings_2d
+from utils.pt_gaussfilter import GaussianSmoothing
+import torch.nn.functional as F
 
 State = collections.namedtuple("State", ["raw", "sp_seg", "edge_ids", "edge_feats", "sp_feat", "subgraph_indices", "sep_subgraphs", "round_n", "gt_edge_weights"])
 class MulticutEmbeddingsEnv():
@@ -34,6 +36,8 @@ class MulticutEmbeddingsEnv():
         self.device = device
         self.last_final_reward = torch.tensor([0.0])
         self.max_p = torch.nn.MaxPool2d(3, padding=1, stride=1)
+        self.gauss_kernel = GaussianSmoothing(1, 5, 3, device=device)
+        self.time = 0
 
         if self.cfg.reward_function == 'sub_graph_dice':
             self.reward_function = SubGraphDiceReward()
@@ -102,6 +106,9 @@ class MulticutEmbeddingsEnv():
         self.current_edge_weights = actions.squeeze()
 
         self.current_soln = self.get_current_soln(self.current_edge_weights)
+
+        edge_img = F.pad(get_contour_from_2d_binary(self.current_soln.float()[:, None]), (2, 2, 2, 2), mode='constant')
+        self.current_edge_img = self.gauss_kernel(edge_img.float())
 
         if not 'sub_graph_dice' in self.cfg.reward_function:
             reward = []
@@ -182,10 +189,13 @@ class MulticutEmbeddingsEnv():
                     wandb.log({tag + key: val})
 
         self.acc_reward.append(total_reward)
-        return reward
+        if self.counter >= self.cfg.n_steps_per_episode:
+            self.counter = 0
+            return reward, True
+        return reward, False
 
     def get_state(self):
-        return State(self.raw, self.batched_sp_seg, self.edge_ids, self.edge_features, self.sp_feat, self.subgraph_indices,
+        return State(torch.cat((self.raw, self.current_edge_img), 1), self.batched_sp_seg, self.edge_ids, self.edge_features, self.sp_feat, self.subgraph_indices,
                      self.sep_subgraphs, self.counter, self.gt_edge_weights)
 
     def update_data(self, raw, gt, edge_ids, gt_edges, sp_seg, fe_grad, rags, edge_features, *args, **kwargs):
@@ -197,6 +207,9 @@ class MulticutEmbeddingsEnv():
         self.rags = rags
         self.gt_seg, self.init_sp_seg = gt.squeeze(1), sp_seg.squeeze(1)
         self.raw = raw
+
+        edge_img = F.pad(get_contour_from_2d_binary(sp_seg.float()), (2, 2, 2, 2), mode='constant')
+        self.current_edge_img = self.gauss_kernel(edge_img.float())
 
         edge_angles, sp_feat, self.sp_rads, self.sp_cms, self.sp_masses = \
             zip(*[get_angles_smass_in_rag(edge_ids[i], self.init_sp_seg[i]) for i in range(bs)])

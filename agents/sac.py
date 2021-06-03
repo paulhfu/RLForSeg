@@ -298,20 +298,20 @@ class AgentSacTrainer(object):
                       step=self.global_counter)
             plt.close('all')
 
-    def update_critic(self, obs, action, reward):
+    def update_critic(self, obs, next_obs, action, reward, not_done):
         self.optimizers.critic.zero_grad()
         with torch.cuda.amp.autocast(enabled=True):
-            current_Q, side_loss = self.forwarder.forward(self.model, obs, State, self.device, actions=action,
-                                                          grad=True)
-
-            critic_loss = torch.tensor([0.0], device=current_Q[0].device)
+            distribution, target_Q, _, _, side_loss = self.forwarder.forward(self.model, next_obs, State, self.device, grad=False)
+            critic_loss = torch.tensor([0.0], device=target_Q[0].device)
             mean_reward = 0
-
+            log_prob = distribution.log_prob(action)
+            current_Q, side_loss = self.forwarder.forward(self.model, obs, State, self.device, actions=action, grad=True)
             for i, sz in enumerate(self.cfg.s_subgraph):
-                target_Q = reward[i]
-                target_Q = target_Q.detach()
+                log_prob = get_joint_sg_logprobs_edges(log_prob, distribution.scale, obs, i, sz)[0]
+                target_V = target_Q[i].detach() - self.alpha.detach() * log_prob
+                tgt_Q = reward[i] + (not_done * self.discount * target_V)
 
-                critic_loss = critic_loss + F.mse_loss(current_Q[i], target_Q)
+                critic_loss = critic_loss + F.mse_loss(current_Q[i], tgt_Q)
                 mean_reward += reward[i].mean()
             critic_loss = critic_loss / len(self.cfg.s_subgraph) + self.cfg.side_loss_weight * side_loss
 
@@ -367,9 +367,9 @@ class AgentSacTrainer(object):
     def _step(self, step):
         actor_loss, alpha_loss, min_entropy, loc_mean = None, None, None, None
 
-        (obs, action, reward), sample_idx = self.memory.sample()
+        (obs, action, reward, next_obs, done), sample_idx = self.memory.sample()
 
-        critic_loss, mean_reward = self.update_critic(obs, action, reward)
+        critic_loss, mean_reward = self.update_critic(obs, next_obs, action, reward, not done)
         self.memory.report_sample_loss(critic_loss + mean_reward, sample_idx)
         avg = self.mov_sum_losses.critic.apply(critic_loss)
         if avg is not None:
@@ -478,19 +478,24 @@ class AgentSacTrainer(object):
                                     with_gt_edges="sub_graph_dice" in self.cfg.reward_function)
                 env.reset()
                 state = env.get_state()
+                done = False
+                next_state = None
+                while not done:
+                    if next_state is not None:
+                        state = next_state
+                    if not self.memory.is_full():
+                        action = torch.rand((env.edge_ids.shape[-1], 1), device=self.device)
+                    else:
+                        self.model_mtx.acquire()
+                        try:
+                            distr, _, action, _, _ = self.forwarder.forward(self.model, state, State, self.device,
+                                                                            grad=False)
+                        finally:
+                            self.model_mtx.release()
 
-                if not self.memory.is_full():
-                    action = torch.rand((env.edge_ids.shape[-1], 1), device=self.device)
-                else:
-                    self.model_mtx.acquire()
-                    try:
-                        distr, _, action, _, _ = self.forwarder.forward(self.model, state, State, self.device,
-                                                                        grad=False)
-                    finally:
-                        self.model_mtx.release()
-
-                reward = env.execute_action(action, tau=max(0, tau))
-                self.memory.push(state_to_cpu(state, State), action, reward)
+                    reward, done = env.execute_action(action, tau=max(0, tau))
+                    next_state = env.get_state()
+                    self.memory.push(state_to_cpu(state, State), action, reward, state_to_cpu(next_state, State), done)
                 if self.global_count.value() > self.cfg.T_max + self.cfg.mem_size:
                     break
         return

@@ -200,13 +200,13 @@ def pca_svd(X, k, center=True):
     return components, explained_variance
 
 
-# def get_contour_from_2d_binary(mask: torch.Tensor):
-#     """
-#     :param mask: n_dim should be three (N|H|W). can be bool or long but should be binary if long.
-#     :return: tensor of the same shape and type bool containing all inner contours of objects in mask
-#     """
-#     max_p = torch.nn.MaxPool2d(3, stride=1, padding=1)
-#     return ((max_p(mask) != mask) | (-max_p(-mask) != mask)).long()
+def get_contour_from_2d_binary(mask: torch.Tensor):
+    """
+    :param mask: n_dim should be three (N|H|W). can be bool or long but should be binary if long.
+    :return: tensor of the same shape and type bool containing all inner contours of objects in mask
+    """
+    max_p = torch.nn.MaxPool2d(3, stride=1, padding=1)
+    return ((max_p(mask) != mask) | (-max_p(-mask) != mask)).long()
 
 def get_colored_edges_in_sseg(sseg: torch.Tensor, edges: torch.Tensor, scores: torch.Tensor):
     sseg = sseg + 1
@@ -393,14 +393,14 @@ def set_seed_everywhere(seed):
     np.random.seed(seed)
     random.seed(seed)
 
-def get_contour_from_2d_binary(imgs):
-    img_out = []
-    device = imgs.device
-
-    for img in imgs:
-        img = img.detach().cpu().numpy()
-        edge_map = find_boundaries(img)
-        edge_map = gaussian(edge_map, sigma=1)
-        img_out.append(edge_map)
-
-    return torch.from_numpy(np.array(img_out)).float().to(device)
+# def get_contour_from_2d_binary(imgs):
+#     img_out = []
+#     device = imgs.device
+#
+#     for img in imgs:
+#         img = img.detach().cpu().numpy()
+#         edge_map = find_boundaries(img)
+#         edge_map = gaussian(edge_map, sigma=1)
+#         img_out.append(edge_map)
+#
+#     return torch.from_numpy(np.array(img_out)).float().to(device)
