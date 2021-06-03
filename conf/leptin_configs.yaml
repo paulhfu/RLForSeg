@@ -108,7 +108,7 @@ T_max:
   value: 8000
 mem_size:
   desc: Mem size in replay memory buffer
-  value: 100
+  value: 3
 data_update_frequency:
   desc: update env data after n steps
   value: 5

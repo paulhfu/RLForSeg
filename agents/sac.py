@@ -308,8 +308,8 @@ class AgentSacTrainer(object):
             current_Q, side_loss = self.forwarder.forward(self.model, obs, State, self.device, actions=action, grad=True)
             for i, sz in enumerate(self.cfg.s_subgraph):
                 log_prob = get_joint_sg_logprobs_edges(log_prob, distribution.scale, obs, i, sz)[0]
-                target_V = target_Q[i].detach() - self.alpha.detach() * log_prob
-                tgt_Q = reward[i] + (not_done * self.discount * target_V)
+                target_V = target_Q[i].detach() - self.model.alpha[i].detach() * log_prob
+                tgt_Q = reward[i] + (not_done * 0.99 * target_V)
 
                 critic_loss = critic_loss + F.mse_loss(current_Q[i], tgt_Q)
                 mean_reward += reward[i].mean()
