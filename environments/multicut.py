@@ -26,7 +26,7 @@ from utils.affinities import get_edge_features_1d, get_affinities_from_embedding
 State = collections.namedtuple("State", ["raw", "sp_seg", "edge_ids", "edge_feats", "sp_feat", "subgraph_indices", "sep_subgraphs", "round_n", "gt_edge_weights"])
 class MulticutEmbeddingsEnv():
 
-    def __init__(self, cfg, device):
+    def __init__(self, cfg, device, val=False):
         super(MulticutEmbeddingsEnv, self).__init__()
 
         self.reset()
@@ -34,6 +34,11 @@ class MulticutEmbeddingsEnv():
         self.device = device
         self.last_final_reward = torch.tensor([0.0])
         self.max_p = torch.nn.MaxPool2d(3, padding=1, stride=1)
+        self.val = val
+        self.mix_dice = False
+
+        if (self.val == False):
+            self.additional_dice = SubGraphDiceReward()
 
         if self.cfg.reward_function == 'sub_graph_dice':
             self.reward_function = SubGraphDiceReward()
@@ -60,6 +65,7 @@ class MulticutEmbeddingsEnv():
             elif 'EllipticFit' in self.cfg.reward_function:
                 self.reward_function = LeptinDataReward2DEllipticFit()
             elif 'RectFit' in self.cfg.reward_function:
+                # The other one is this
                 self.reward_function = LeptinDataRotatedRectRewards()
             else:
                 self.reward_function = LeptinDataReward2DTurning()
@@ -103,7 +109,7 @@ class MulticutEmbeddingsEnv():
 
         self.current_soln = self.get_current_soln(self.current_edge_weights)
 
-        if not 'sub_graph_dice' in self.cfg.reward_function:
+        if not 'sub_graph_dice' in self.cfg.reward_function and not self.mix_dice:
             reward = []
             # sp_reward = self.reward_function(self.current_soln.long(), self.init_sp_seg.long(), dir_edges=self.dir_edge_ids,
             #                                  res=100)
@@ -137,21 +143,30 @@ class MulticutEmbeddingsEnv():
             self.counter += 1
             # self.last_final_reward = sp_reward.mean()
             self.last_final_reward = edge_reward.mean()
+            print("Invoke proper reward function:", self.last_final_reward)
         else:
             self.sg_current_edge_weights = []
             for i, sz in enumerate(self.cfg.s_subgraph):
                 self.sg_current_edge_weights.append(
                     self.current_edge_weights[self.subgraph_indices[i].view(-1, sz)])
-            reward = self.reward_function.get(self.sg_current_edge_weights, self.sg_gt_edges) #self.current_soln)
+            if (self.val == False):
+                reward = self.additional_dice.get(self.sg_current_edge_weights, self.sg_gt_edges)
+            else:
+                reward = self.reward_function.get(self.sg_current_edge_weights, self.sg_gt_edges) #self.current_soln)
             reward.append(self.last_final_reward)
 
             self.counter += 1
-            self.last_final_reward = self.reward_function.get_global(self.current_edge_weights, self.gt_edge_weights)
+            if (self.val == False):
+                self.last_final_reward = self.additional_dice.get_global(self.current_edge_weights, self.gt_edge_weights)
+                print("Invoke dice loss in training:", self.last_final_reward)
+            else:
+                self.last_final_reward = self.reward_function.get_global(self.current_edge_weights, self.gt_edge_weights)
 
         total_reward = 0
         for _rew in reward:
             total_reward += _rew.mean().item()
         total_reward /= len(self.cfg.s_subgraph)
+        print("Total reward", total_reward)
         if post_stats:
             tag = "train/" if train else "validation/"
             wandb.log({tag + "avg_return": total_reward})
@@ -226,11 +241,17 @@ class MulticutEmbeddingsEnv():
         self.batched_sp_seg = torch.stack(batched_sp, 0)
 
         self.gt_edge_weights = gt_edges
+
         if self.gt_edge_weights is not None:
+            if (self.val == False):
+                self.mix_dice = True
             self.gt_edge_weights = torch.cat(self.gt_edge_weights)
             self.gt_soln = self.get_current_soln(self.gt_edge_weights)
             self.sg_gt_edges = [self.gt_edge_weights[sg].view(-1, sz) for sz, sg in
                                 zip(self.cfg.s_subgraph, self.subgraph_indices)]
+        else:
+            if (self.val == False):
+                self.mix_dice = False
 
         self.edge_features = torch.cat([edge_angles, torch.cat(edge_features, 0)[:, :2]], 1).float()
         self.current_edge_weights = torch.ones(self.edge_ids.shape[1], device=self.edge_ids.device) / 2

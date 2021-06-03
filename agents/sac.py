@@ -16,7 +16,7 @@ import shutil
 from skimage.morphology import dilation
 
 from environments.multicut import MulticutEmbeddingsEnv, State
-from data.spg_dset import SpgDset
+from data.spg_dset_mixed import SpgDset
 from models.agent_model import Agent
 from utils.exploration_functions import RunningAverage
 from utils.general import soft_update_params, set_seed_everywhere, get_colored_edges_in_sseg, pca_project, \
@@ -91,7 +91,8 @@ class AgentSacTrainer(object):
         # finished with prepping
 
         self.train_dset = SpgDset(self.cfg.data_dir, dict_to_attrdict(self.cfg.patch_manager),
-                                  dict_to_attrdict(self.cfg.train_data_keys), max(self.cfg.s_subgraph))
+                                  dict_to_attrdict(self.cfg.train_data_keys), max(self.cfg.s_subgraph),
+                                  self.cfg.injection_rate)
         self.val_dset = SpgDset(self.cfg.val_data_dir, dict_to_attrdict(self.cfg.patch_manager),
                                 dict_to_attrdict(self.cfg.val_data_keys), max(self.cfg.s_subgraph))
 
@@ -101,7 +102,7 @@ class AgentSacTrainer(object):
 
     def validate(self):
         """validates the prediction against the method of clustering the embedding space"""
-        env = MulticutEmbeddingsEnv(self.cfg, self.device)
+        env = MulticutEmbeddingsEnv(self.cfg, self.device, val=True)
         if self.cfg.verbose:
             print("\n\n###### start validate ######", end='')
         self.model.eval()
@@ -286,12 +287,12 @@ class AgentSacTrainer(object):
 
                 axs[1, 4].imshow(frame_rew, interpolation="none")
                 axs[1, 4].imshow(ex_rl[it], cmap=label_cm, alpha=0.8, interpolation="none")
-                axs[1, 4].set_title("rewards", y=-0.2)
+                axs[1, 4].set_title("rewards", y=-0.15, size=10)
                 axs[1, 4].axis('off')
 
                 axs[0, 4].imshow(frame_act, interpolation="none")
                 axs[0, 4].imshow(ex_rl[it], cmap=label_cm, alpha=0.8, interpolation="none")
-                axs[0, 4].set_title("actions", y=1.05)
+                axs[0, 4].set_title("actions", y=1.05, size=10)
                 axs[0, 4].axis('off')
 
             wandb.log({"validation/sample_" + str(i): [wandb.Image(fig, caption="sample images")]},
@@ -467,7 +468,7 @@ class AgentSacTrainer(object):
         return
 
     def explore(self):
-        env = MulticutEmbeddingsEnv(self.cfg, self.device)
+        env = MulticutEmbeddingsEnv(self.cfg, self.device, val=False)
         tau = 1
         while self.global_count.value() <= self.cfg.T_max + self.cfg.mem_size:
             dloader = iter(DataLoader(self.train_dset, batch_size=self.cfg.batch_size, shuffle=True, pin_memory=True,

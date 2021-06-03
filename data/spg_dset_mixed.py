@@ -1,3 +1,4 @@
+
 import torch
 import matplotlib.pyplot as plt
 from matplotlib.pyplot import cm
@@ -15,16 +16,18 @@ from utils.yaml_conv_parser import dict_to_attrdict
 
 
 class SpgDset(torch_data.Dataset):
-    def __init__(self, root_dir, patch_mngr, keys, n_edges_min=0):
+    def __init__(self, root_dir, patch_mngr, keys, n_edges_min=0, inj_rate=-1):
         """ dataset for loading images (raw, gt, superpixel segs) and according rags"""
         # self.transform = torchvision.transforms.Normalize(0, 1, inplace=False)
         self.keys = keys
-        self.DEBUG = 1
+        self.DEBUG = 0
         self.graph_dir = os.path.join(root_dir, 'graph_data')
         self.pix_dir = os.path.join(root_dir, 'pix_data')
         if "train" in root_dir and self.DEBUG:
             self.graph_file_names = [os.path.join(self.graph_dir, "graph_227.h5"), os.path.join(self.graph_dir, "graph_98.h5")]
             self.pix_file_names =   [os.path.join(self.pix_dir, "pix_227.h5"),     os.path.join(self.pix_dir, "pix_98.h5")]
+            #self.graph_file_names = sorted(glob(os.path.join(self.graph_dir, "*.h5")))
+            #self.pix_file_names = sorted(glob(os.path.join(self.pix_dir, "*.h5")))
         else:
             self.graph_file_names = sorted(glob(os.path.join(self.graph_dir, "*.h5")))
             self.pix_file_names = sorted(glob(os.path.join(self.pix_dir, "*.h5")))
@@ -39,6 +42,23 @@ class SpgDset(torch_data.Dataset):
         else:
             self.pm = NoPatches2D()
         self.length = len(self.graph_file_names) * np.prod(self.pm.n_patch_per_dim)
+
+        if 'gt_optional' in self.keys.keys():
+            self.injected_i, self.injected_pix, self.injected_graph = self.find_gt()
+        else:
+            self.injected_i = -1
+
+        self.injection_rate = inj_rate
+
+    def find_gt(self):
+        for i, (pix_name, graph_name) in enumerate(zip(self.pix_file_names, self.graph_file_names)):
+            try:
+                pix_file = h5py.File(pix_name, 'r')
+                gt = pix_file[self.keys.gt_optional][:].astype(np.float32)
+                return i, pix_name, graph_name
+            except:
+                continue
+        return -1, "", ""
 
     def __len__(self):
         return self.length
@@ -62,6 +82,11 @@ class SpgDset(torch_data.Dataset):
         plt.show()
 
     def __getitem__(self, idx):
+        if self.injected_i != -1 and self.injection_rate != -1:
+            if (idx % self.injection_rate == 0):
+                print("@@@@@@ Injected")
+                idx = self.injected_i
+
         img_idx = idx // np.prod(self.pm.n_patch_per_dim)
         patch_idx = idx % np.prod(self.pm.n_patch_per_dim)
         pix_file = h5py.File(self.pix_file_names[img_idx], 'r')
@@ -70,14 +95,14 @@ class SpgDset(torch_data.Dataset):
 
         raw = pix_file[self.keys.raw][:].squeeze()
         if raw.ndim == 2:
-            raw = torch.from_numpy(raw.astype(np.float)).float()[None]
+            raw = torch.from_numpy(raw.astype(np.float32)).float()[None]
         elif raw.shape[-1] == 3:
-            raw = torch.from_numpy(raw.astype(np.float)).permute(2, 0, 1).float()
+            raw = torch.from_numpy(raw.astype(np.float32)).permute(2, 0, 1).float()
         else:
-            raw = torch.from_numpy(raw.astype(np.float)).float()
+            raw = torch.from_numpy(raw.astype(np.float32)).float()
 
         if "raw_1" in self.keys:
-            raw_1 = torch.from_numpy(pix_file[self.keys.raw_1][:].squeeze().astype(np.float)).float()[None]
+            raw_1 = torch.from_numpy(pix_file[self.keys.raw_1][:].squeeze().astype(np.float32)).float()[None]
             raw = torch.cat((raw, raw_1), 0)
 
         # raw -= raw.min()
@@ -93,14 +118,14 @@ class SpgDset(torch_data.Dataset):
 
 
         if self.keys.node_labeling in pix_file.keys():
-            sp_seg = torch.from_numpy(pix_file[self.keys.node_labeling][:].astype(np.float))
+            sp_seg = torch.from_numpy(pix_file[self.keys.node_labeling][:].astype(np.float32))
         else:
-            sp_seg = torch.from_numpy(graph_file[self.keys.node_labeling][:].astype(np.float))
+            sp_seg = torch.from_numpy(graph_file[self.keys.node_labeling][:].astype(np.float32))
 
         # Handle gt wisely
         if 'gt_optional' in self.keys.keys() and self.keys.gt_optional in pix_file.keys():
             try:
-                gt = pix_file[self.keys.gt_optional][:].astype(np.float)
+                gt = pix_file[self.keys.gt_optional][:].astype(np.float32)
                 if (self.DEBUG):
                     print("@@@@@@ Found gt in the train set!", self.pix_file_names[img_idx])
                 gt = torch.from_numpy(gt)
@@ -110,7 +135,7 @@ class SpgDset(torch_data.Dataset):
         elif "gt" in self.keys:
             if (self.DEBUG):
                 print("@@@@@@ Val set and gt is present", self.pix_file_names[img_idx])
-            gt = torch.from_numpy(pix_file[self.keys.gt][:].astype(np.float))
+            gt = torch.from_numpy(pix_file[self.keys.gt][:].astype(np.float32))
         else:
             if (self.DEBUG):
                 print("@@@@@@ Train set and no gt", self.pix_file_names[img_idx])
@@ -123,7 +148,7 @@ class SpgDset(torch_data.Dataset):
         gt = patch[-2]
 
         if not self.reorder_sp:
-            return patch[:-2].float(), gt.long(), sp_seg.long(), torch.tensor([img_idx])
+            return raw, gt.long(), sp_seg.long(), torch.tensor([img_idx])
 
         # relabel to consecutive ints starting at 0
         mask = sp_seg[None] == torch.unique(sp_seg)[:, None, None]
@@ -132,7 +157,7 @@ class SpgDset(torch_data.Dataset):
         mask = gt[None] == torch.unique(gt)[:, None, None]
         gt = (mask * (torch.arange(len(torch.unique(gt)), device=gt.device)[:, None, None] + 1)).sum(0) - 1
 
-        return patch[:-2].float(), gt.long()[None], sp_seg.long()[None], torch.tensor([img_idx])
+        return raw, gt.long()[None], sp_seg.long()[None], torch.tensor([img_idx])
 
     def get_graphs(self, indices, patches, device="cpu"):
         edges, edge_feat,  gt_edge_weights = [], [], []
@@ -177,6 +202,17 @@ if __name__ == "__main__":
     train_data_keys = dict_to_attrdict({"raw": "raw", "raw_1": "ps_edge", "gt_optional": "gt",
                                         "gt_edge_weights_optional": "gt_edge_weights", "node_labeling": "node_labeling",
                                         "edge_feat": "edge_feat", "edges": "edges" })
-    train_dset = SpgDset(data_dir, patch_manager, train_data_keys, 128)
+    train_dset = SpgDset(data_dir, patch_manager, train_data_keys, 128, 5)
     for sample in iter(train_dset):
+        print(sample[1].shape, torch.all(sample[1] == 0))
+
+    print("@@@@@@@@@@@@@@@@@@ Validation")
+
+    data_dir = "/g/kreshuk/kaziakhm/leptin_data/processed/v5_dwtrsd/val"
+    patch_manager = dict_to_attrdict({'name': 'none', 'reorder_sp': False})
+    val_data_keys = dict_to_attrdict({"raw": "raw", "raw_1": "ps_edge", "gt": "gt",
+                                      "gt_edge_weights": "gt_edge_weights", "node_labeling": "node_labeling",
+                                      "edge_feat": "edge_feat", "edges": "edges" })
+    val_dset = SpgDset(data_dir, patch_manager, val_data_keys, 128)
+    for sample in iter(val_dset):
         print(sample[1].shape, torch.all(sample[1] == 0))

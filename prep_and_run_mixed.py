@@ -12,7 +12,7 @@ if __name__ == '__main__':
     # os.nice(15)
     # project name: "RL for Segmentation"
     base_dir = "/g/kreshuk/kaziakhm/paper_result/gen/"
-    project = "leptin_mixed_v1"
+    project = "leptin_mixed_often"
     entity = "rl_segmentation"
     config = "conf/leptin_configs_mixed.yaml"
     name = ""
