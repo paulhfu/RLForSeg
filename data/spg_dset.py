@@ -99,9 +99,17 @@ class SpgDset(torch_data.Dataset):
 
         sp_seg = patch[-1]
         gt = patch[-2]
+        raw = patch[:-2].float()
+        # raw = torch.stack((raw[0], raw[0]), 0)
+        # if torch.randint(0, 10, (1, )) > 6:
+        #     raw += torch.randn_like(raw) * 0.1
+        #     raw[0] -= raw[0].min()
+        #     raw[0] /= raw[0].max()
+        #     raw[1] -= raw[1].min()
+        #     raw[1] /= raw[1].max()
 
         if not self.reorder_sp:
-            return patch[:-2].float(), gt.long(), sp_seg.long(), torch.tensor([img_idx])
+            return raw, gt.long(), sp_seg.long(), torch.tensor([img_idx])
 
         # relabel to consecutive ints starting at 0
         mask = sp_seg[None] == torch.unique(sp_seg)[:, None, None]
@@ -110,7 +118,7 @@ class SpgDset(torch_data.Dataset):
         mask = gt[None] == torch.unique(gt)[:, None, None]
         gt = (mask * (torch.arange(len(torch.unique(gt)), device=gt.device)[:, None, None] + 1)).sum(0) - 1
 
-        return patch[:-2].float(), gt.long()[None], sp_seg.long()[None], torch.tensor([img_idx])
+        return raw, gt.long()[None], sp_seg.long()[None], torch.tensor([img_idx])
 
     def get_graphs(self, indices, patches, device="cpu"):
         edges, edge_feat,  gt_edge_weights = [], [], []

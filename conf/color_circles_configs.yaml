@@ -45,6 +45,9 @@ patch_manager:
 fe_model_name:
   desc: path to state dict of trained model
   value: /g/kreshuk/hilt/storage/color_circles/fe_cosine.pth # fe_cosine_ls_bn_gtval, fe_cosine_ls_bn_2chnl
+fe_optimization:
+  desc: if true the fe will be optimized by the critic
+  value: false
 dim_embeddings:
   desc: number of embedding feature channels
   value: 16
@@ -80,7 +83,7 @@ gnn_n_hl:
   value: 1
 gnn_size_hl:
   desc: factor by which feature size of hidden featuremaps in gnn increases/decreases
-  value: 1028
+  value: 2028
 gnn_act_depth:
   desc: num of graph convs (1, 2, 3)
   value: 1
@@ -95,7 +98,7 @@ gnn_crit_norm_inp:
   value: false
 gnn_dropout:
   desc: dropout probability during training \in [0, 1]
-  value: 0.1
+  value: 0.0
 
 # training config
 T_max:
@@ -103,10 +106,10 @@ T_max:
   value: 50000
 mem_size:
   desc: Mem size in replay memory buffer
-  value: 40
+  value: 100
 data_update_frequency:
   desc: update env data after n steps
-  value: 50
+  value: 3
 post_stats_frequency:
   desc: post logs after n steps
   value: 10
@@ -124,18 +127,18 @@ n_explorers:
   value: 1
 batch_size:
   desc: num samples in minibatch
-  value: 10
+  value: 4
 
 # conf for lr scheduling
 lr_sched:
   desc: config for moving averages and learning rate sheduling
   value:
-    mov_avg_bandwidth: 40
+    mov_avg_bandwidth: 50
     weight_range: [0.1, 1.0]
     step_frequency: 10
     mov_avg_offset: 0.0
     torch_sched:  # conf for torch reduceOnPlateau scheduler
-      patience: 100
+      patience: 10000
       min_lr: 0.00001
       factor: 0.05
       threshold: 0.01
@@ -149,7 +152,7 @@ gt_edge_overlap_thresh:
   value: 0.5
 s_subgraph:
   desc: subgraph sizes
-  value: [4, 12, 64] # [8, 16, 32, 64]
+  value: [4, 6, 12, 64] # [8, 16, 32, 64]
 entropy_range:
   desc: range of the min entropy constraint
   value: [0.05, 2.0]
@@ -158,13 +161,13 @@ init_temperature:
   value: 0.1
 alpha_lr:
   desc: learning rate for alpha opt
-  value: 0.001
+  value: 0.0001
 actor_lr:
   desc: learning rate for actor opt
-  value: 0.001
+  value: 0.0001
 critic_lr:
   desc: learning rate for critic opr
-  value: 0.001
+  value: 0.0001
 actor_update_frequency:
   desc: optim every n-th step
   value: 1
@@ -173,7 +176,7 @@ actor_update_after:
   value: 1
 critic_tau:
   desc: update weight for target update
-  value: 0.01
+  value: 0.005
 critic_target_update_frequency:
   desc: update critic target every nth step
   value: 5

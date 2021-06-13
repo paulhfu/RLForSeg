@@ -116,8 +116,8 @@ class Forwarder():
     def __init__(self):
         pass
 
-    def forward(self, model, state, state_class, device, actions=None, grad=True, post_data=False, policy_opt=False,
-                      return_node_features=False, expl_action=None):
+    def forward(self, model, state, state_class, device, actions=None, grad=False, post_data=False, policy_opt=False,
+                      get_node_feats=False, expl_action=None, get_embeddings=False):
         with torch.set_grad_enabled(grad):
             state = state_to_cuda(state, device, state_class)
             if actions is not None:
@@ -127,5 +127,6 @@ class Forwarder():
                         expl_action,
                         post_data,
                         policy_opt and grad,
-                        return_node_features)
+                        get_node_feats,
+                        get_embeddings)
         return ret

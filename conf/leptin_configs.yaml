@@ -44,15 +44,18 @@ patch_manager:
     reorder_sp: false
 
 # embedding network config
-fe_model_name:
-  desc: path to state dict of trained model
-  value: /g/kreshuk/kaziakhm/paper_result/fe/leptin_ds/fe_fds_005wf_psedge_16fs/best_val_model.pth # fe_cosine_ls_bn_2chnl.pth # fe_cosine_ls_bn_gtval, fe_cosine_ls_bn_2chnl
+#fe_model_name:
+#  desc: path to state dict of trained model
+#  value: /g/kreshuk/kaziakhm/paper_result/fe/leptin_ds/fe_fds_005wf_psedge_16fs/best_val_model.pth # fe_cosine_ls_bn_2chnl.pth # fe_cosine_ls_bn_gtval, fe_cosine_ls_bn_2chnl
+fe_optimization:
+  desc: if true the fe will be optimized by the critic
+  value: true
 dim_embeddings:
   desc: number of embedding feature channels
-  value: 16
+  value: 4
 distance:
   desc: used distance in embedding space, can be l2 or cosine
-  value: cosine
+  value: cosine  #cosine
 use_handcrafted_features:
   desc: to embeddings append handcrafted features like sp size, position , orientation
   value: true
@@ -67,7 +70,7 @@ backbone:
   value:
     name: UNet2D
     in_channels: 2
-    out_channels: 16
+    out_channels: 4
     # use Groupnorm instead of Batchnorm for DSB; Batchnorm introduces artifacts around nuclei due to the difference
     # in intensity distribution between images with large and small cells
     layer_order: bcr
@@ -97,18 +100,18 @@ gnn_crit_norm_inp:
   value: false
 gnn_dropout:
   desc: dropout probability during training \in [0, 1]
-  value: 0.2
+  value: 0.0
 
 # training config
 T_max:
   desc: Number of training steps
-  value: 50000
+  value: 8000
 mem_size:
   desc: Mem size in replay memory buffer
-  value: 50
+  value: 100
 data_update_frequency:
   desc: update env data after n steps
-  value: 200
+  value: 5
 post_stats_frequency:
   desc: post logs after n steps
   value: 10
@@ -116,29 +119,38 @@ validatoin_freq:
   desc: validate after n steps
   value: 100
 store_indices:
-  desc: validate after n steps
+  desc: shown validation samples
   value: [1, 5, 9]
 n_updates_per_step:
   desc: perform n optim steps per env step
-  value: 10
+  value: 7
 n_explorers:
   desc: n experience explorer threads
   value: 1
+episode_len:
+  desc: length of the RL episode
+  value: 3
+temporal_encoding_len:
+  desc: the current step is encoded by frequency shifted sine waves. This is the number of sines used
+  value: 5
+use_expact_in_expl:
+  desc: if true we use the same action in training that was used in exploration where the reward was actually gained from.
+  value: true
 batch_size:
   desc: num samples in minibatch
-  value: 1
+  value: 5
 
 # conf for lr scheduling
 lr_sched:
   desc: config for moving averages and learning rate sheduling
   value:
-    mov_avg_bandwidth: 40
+    mov_avg_bandwidth: 50
     weight_range: [0.1, 1.0]
     step_frequency: 10
     mov_avg_offset: 0.0
     torch_sched:  # conf for torch reduceOnPlateau scheduler
-      patience: 80
-      min_lr: 0.0001
+      patience: 20000
+      min_lr: 0.00001
       factor: 0.05
       threshold: 0.01
 
@@ -179,6 +191,9 @@ critic_tau:
 critic_target_update_frequency:
   desc: update critic target every nth step
   value: 5
+gamma:
+  desc: RL gamma
+  value: 0.9
 
 use_closed_form_entropy:
   desc: since we have normal distributions we can use a closed for entropy

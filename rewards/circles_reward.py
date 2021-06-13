@@ -45,7 +45,7 @@ class CirclesRewards(RewardFunctionAbc):
                  *args, **kwargs):
         dev = prediction_segmentation.device
         return_scores = []
-        exp_factor = 2
+        exp_factor = 3
 
         for single_pred, single_sp_seg, s_dir_edges, s_actions, s_sp_cmrads in zip(prediction_segmentation,
                                                                                    superpixel_segmentation,
@@ -134,7 +134,7 @@ class HoughCirclesRewards(RewardFunctionAbc):
 
     def __init__(self, *args, **kwargs):
         self.max_p = torch.nn.MaxPool2d(3, padding=1, stride=1)
-        self.circle_thresh = 0.4
+        self.circle_thresh = 0.6
         self.range_rad = [10, 20]
         self.range_num = [20, 20]
 
@@ -142,7 +142,7 @@ class HoughCirclesRewards(RewardFunctionAbc):
                  *args, **kwargs):
         dev = prediction_segmentation.device
         return_scores = []
-        exp_factor = 2
+        exp_factor = 3
 
         for single_pred, single_sp_seg, s_dir_edges, s_actions, s_sp_cmrads in zip(prediction_segmentation,
                                                                                    superpixel_segmentation,
@@ -203,8 +203,8 @@ class HoughCirclesRewards(RewardFunctionAbc):
                 obj_ids = [torch.unique(single_pred[circle_idx[0], circle_idx[1]]) for circle_idx in circle_idxs]
 
                 for circle_sp, val, obj_id in zip(circle_sps, accums, obj_ids):
-                    val = (val - self.circle_thresh) / (1 - self.circle_thresh)
-                    hough_score = torch.sigmoid(torch.tensor([8 * (val - 0.5)])).item()
+                    hough_score = (val - self.circle_thresh) / (1 - self.circle_thresh)
+                    # hough_score = torch.sigmoid(torch.tensor([8 * (hough_score - 0.5)])).item()
                     num_obj_score = 1 / max(len(obj_id), 1)
                     if num_obj_score == 1 and obj_id[0] in potential_object_ids:
                         good_obj_cnt += 1

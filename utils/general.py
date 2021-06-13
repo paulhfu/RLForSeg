@@ -13,6 +13,9 @@ from skimage.segmentation import find_boundaries
 from skimage.filters import gaussian
 
 # Global counter
+# from traitlets.tests.test_traitlets import test_subclass_override_not_registered
+
+
 class Counter():
   def __init__(self):
     self.val = mp.Value('i', 0)
@@ -124,6 +127,23 @@ def calculate_gt_edge_costs(neighbors, new_seg, gt_seg, thresh):
     neighbors -= 1
     gt_seg -= 1
     return rewards
+
+
+def project_overseg_to_seg(over_seg, seg):
+    _over_seg = over_seg + 1
+    _seg = seg + 1
+
+    onehot = _over_seg[None] == torch.unique(_over_seg)[:, None, None]
+    overlaps = onehot * _seg[None]
+    labels = torch.tensor([torch.bincount(ol)[1:].argmax().item() for ol in overlaps.flatten(1)], device=seg.device)
+    projection = (onehot * labels[:, None, None]).sum(0)
+
+    # make label ids consecutive
+    uni = torch.unique(projection)
+    onehot = projection[None] == uni[:, None, None]
+    projection = (onehot * torch.arange(0, len(uni), device=seg.device)[:, None, None]).sum(0)
+
+    return projection
 
 
 def bbox(array2d_c):
