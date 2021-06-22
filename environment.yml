@@ -1,0 +1,22 @@
+name: test_env
+channels:
+  - pytorch
+  - cpape
+  - conda-forge
+  - defaults
+  - paulhilt
+dependencies:
+  - python=3.8
+  - pip
+  - pytorch=1.9
+  - cudatoolkit=10.2
+  - pip:
+    - -f https://pytorch-geometric.com/whl/torch-1.9.0+cu102.html
+    - torch-scatter
+  - elf
+  - matplotlib
+  - opencv
+  - rag_utils
+  - affogato
+  - wandb
+prefix: /g/kreshuk/hilt/miniconda3/envs/test_env

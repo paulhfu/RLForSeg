@@ -3,6 +3,7 @@ import random
 import numpy as np
 import torch
 from multiprocessing import Lock, Event
+from threading import Semaphore
 
 Transition_t = namedtuple('Transition', ('state', 'actions', 'reward', 'state_', 'time', 'behav_probs', 'terminal'))
 
@@ -45,6 +46,7 @@ class TransitionData_ts(object):
         self.reset_event = Event()
         self.reset_event.set()
         self._push_count = 0
+        self._counter_blocker = Semaphore(0)
 
     def __reduce__(self):
         return (self.__class__, (self._cap, ))
@@ -52,14 +54,18 @@ class TransitionData_ts(object):
     def __len__(self):
         return len(self._memory)
 
-    @property
-    def push_count(self):
+    def push_count_val(self):
         return self._push_count
+
+    def wait_for_n_pushes(self, n):
+        for i in range(n):
+            self._counter_blocker.acquire()
 
     def reset_push_count(self):
         self._mtx.acquire()
         self._push_count = 0
         self._mtx.release()
+        self._counter_blocker = Semaphore(0)
 
     def push(self, *args):
         """Saves a transition."""
@@ -74,6 +80,7 @@ class TransitionData_ts(object):
             self._memory[self._position] = Transition_ts(*args)
             self._position += 1
             self._push_count += 1
+            self._counter_blocker.release()
         finally:
             self._mtx.release()
         if self._position >= self._cap and not self.is_full_event.is_set():

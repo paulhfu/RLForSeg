@@ -64,15 +64,13 @@ def squeeze_repr(nodes, edges, seg):
 
 
 
-def get_angles_smass_in_rag(edges, segmentation):
+def get_position_mass_in_rag(edges, segmentation):
     """
-        CAUTION: this is specificly targeted for the leptin dataset
+        get the normalized superpixel positions and masses in a rag
     """
     sigm_flatness = torch.numel(segmentation) / 500
     sigm_shift = 0.8
-    c_norm = math.sqrt(segmentation.shape[-1]**2 + segmentation.shape[-2]**2) / 8
     nodes = torch.unique(segmentation)
-    random_rotation = (torch.rand((1,)).item() * 2) - 1
 
     meshgrid = torch.stack(torch.meshgrid(torch.arange(segmentation.shape[0], device=segmentation.device),
                                           torch.arange(segmentation.shape[1], device=segmentation.device)))
@@ -80,26 +78,11 @@ def get_angles_smass_in_rag(edges, segmentation):
     sup_sizes = one_hot.flatten(1).sum(-1)
     cart_cms = (one_hot[None] * meshgrid[:, None]).flatten(2).sum(2) / sup_sizes[None]
 
-    a = (cart_cms[0].float() - 390)  # This is not the image center because the Leptin data is not exactly concentric to it
-    b = (cart_cms[1].float() - 340)
-    c = torch.sqrt(a**2 + b**2)
-    normed_c = torch.sigmoid(c / c_norm - 1) * 2 - 1
-    ang = torch.atan(a/(b + 1e-10)).abs()
-    ang[(b < 0) & (a >= 0)] = np.pi - ang[(b < 0) & (a >= 0)]
-    ang[(b < 0) & (a < 0)] = np.pi + ang[(b < 0) & (a < 0)]
-    ang[(b >= 0) & (a < 0)] = 2 * np.pi - ang[(b >= 0) & (a < 0)]
-    ang /= np.pi
-    ang -= 1
-    # ang += random_rotation
-    # ang[a > 1] = (ang[a > 1] - 1) - 1
-    # ang[ang < -1] = 1 + (ang[ang < -1] + 1)
-    cms = torch.stack([ang, normed_c, c], 1)
-
     vec = cart_cms[:, edges[0]] - cart_cms[:, edges[1]]
     angles = torch.atan(vec[0] / (vec[1] + np.finfo(float).eps))
     angles = 2 * angles / np.pi
     sup_sizes = torch.sigmoid(sup_sizes / sigm_flatness - sigm_shift) * 2 - 1
-    return angles, torch.cat([sup_sizes[:, None], cms[:, :-1]], 1), cms[:, -1], cart_cms, sup_sizes
+    return angles, torch.cat([sup_sizes[None, :], cart_cms / torch.tensor(segmentation.shape)[:, None]], 0)
 
 
 def get_joint_sg_logprobs_edges(logprobs, scale, obs, sg_ind, sz):
@@ -160,19 +143,3 @@ def get_soln_graph_clustering(sp_seg, edge_ids, node_features, n_max_object):
         labels.append(elf.segmentation.features.project_node_labels_to_pixels(rag, node_labels[-1]).squeeze())
     return torch.from_numpy(np.stack(labels).astype(np.float)).to(node_features.device), \
            torch.from_numpy(np.concatenate(node_labels).astype(np.float)).to(node_features.device)
-
-
-if __name__ == "__main__":
-    # edges = np.array([[1, 3], [2, 4], [1, 2], [2, 3], [3, 5], [3, 6], [1, 5], [2, 8], [4, 8], [4, 9], [5, 9], [8, 9]])
-    # edge_list = edges[np.random.choice(np.arange(edges.shape[0]), size=(20 * 10))]
-    # edge_indices = get_edge_indices(torch.from_numpy(edges).transpose(0, 1), torch.from_numpy(edge_list).transpose(0, 1))
-
-    sp = torch.zeros((100, 100), dtype=torch.float)
-    sp[:50, :50] = 0.0
-    sp[50:, :50] = 1.0
-    sp[:50, 50:] = 2.0
-    sp[50:, 50:] = 3.0
-    sp[40:60, 40:60] = 4.0
-    edges = torch.tensor([[0, 4], [1, 4], [2, 4], [3, 4]], dtype=torch.long).T
-
-

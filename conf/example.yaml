@@ -5,35 +5,37 @@ agent:
 verbose:
   desc: prints intermediate results to sdt.out
   value: true
-run_id:
-  desc: dir name in base-dir. Logs are in here
-  value: mixed_prec
+random_seed:
+  desc: random seed
+  value: 123456
 agent_model_name:
-  desc: if not empty, agent will be initialized with the state dict at this location
+  desc: if not empty, agent will be initialized with the weights at this location
   value: '' # agent_model_svpfe.pth
-data_dir:
+train_data_dir:
   desc: train data dir
-  value: /g/kreshuk/hilt/projects/data/color_circles/train
+  value: /g/kreshuk/hilt/projects/data/color_circles/all_in_one/train
 val_data_dir:
   desc: validation data dir
-  value: /g/kreshuk/hilt/projects/data/color_circles/val
+  value: /g/kreshuk/hilt/projects/data/color_circles/all_in_one/val
 train_data_keys:
   desc: keys for data in h5 file
   value:
-    raw: "raw_4chnl"  # raw_2chnl
+    raw: "raw"
     gt: "gt"
-    node_labeling: "node_labeling"
+    superpixels: "superpixels"
     gt_edge_weights: "gt_edge_weights"
     edge_feat: "edge_feat"
+    node_feat: "node_feat"
     edges: "edges"
 val_data_keys:
   desc: keys for data in h5 file
   value:
-    raw: "raw_4chnl"  # raw_2chnl
+    raw: "raw"
     gt: "gt"
-    node_labeling: "node_labeling"
+    superpixels: "superpixels"
     gt_edge_weights: "gt_edge_weights"
     edge_feat: "edge_feat"
+    node_feat: "node_feat"
     edges: "edges"
 patch_manager:
   desc: if training should happen on patches, this is the config for the patch manager
@@ -54,8 +56,11 @@ dim_embeddings:
 distance:
   desc: used distance in embedding space, can be l2 or cosine
   value: cosine
-use_handcrafted_features:
+use_handcrafted_node_features:
   desc: to embeddings append handcrafted features like sp size, position , orientation
+  value: true
+use_handcrafted_edge_features:
+  desc: use handcrafted features like mean affinity, affinity-variance ...
   value: true
 n_init_edge_feat:
   desc: GNN gets hand crafted edge featurs like mean affinity or embedding distance as well can be none if not used
@@ -103,27 +108,30 @@ gnn_dropout:
 # training config
 T_max:
   desc: Number of training steps
-  value: 50
+  value: 10
 mem_size:
   desc: Mem size in replay memory buffer
   value: 3
 data_update_frequency:
-  desc: update env data after n steps
+  desc: update env data every n steps
   value: 3
 post_stats_frequency:
-  desc: post logs after n steps
+  desc: log every n steps
   value: 10
 validatoin_freq:
-  desc: validate after n steps
-  value: 2
+  desc: validate every n steps
+  value: 3
 store_indices:
-  desc: validate after n steps
-  value: [1, 5, 9]
+  desc: sample indices of validation set for samples that are logged at each validation step
+  value: [1, 2, 4, 5]
 n_updates_per_step:
   desc: perform n optim steps per env step
   value: 2
 n_explorers:
   desc: n experience explorer threads
+  value: 1
+n_min_expl_before_opt:
+  desc: minimum number of explorer steps before one trainer step
   value: 1
 batch_size:
   desc: num samples in minibatch
@@ -145,8 +153,8 @@ lr_sched:
 
 # specific configs for RL
 reward_function:
-  desc: one of sub_graph_dice, colorcircles
-  value: colorcircles
+  desc: one of SubGraphDiceReward, HoughCirclesReward, or self defined in ./rewards
+  value: HoughCirclesReward
 gt_edge_overlap_thresh:
   desc: if using gt edges this is the overlap thresh of the underlying gt for a gt edge to be 1
   value: 0.5
@@ -194,17 +202,3 @@ std_bounds:
 mu_bounds:
   desc: norm bounds of predicted mean
   value: [-5, 5]
-
-#policy_warmup:
-#  desc: the policy might need pretraining to make training faster
-#    value:
-#    lr: 1e-3
-#
-#    n_iterations: 500 # number of iterations of feature extrqactor warmup
-#    batch_size: 1  # batch size for feature extractor warmup
-#
-#    patch_manager:
-#      name: no_cross # rotated, no_cross, none
-#      patch_shape: [512, 512]
-#      patch_stride: [128, 128]
-#      reorder_sp: true

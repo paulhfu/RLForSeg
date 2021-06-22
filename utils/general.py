@@ -200,14 +200,6 @@ def pca_svd(X, k, center=True):
     return components, explained_variance
 
 
-# def get_contour_from_2d_binary(mask: torch.Tensor):
-#     """
-#     :param mask: n_dim should be three (N|H|W). can be bool or long but should be binary if long.
-#     :return: tensor of the same shape and type bool containing all inner contours of objects in mask
-#     """
-#     max_p = torch.nn.MaxPool2d(3, stride=1, padding=1)
-#     return ((max_p(mask) != mask) | (-max_p(-mask) != mask)).long()
-
 def get_colored_edges_in_sseg(sseg: torch.Tensor, edges: torch.Tensor, scores: torch.Tensor):
     sseg = sseg + 1
     edges = edges + 1
@@ -262,31 +254,6 @@ def sync_segmentations(seg_base, seg_var, sync_bg_as_id0=False):
                     all_var_bins = torch.bincount(seg_var.ravel())
                     break
     return seg_var
-
-def maskout(img):
-    img = (img * 255).astype(np.uint8)
-    img = img/img.max()
-    size = (5, 5)
-    shape = cv2.MORPH_RECT
-    kernel = cv2.getStructuringElement(shape, size)
-    img = cv2.morphologyEx(img, cv2.MORPH_OPEN, kernel)
-    for _ in range(5):
-        img = cv2.dilate(img, kernel)
-    for _ in range(5):
-        img = cv2.erode(img, kernel)
-    img = (img - img.mean()).clip(0,1)
-    img = img / img.max()
-    img = (img > 0.1).astype(np.float32)
-    for _ in range(10):
-        img = cv2.dilate(img, kernel)
-    for _ in range(10):
-        img = cv2.erode(img, kernel)
-    for _ in range(3):
-        img = cv2.dilate(img, kernel)
-    img = (img * 255).astype(np.uint8)
-    img = cv2.medianBlur(img, 11)
-    img = img.astype(np.float32)/255
-    return img
 
 def multicut_from_probas(segmentation, edges, edge_weights):
     rag = compute_rag(segmentation)

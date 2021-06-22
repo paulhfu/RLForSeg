@@ -10,9 +10,8 @@ from torch.utils.data import DataLoader
 from collections import namedtuple
 import matplotlib.pyplot as plt
 from matplotlib import cm
-from multiprocessing import Process, Lock
+from multiprocessing import Lock
 import threading
-import shutil
 from skimage.morphology import dilation
 
 from environments.multicut import MulticutEmbeddingsEnv, State
@@ -24,9 +23,8 @@ from utils.general import soft_update_params, set_seed_everywhere, get_colored_e
 from utils.replay_memory import TransitionData_ts
 from utils.graphs import get_joint_sg_logprobs_edges
 from utils.distances import CosineDistance, L2Distance
-from utils.matching import matching
 from utils.yaml_conv_parser import dict_to_attrdict
-from utils.training_helpers import update_env_data, supervised_policy_pretraining, state_to_cpu, Forwarder
+from utils.training_helpers import update_env_data, state_to_cpu, Forwarder
 from utils.metrics import AveragePrecision, ClusterMetrics
 
 
@@ -90,7 +88,7 @@ class AgentSacTrainer(object):
             self.model.load_state_dict(torch.load(self.cfg.agent_model_name))
         # finished with prepping
 
-        self.train_dset = SpgDset(self.cfg.data_dir, dict_to_attrdict(self.cfg.patch_manager),
+        self.train_dset = SpgDset(self.cfg.train_data_dir, dict_to_attrdict(self.cfg.patch_manager),
                                   dict_to_attrdict(self.cfg.train_data_keys), max(self.cfg.s_subgraph))
         self.val_dset = SpgDset(self.cfg.val_data_dir, dict_to_attrdict(self.cfg.patch_manager),
                                 dict_to_attrdict(self.cfg.val_data_keys), max(self.cfg.s_subgraph))
@@ -100,6 +98,7 @@ class AgentSacTrainer(object):
         self.global_counter = 0
 
     def validate(self):
+        return
         """validates the prediction against the method of clustering the embedding space"""
         env = MulticutEmbeddingsEnv(self.cfg, self.device)
         if self.cfg.verbose:
@@ -133,7 +132,7 @@ class AgentSacTrainer(object):
                 self.model_mtx.release()
             action = torch.sigmoid(distr.loc)
             reward = env.execute_action(action, tau=0.0, train=False)
-            rew = reward[-1].item() if self.cfg.reward_function == "sub_graph_dice" else reward[-2].item()
+            rew = reward[-1].item()
             acc_reward += rew
             rl_labels = env.current_soln.cpu().numpy()[0]
             gt_seg = env.gt_seg[0].cpu().numpy()
@@ -161,52 +160,6 @@ class AgentSacTrainer(object):
             map_scores.append(self.segm_metric(rl_labels, gt_seg))
             self.clst_metric(rl_labels, gt_seg)
 
-            '''
-            _rl_scores = matching(gt_seg, rl_labels, thresh=taus, criterion='iou', report_matches=False)
-            if it == 0:
-                for tau_it in range(len(_rl_scores)):
-                    rl_scores.append(np.array(list(map(float, list(_rl_scores[tau_it]._asdict().values())[1:]))))
-                keys = list(_rl_scores[0]._asdict().keys())[1:]
-            else:
-                for tau_it in range(len(_rl_scores)):
-                    rl_scores[tau_it] += np.array(list(map(float, list(_rl_scores[tau_it]._asdict().values())[1:]))
-            '''
-
-        '''
-        div = np.ones_like(rl_scores[0])
-        for i, key in enumerate(keys):
-            if key not in ('fp', 'tp', 'fn'):
-                div[i] = 10
-        for tau_it in range(len(rl_scores)):
-            rl_scores[tau_it] = dict(zip(keys, rl_scores[tau_it] / div))
-        fig, axs = plt.subplots(1, 2, figsize=(10, 10))
-        plt.subplots_adjust(hspace=.5)
-        for m in ('precision', 'recall', 'accuracy', 'f1'):
-            y = [s[m] for s in rl_scores]
-            data = [[x, y] for (x, y) in zip(taus, y)]
-            table = wandb.Table(data=data, columns=["IoU_threshold", m])
-            wandb.log({"validation/" + m: wandb.plot.line(table, "IoU_threshold", m, stroke=None, title=m)})
-            axs[0].plot(taus, [s[m] for s in rl_scores], '.-', lw=2, label=m)
-        axs[0].set_ylabel('Metric value')
-        axs[0].grid()
-        axs[0].legend(bbox_to_anchor=(.8, 1.65), loc='upper left', fontsize='xx-small')
-        axs[0].set_title('RL method')
-        axs[0].set_xlabel(r'IoU threshold $\tau$')
-        for m in ('fp', 'tp', 'fn'):
-            y = [s[m] for s in rl_scores]
-            data = [[x, y] for (x, y) in zip(taus, y)]
-            table = wandb.Table(data=data, columns=["IoU_threshold", m])
-            wandb.log({"validation/" + m: wandb.plot.line(table, "IoU_threshold", m, stroke=None, title=m)})
-            axs[1].plot(taus, [s[m] for s in rl_scores], '.-', lw=2, label=m)
-        axs[1].set_ylabel('Number #')
-        axs[1].grid()
-        axs[1].legend(bbox_to_anchor=(.87, 1.6), loc='upper left', fontsize='xx-small');
-        axs[1].set_title('RL method')
-        axs[1].set_xlabel(r'IoU threshold $\tau$')
-        #wandb.log({"validation/metrics": [wandb.Image(fig, caption="metrics")]})
-        plt.close('all')
-        '''
-
         splits, merges, are, arp, arr = self.clst_metric.dump()
         wandb.log({"validation/acc_reward": acc_reward})
         wandb.log({"validation/mAP": np.mean(map_scores)}, step=self.global_counter)
@@ -231,7 +184,7 @@ class AgentSacTrainer(object):
         label_cm.set_bad(alpha=0)
 
         for it, i in enumerate(self.cfg.store_indices):
-            fig, axs = plt.subplots(2, 4 if self.cfg.reward_function == "sub_graph_dice" else 5, sharex='col',
+            fig, axs = plt.subplots(2, 4, sharex='col',
                                     figsize=(9, 5), sharey='row', gridspec_kw={'hspace': 0, 'wspace': 0})
             axs[0, 0].imshow(ex_gts[it], cmap=random_label_cmap(), interpolation="none")
             axs[0, 0].set_title('gt', y=1.05, size=10)
@@ -244,7 +197,7 @@ class AgentSacTrainer(object):
             else:
                 axs[1, 1].imshow(ex_raws[it], cmap="gray")
 
-            axs[0, 1].set_title('raw image', y=1.05, size=10)
+            axs[0, 1].set_title('raw1', y=1.05, size=10)
             axs[0, 1].axis('off')
             if ex_raws[it].ndim == 3:
                 if ex_raws[it].shape[-1] > 1:
@@ -253,7 +206,7 @@ class AgentSacTrainer(object):
                     axs[0, 2].imshow(ex_raws[it][..., 0], cmap="gray")
             else:
                 axs[0, 2].imshow(ex_raws[it], cmap="gray")
-            axs[0, 2].set_title('plantseg', y=1.05, size=10)
+            axs[0, 2].set_title('raw2', y=1.05, size=10)
             axs[0, 2].axis('off')
             axs[0, 3].imshow(ex_sps[it], cmap=random_label_cmap(), interpolation="none")
             axs[0, 3].set_title('superpixels', y=1.05, size=10)
@@ -271,28 +224,6 @@ class AgentSacTrainer(object):
             axs[1, 3].imshow(ex_rl[it], cmap=random_label_cmap(), interpolation="none")
             axs[1, 3].set_title('prediction', y=-0.15, size=10)
             axs[1, 3].axis('off')
-
-            if self.cfg.reward_function != "sub_graph_dice":
-                frame_rew, scores_rew, bnd_mask = get_colored_edges_in_sseg(ex_sps[it][None].float(),
-                                                                            edge_ids[it].cpu(), rewards[it].cpu())
-                frame_act, scores_act, _ = get_colored_edges_in_sseg(ex_sps[it][None].float(), edge_ids[it].cpu(),
-                                                                     1 - actions[it].cpu().squeeze())
-
-                bnd_mask = torch.from_numpy(dilation(bnd_mask.cpu().numpy()))
-                frame_rew = np.stack([dilation(frame_rew.cpu().numpy()[..., i]) for i in range(3)], -1)
-                frame_act = np.stack([dilation(frame_act.cpu().numpy()[..., i]) for i in range(3)], -1)
-                ex_rl[it] = ex_rl[it].squeeze().astype(np.float)
-                ex_rl[it][bnd_mask] = np.nan
-
-                axs[1, 4].imshow(frame_rew, interpolation="none")
-                axs[1, 4].imshow(ex_rl[it], cmap=label_cm, alpha=0.8, interpolation="none")
-                axs[1, 4].set_title("rewards", y=-0.2)
-                axs[1, 4].axis('off')
-
-                axs[0, 4].imshow(frame_act, interpolation="none")
-                axs[0, 4].imshow(ex_rl[it], cmap=label_cm, alpha=0.8, interpolation="none")
-                axs[0, 4].set_title("actions", y=1.05)
-                axs[0, 4].axis('off')
 
             wandb.log({"validation/sample_" + str(i): [wandb.Image(fig, caption="sample images")]},
                       step=self.global_counter)
@@ -344,11 +275,11 @@ class AgentSacTrainer(object):
 
             actor_loss = actor_loss / len(self.cfg.s_subgraph) + self.cfg.side_loss_weight * side_loss
 
-            min_entropy = (self.cfg.entropy_range[1] - self.cfg.entropy_range[0]) * ((1.5 - reward[-1]) / 1.5) + \
-                          self.cfg.entropy_range[0]
-            min_entropy = torch.ones_like(min_entropy)
 
             for i, sz in enumerate(self.cfg.s_subgraph):
+                min_entropy = (self.cfg.entropy_range[1] - self.cfg.entropy_range[0]) * ((1.5 - reward[i]) / 1.5) + \
+                              self.cfg.entropy_range[0]
+                # min_entropy = torch.ones_like(min_entropy)
                 min_entropy = min_entropy.to(self.model.alpha[i].device).squeeze()
                 entropy = sg_entropy[i].detach() if self.cfg.use_closed_form_entropy else -_log_prob[i].detach()
                 alpha_loss = alpha_loss + (
@@ -362,14 +293,14 @@ class AgentSacTrainer(object):
         self.scalers.actor.step(self.optimizers.temperature)
         self.scalers.actor.update()
 
-        return actor_loss.item(), alpha_loss.item(), min_entropy, distribution.loc.mean().item()
+        return actor_loss.item(), alpha_loss.item(), min_entropy.mean().item(), distribution.loc.mean().item()
 
     def _step(self, step):
         actor_loss, alpha_loss, min_entropy, loc_mean = None, None, None, None
 
         (obs, action, reward), sample_idx = self.memory.sample()
 
-        critic_loss, mean_reward = self.update_critic(obs, action, reward)
+        critic_loss, mean_reward = self.update_critic(obs, action, reward[0])
         self.memory.report_sample_loss(critic_loss + mean_reward, sample_idx)
         avg = self.mov_sum_losses.critic.apply(critic_loss)
         if avg is not None:
@@ -377,7 +308,7 @@ class AgentSacTrainer(object):
         wandb.log({"loss/critic": critic_loss}, step=self.global_counter)
 
         if self.cfg.actor_update_after < step and step % self.cfg.actor_update_frequency == 0:
-            actor_loss, alpha_loss, min_entropy, loc_mean = self.update_actor_and_alpha(obs, reward, action)
+            actor_loss, alpha_loss, min_entropy, loc_mean = self.update_actor_and_alpha(obs, reward[0], action)
             avg = self.mov_sum_losses.actor.apply(actor_loss)
             if avg is not None:
                 self.optimizers.actor_shed.step(avg)
@@ -410,27 +341,29 @@ class AgentSacTrainer(object):
 
     def train_until_finished(self):
         while self.global_count.value() <= self.cfg.T_max + self.cfg.mem_size:
+            self.memory.wait_for_n_pushes(self.cfg.n_min_expl_before_opt)
             self.model_mtx.acquire()
-            try:
-                stats = [[], [], [], []]
-                for i in range(self.cfg.n_updates_per_step):
-                    _stats = self._step(self.global_count.value())
-                    [s.append(_s) for s, _s in zip(stats, _stats)]
-                for j in range(len(stats)):
-                    if any([_s is None for _s in stats[j]]):
-                        stats[j] = "nl"
-                    else:
-                        stats[j] = round(sum(stats[j]) / self.cfg.n_updates_per_step, 5)
+            # try:
+            stats = [[], [], [], []]
+            for i in range(self.cfg.n_updates_per_step):
+                _stats = self._step(self.global_count.value())
+                [s.append(_s) for s, _s in zip(stats, _stats)]
+            for j in range(len(stats)):
+                if any([_s is None for _s in stats[j]]):
+                    stats[j] = "nl"
+                else:
+                    stats[j] = round(sum(stats[j]) / self.cfg.n_updates_per_step, 5)
 
-                if self.cfg.verbose:
-                    print(
-                        f"step: {self.global_count.value()}; mean_loc: {stats[-1]}; n_explorer_steps {self.memory.push_count}",
-                        end="")
-                    print(f"; cl: {stats[0]}; acl: {stats[1]}; al: {stats[3]}")
-            finally:
-                self.model_mtx.release()
-                self.global_count.increment()
-                self.memory.reset_push_count()
+            if self.cfg.verbose:
+                print(
+                    f"step: {self.global_count.value()}; mean_loc: {stats[-1]}; n_explorer_steps {self.memory.push_count_val()}",
+                    end="")
+                print(f"; cl: {stats[0]}; acl: {stats[1]}; al: {stats[3]}")
+            # finally:
+            self.model_mtx.release()
+            self.global_count.increment()
+            self.memory.reset_push_count()
+            ######
             if self.global_count.value() % self.cfg.validatoin_freq == 0:
                 self.validate()
         torch.save(self.model.state_dict(), os.path.join(wandb.run.dir, "last_checkpoint_agent.pth"))
@@ -457,10 +390,9 @@ class AgentSacTrainer(object):
         trainer.start()
 
         trainer.join()
-        self.global_count.set(self.cfg.T_max + self.cfg.mem_size + 4)
+        self.global_count.set(self.cfg.T_max + self.cfg.mem_size + 4)  # be sure explorers will join once trainer joined
         [explorer.join() for explorer in explorers]
         self.memory.clear()
-        del self.memory
         # torch.save(self.model.state_dict(), os.path.join(wandb.run.dir, "last_checkpoint_agent.pth"))
         if self.cfg.verbose:
             print('\n\n###### training finished ######')
