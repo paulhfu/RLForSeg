@@ -1,5 +1,12 @@
 # RLForSeg
 
-Implementing the algorithms introduced in my master [thesis](https://github.com/paulhfu/sideProject/blob/master/thesis/thesis_text/main_frame.pdf).
+Reinforcement learning for Instance Segmentation implementing the Concepts discussed [here](...)
 
-Mainly we focus here on the task of instance and panoptic segmentation which we solve using reinforcement learning with no need for ground truth annotations.
+## Installation via conda:
+```
+conda env create -f environment.yml
+```
+## Initiating the training:
+```
+python run.py -d </path/to/log/dir> -p <wandb_project_name> -e <wandb_user> -c <conf/file.yaml>
+```
