@@ -19,4 +19,3 @@ dependencies:
   - rag_utils
   - affogato
   - wandb
-prefix: /g/kreshuk/hilt/miniconda3/envs/test_env
