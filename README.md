@@ -1,6 +1,6 @@
 # RLForSeg
 
-Reinforcement learning for Instance Segmentation implementing the Concepts discussed [here](...)
+Reinforcement learning for Instance Segmentation implementing the concepts discussed [here](...)
 
 ## Installation via conda:
 ```
