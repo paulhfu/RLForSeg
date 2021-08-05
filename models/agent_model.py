@@ -20,7 +20,7 @@ class Agent(torch.nn.Module):
         self.distance = distance
         self.offs = [[1, 0], [0, 1], [2, 0], [0, 2], [4, 0], [0, 4], [16, 0], [0, 16]]
 
-        dim_embed = self.cfg.dim_embeddings + (3 * int(cfg.use_handcrafted_node_features))
+        dim_embed = self.cfg.dim_embeddings + (cfg.n_init_node_feat * int(cfg.use_handcrafted_node_features))
 
         self.fe_ext = FeExtractor(dict_to_attrdict(self.cfg.backbone), self.distance, cfg.fe_delta_dist, self.device)
         if "fe_model_name" in self.cfg:

@@ -63,10 +63,13 @@ use_handcrafted_edge_features:
   desc: use handcrafted features like mean affinity, affinity-variance ...
   value: true
 n_init_edge_feat:
-  desc: GNN gets hand crafted edge featurs like mean affinity or embedding distance as well can be none if not used
+  desc: additional GNN edge featurs like mean affinity or embedding distance as well can be none if not used
   value: 4
+n_init_node_feat:
+  desc: additional GNN node featurs like mean affinity or embedding distance as well can be none if not used
+  value: 3
 fe_delta_dist:
-  desc: delta distance of contrastive loss during embedding space training
+  desc: delta distance of contrastive loss during embedding space training (deprecated and not used anymore)
   value: 0.4
 backbone:
   desc: config for the embedding network
@@ -155,9 +158,6 @@ lr_sched:
 reward_function:
   desc: one of SubGraphDiceReward, HoughCirclesReward, or self defined in ./rewards
   value: HoughCirclesReward
-gt_edge_overlap_thresh:
-  desc: if using gt edges this is the overlap thresh of the underlying gt for a gt edge to be 1
-  value: 0.5
 s_subgraph:
   desc: subgraph sizes
   value: [4, 6, 12, 64] # [8, 16, 32, 64]
